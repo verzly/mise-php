@@ -43,8 +43,8 @@ function GetReleaseForWindows(release)
 end
 
 function GetReleaseForLinux(release)
-    asset_name = "php-" .. release.version .. ".tar.gz"
-    download_url = release.url .. asset_name
+    -- asset_name = "php-" .. release.version .. ".tar.gz"
+    -- download_url = release.url .. asset_name
 
     return {
         version = release.version,

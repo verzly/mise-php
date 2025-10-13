@@ -6,8 +6,9 @@ set -eo pipefail
 install_php() {
   local install_path=$1
 
-  local source_path="${install_path}_source"
+  local source_path="${install_path}_source_temporary"
   local configure_options="$(construct_configure_options $install_path)"
+  local make_flags="-j$(nproc)"
 
   local operating_system=$(uname -a)
 
@@ -61,17 +62,41 @@ install_php() {
     # target=$(get_target)
 
     # Build PHP
-    echo "Running buildconf..."
-    ./buildconf --force >/dev/null 2>&1 || { echo "ERROR: buildconf failed!"; exit 1; }
+    output=$(./buildconf --force 2>&1) || {
+      echo ""
+      echo "Running buildconf..."
+      echo "ERROR: buildconf failed!"
+      echo "$output"
+      rm -rf $source_path
+      exit 1
+    }
+    
+    output=$(./configure $configure_options 2>&1) || {
+      echo ""
+      echo "Running configure..."
+      echo "ERROR: configure failed!"
+      rm -rf $source_path
+      echo "$output"
+      exit 1
+    }
 
-    echo "Running configure..."
-    ./configure $configure_options >/dev/null 2>&1 || { echo "ERROR: configure failed!"; exit 1; }
+    output=$(make "$make_flags" 2>&1) || {
+      echo ""
+      echo "Running make..."
+      echo "ERROR: make failed!"
+      rm -rf $source_path
+      echo "$output"
+      exit 1
+    }
 
-    echo "Running make..."
-    make -s >/dev/null 2>&1 || { echo "ERROR: make failed!"; exit 1; }
-
-    echo "Running make install..."
-    make install -s >/dev/null 2>&1 || { echo "ERROR: make install failed!"; exit 1; }
+    output=$(make "$make_flags" install 2>&1) || {
+      echo ""
+      echo "Running make install..."
+      echo "ERROR: make install failed!"
+      rm -rf $source_path
+      echo "$output"
+      exit 1
+    }
   )
 
   # it's not obvious where php.ini should be placed, let us make it easy for the user

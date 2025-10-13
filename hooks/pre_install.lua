@@ -25,20 +25,29 @@ function PLUGIN:PreInstall(ctx)
         error("Version not found: " .. version)
     end
 
-    local asset_name
-    if RUNTIME.osType == "windows" then
-        asset_name = "php-" .. release.version .. "-win-x64.zip"
-    elseif RUNTIME.osType == "linux" then
-        asset_name = "php-" .. release.version .. ".tar.gz"
-    elseif RUNTIME.osType == "macos" then
-        asset_name = "php-" .. release.version .. "-mac.tar.gz"
+    if RUNTIME.osType == 'windows' then
+        return GetReleaseForWindows(release)
     else
-        error("Unsupported OS: " .. tostring(RUNTIME.osType))
+        return GetReleaseForLinux(release)
     end
+end
+
+function GetReleaseForWindows(release)
+    asset_name = "php-" .. release.version .. "-win-x64.zip"
+    download_url = release.url .. asset_name
 
     return {
         version = release.version,
-        name = asset_name,
-        url = release.url .. asset_name
+        url = download_url,
+    }
+end
+
+function GetReleaseForLinux(release)
+    asset_name = "php-" .. release.version .. ".tar.gz"
+    download_url = release.url .. asset_name
+
+    return {
+        version = release.version,
+        -- url = download_url, -- PHP-Build will be download.
     }
 end

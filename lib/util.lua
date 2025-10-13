@@ -1,5 +1,12 @@
 local util = {}
 
+function util.run_cmd(cmd)
+    local handle = io.popen(cmd .. " 2>&1")
+    local output = handle:read("*all")
+    local success, _, exit_code = handle:close()
+    return success, exit_code, output
+end
+
 function util.starts_with(str, prefix)
     return str:sub(1, string.len(prefix)) == prefix
 end

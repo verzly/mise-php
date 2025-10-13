@@ -1,6 +1,6 @@
 --[[
 Do not change any thing in the current file,
-it's just there to show what objects are injected by vfox and what they do.
+it's just there to show what objects are injected by verzly/mise-php and what they do.
 
 It's just handy when developing plugins, IDE can use this object for code hints!
  --]]
@@ -9,7 +9,7 @@ RUNTIME = {
     osType = "",
     --- Operating system architecture at runtime (amd64, arm64, etc.)
     archType = "",
-    --- vfox runtime version
+    --- verzly/mise-php runtime version
     version = "",
     --- Plugin directory
     pluginDirPath = "",

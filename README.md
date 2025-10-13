@@ -9,6 +9,23 @@ Although several PHP plugins are available for MISE, they often encounter errors
 
 In the `verzly/php` repository, we collect these installers with daily updates and bundle all installers under a single release, associating them with the appropriate PHP version. The sole purpose of the `verzly/mise-php` plugin is to serve the necessary PHP version installers for both Windows and Linux systems based on the version numbers from `verzly/php`.
 
+## Get started
+
+```none
+# Install the plugin
+mise plugin install php https://github.com/verzly/mise-php
+
+# Install version
+mise install php@8.4
+```
+
+## Contributing
+
+```none
+# Link your plugin for development
+mise plugin link php /path/to/verzly-php
+```
+
 ## License
 
 This project is a plugin created for MISE by [Zoltán Rózsa](https://github.com/rozsazoltan) under the [GNU Affero General Public License v3.0 (AGPL-3.0)](https://www.gnu.org/licenses/agpl-3.0.html).

@@ -15,29 +15,6 @@ In the `verzly/php` repository, we collect these installers with daily updates a
 # Install the plugin
 mise plugin install php https://github.com/verzly/mise-php
 
-# Install development tools: gcc, g++, make, and other build essentials
-sudo dnf groupinstall "Development Tools"
-
-# Install PHP lexer/parser tools required by buildconf
-sudo dnf install bison re2c
-
-# Install locate utility for searching files
-# Use plocate instead of mlocate
-sudo dnf install plocate
-sudo updatedb  # Update the locate database
-
-# Install development headers/libraries for PHP dependencies
-# Use --enablerepo=crb flag for oniguruma-devel and libzip-devel
-sudo dnf install \
-  libxml2-devel bzip2 bzip2-devel zlib-devel \
-  libjpeg-turbo-devel libpng-devel freetype-devel icu libicu-devel \
-  oniguruma oniguruma-devel readline-devel libzip-devel openssl-devel \
-  curl curl-devel libedit-devel libxslt-devel \
-  --enablerepo=crb
-
-# Optional: required if building PHP-FPM
-sudo dnf install systemd-devel
-
 # Install version
 mise install php@8.4
 ```

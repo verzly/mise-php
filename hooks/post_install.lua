@@ -17,6 +17,7 @@ end
 function InstallPHPWithPhpBuild(install_path, version)
     local php_build_dir = install_path .. "_tmp"
     local php_build_exe = php_build_dir .. "/bin/php-build"
+    local php_build_deps_exe = php_build_dir .. "/install-dependencies.sh"
     
     -- Ha nincs php-build, letöltjük
     local exists = os.execute("test -d " .. php_build_dir .. " >/dev/null 2>&1")
@@ -25,6 +26,16 @@ function InstallPHPWithPhpBuild(install_path, version)
         if not ok then
             error("Failed to clone php-build: " .. out)
         end
+    end
+
+    -- Install deps
+    local cmd = string.format(
+        'bash "%s"',
+        php_build_deps_exe
+    )
+    local ok, code, out = util.run_cmd(cmd)
+    if not ok then
+        error("Failed to run install-dependencies.sh: " .. out)
     end
 
     -- Adjuk futtatási jogot

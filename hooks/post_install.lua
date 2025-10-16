@@ -19,7 +19,7 @@ function InstallPHPWithPhpBuild(install_path, version)
     local php_build_exe = php_build_dir .. "/bin/php-build"
     local php_build_deps_exe = php_build_dir .. "/install-dependencies.sh"
     
-    -- Ha nincs php-build, letöltjük
+    -- Download php-build
     local exists = os.execute("test -d " .. php_build_dir .. " >/dev/null 2>&1")
     if exists ~= 0 then
         local ok, code, out = util.run_cmd("git clone https://github.com/php-build/php-build " .. php_build_dir)
@@ -38,13 +38,13 @@ function InstallPHPWithPhpBuild(install_path, version)
         error("Failed to run install-dependencies.sh: " .. out)
     end
 
-    -- Adjuk futtatási jogot
+    -- Permission
     local ok, code, out = util.run_cmd("chmod +x " .. php_build_exe)
     if not ok then
         error("Failed to chmod php-build: " .. out)
     end
 
-    -- Telepítés
+    -- Install PHP
     local handle = io.popen("nproc")
     local nproc_str = handle:read("*l")
     handle:close()
@@ -55,10 +55,10 @@ function InstallPHPWithPhpBuild(install_path, version)
         error("PHP build failed for version " .. version .. "\nOutput:\n" .. out)
     end
 
-    -- Töröljük a php-build ideiglenes mappát
+    -- Remove temporary php-build
     util.run_cmd("rm -rf " .. php_build_dir)
 
-    -- Composer telepítése
+    -- Install Composer
     InstallComposer(install_path)
 end
 

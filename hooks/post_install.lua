@@ -82,7 +82,7 @@ function InstallComposer(path)
     end
 
     util.run_cmd('chmod +x ' .. path .. '/bin/composer')
-    util.run_cmd('rm -f ' .. setupPath)
+    util.safe_remove(composerDir)
 end
 
 function InstallComposerForWin(path)
@@ -119,7 +119,7 @@ function InstallComposerForWin(path)
         error('Failed to install Composer. Output:\n' .. out)
     end
 
-    util.run_cmd('rm -f ' .. setupPath)
+    util.safe_remove(composerDir)
 
     local batContent = '@php "%~dp0composer.phar" %*'
     local ok, err = util.write_file(path .. '\\composer.bat', batContent)

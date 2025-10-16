@@ -7,6 +7,23 @@ function util.run_cmd(cmd)
     return success, exit_code, output
 end
 
+function safe_remove(path)
+    if RUNTIME.osType == 'windows' then
+        path = path:gsub('/', '\\')
+        -- Töröljük rekurzívan, ha létezik
+        local attr = lfs.attributes(path)
+        if attr then
+            if attr.mode == 'directory' then
+                os.execute('rmdir /S /Q "' .. path .. '"')
+            else
+                os.remove(path)
+            end
+        end
+    else
+        util.run_cmd('rm -rf "' .. path .. '"')
+    end
+end
+
 function util.starts_with(str, prefix)
     return str:sub(1, string.len(prefix)) == prefix
 end

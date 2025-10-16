@@ -7,7 +7,7 @@ function util.run_cmd(cmd)
     return success, exit_code, output
 end
 
-function safe_remove(path)
+function util.safe_remove(path)
     if RUNTIME.osType == 'windows' then
         path = path:gsub('/', '\\')
         -- Töröljük rekurzívan, ha létezik
@@ -24,7 +24,7 @@ function safe_remove(path)
     end
 end
 
-function ensure_dir(path)
+function util.ensure_dir(path)
     if RUNTIME.osType == 'windows' then
         os.execute('cmd /c "if not exist "' .. path .. '" mkdir "' .. path .. '" >nul 2>&1"')
     else

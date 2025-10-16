@@ -1,3 +1,5 @@
+local util = require('util')
+
 --- Each SDK may have different environment variable configurations.
 --- This allows plugins to define custom environment variables (including PATH settings)
 --- Note: Be sure to distinguish between environment variable settings for different platforms!
@@ -9,20 +11,15 @@ function PLUGIN:EnvKeys(ctx)
     local bin = ""
     local composerHome = ""
 
-    if RUNTIME.osType ~= "windows" then
-        bin = "/bin"
-        composerHome = mainPath .. "/.composer"
-    else
+    if RUNTIME.osType == 'windows' then
         bin = "\\"
         composerHome = mainPath .. "\\.composer"
+    else
+        bin = "/bin"
+        composerHome = mainPath .. "/.composer"
     end
 
-    -- Létrehozzuk a .composer könyvtárat, ha még nem létezik
-    if RUNTIME.osType == "Windows" then
-        os.execute('mkdir "' .. composerHome .. '"') -- Windows
-    else
-        os.execute('mkdir -p "' .. composerHome .. '"')  -- Unix
-    end
+    util.ensure_dir(composerHome)
 
     return {
         {

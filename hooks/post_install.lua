@@ -84,6 +84,7 @@ function InstallComposer(path)
     end
 
     util.run_cmd('chmod +x ' .. path .. '/bin/composer')
+    util.safe_remove(setupPath)
 end
 
 function InstallComposerForWin(path)

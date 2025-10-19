@@ -9,6 +9,14 @@ Although several PHP plugins are available for MISE, they often encounter errors
 
 In the `verzly/php` repository, we collect these installers with daily updates and bundle all installers under a single release, associating them with the appropriate PHP version. The sole purpose of the `verzly/mise-php` plugin is to serve the necessary PHP version installers for both Windows and Linux systems based on the version numbers from `verzly/php`.
 
+### Pre-binaries
+
+On Windows, we can work quickly using precompiled binaries.
+
+### Build from source
+
+For Linux and macOS systems, precompiling for each system is time-consuming, so the `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `/bin/install-dependencies.sh`, which the system runs automatically.
+
 ## Get started
 
 ```none

@@ -78,7 +78,7 @@ function InstallComposer(path)
 
     local phpExe = path .. '/bin/php'
     local cmd = string.format('"%s" "%s" --install-dir="%s/bin" --filename=composer', phpExe, setupPath, path)
-    local ok, code, out = util.run_cmd(cmd)
+    local ok, code, out = util.run_cmd(cmd, true)
     if not ok then
         error('Failed to install Composer. Output:\n' .. out)
     end

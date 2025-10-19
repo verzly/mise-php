@@ -56,7 +56,7 @@ function InstallPHPWithPhpBuild(install_path, version)
     end
 
     -- Remove temporary php-build
-    util.run_cmd("rm -rf " .. php_build_dir)
+    util.safe_remove(php_build_dir)
 
     -- Install Composer
     InstallComposer(install_path)
@@ -78,12 +78,13 @@ function InstallComposer(path)
 
     local phpExe = path .. '/bin/php'
     local cmd = string.format('"%s" "%s" --install-dir="%s/bin" --filename=composer', phpExe, setupPath, path)
-    local ok, code, out = util.run_cmd(cmd)
+    local ok, code, out = util.run_cmd(cmd, true)
     if not ok then
         error('Failed to install Composer. Output:\n' .. out)
     end
 
     util.run_cmd('chmod +x ' .. path .. '/bin/composer')
+    util.safe_remove(setupPath)
 end
 
 function InstallComposerForWin(path)

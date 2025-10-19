@@ -28,6 +28,7 @@ function PLUGIN:PreInstall(ctx)
     if RUNTIME.osType == 'windows' then
         return GetReleaseForWindows(release)
     else
+        InstallDependencies()
         return GetReleaseForLinux(release)
     end
 end
@@ -50,4 +51,12 @@ function GetReleaseForLinux(release)
         version = release.version,
         -- url = download_url, -- PHP-Build will be download.
     }
+end
+
+function InstallDependencies()
+    os.execute('chmod +x ' .. RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh')
+    local ok, code, out = util.run_cmd(RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh')
+    if not ok then
+        error('An unexpected error occurred while installing dependencies.' .. "\nOutput:\n" .. out)
+    end
 end

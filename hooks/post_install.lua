@@ -63,11 +63,13 @@ function InstallPHPWithPhpBuild(install_path, version)
 end
 
 function InstallComposer(path)
+    -- Download Composer installer
     local resp, err = http.get({ url = 'https://getcomposer.org/installer' })
     if not resp or not resp.body then
         error('Failed to download Composer installer: ' .. tostring(err))
     end
 
+    -- Run installer
     local setupPath = path .. '/composer-setup.php'
     local ok, err = util.write_file(setupPath, resp.body)
     if not ok then
@@ -86,41 +88,53 @@ function InstallComposer(path)
 end
 
 function InstallComposerForWin(path)
+    -- Read and patch php.ini
     local content, err = util.read_file(path .. '\\php.ini-development')
     if not content then
         error('Failed to read php.ini-development: ' .. tostring(err))
     end
-
-    content = content:gsub(';%s*extension_dir%s*=.*', 'extension_dir = "ext"')
-    content = content:gsub(';extension=openssl', 'extension=openssl')
-    content = content:gsub(';extension=php_openssl.dll', 'extension=php_openssl.dll')
-
+    content = content
+        :gsub(';%s*extension_dir = "ext"', 'extension_dir = "./ext"')
+        :gsub(';extension=openssl', 'extension=openssl')
+        :gsub(';extension=php_openssl.dll', 'extension=php_openssl.dll')
+        :gsub(';extension=curl', 'extension=curl')
     local ok, err = util.write_file(path .. '\\php.ini', content)
     if not ok then
         error('Failed to write php.ini: ' .. tostring(err))
     end
 
+    -- Download Composer installer
     local resp, err = http.get({ url = 'https://getcomposer.org/installer' })
     if not resp or not resp.body then
         error('Failed to download Composer installer: ' .. tostring(err))
     end
 
+    -- Run installer
     local setupPath = path .. '\\composer-setup.php'
     local ok, err = util.write_file(setupPath, resp.body)
     if not ok then
         error('Failed to write composer-setup.php: ' .. tostring(err))
     end
 
-    local phpExe = '"' .. path .. '\\php.exe"'
-    local installDir = path
-    local cmd = string.format('%s "%s" --install-dir="%s" --filename=composer', phpExe, setupPath, installDir)
-    local ok, code, out = util.run_cmd(cmd)
+    local phpPath = path .. "\\php.exe"
+    local installPath = path
+    local cmd = phpPath .. ' ' .. setupPath .. ' --install-dir=' .. installPath
+    if RUNTIME.osType == 'windows' then
+        phpPath = "\"" .. phpPath .. "\""
+        setupPath = "\"" .. setupPath .. "\""
+        installPath = "\"" .. installPath .. "\""
+        local winPrefix = ''
+        util.write_file(path .. '\\composer_install.bat', winPrefix .. phpPath .. ' ' .. setupPath .. ' --install-dir=' .. installPath)
+        cmd = path .. '\\composer_install.bat'
+    end
+    local ok, code, out = util.run_cmd(cmd, true)
     if not ok then
-        error('Failed to install Composer. Output:\n' .. out)
+        error('Failed to install Composer. Exit code: ' .. tostring(code) .. '\nOutput:\n' .. tostring(out))
     end
 
-    util.safe_remove(composerDir)
+    util.safe_remove(setupPath)
 
+    -- Create .bat wrapper
     local batContent = '@php "%~dp0composer.phar" %*'
     local ok, err = util.write_file(path .. '\\composer.bat', batContent)
     if not ok then

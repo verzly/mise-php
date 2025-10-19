@@ -56,7 +56,7 @@ function InstallPHPWithPhpBuild(install_path, version)
     end
 
     -- Remove temporary php-build
-    util.run_cmd("rm -rf " .. php_build_dir)
+    util.safe_remove(php_build_dir)
 
     -- Install Composer
     InstallComposer(install_path)

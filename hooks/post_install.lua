@@ -97,6 +97,7 @@ function InstallComposerForWin(path)
         :gsub(';%s*extension_dir = "ext"', 'extension_dir = "./ext"')
         :gsub(';extension=openssl', 'extension=openssl')
         :gsub(';extension=php_openssl.dll', 'extension=php_openssl.dll')
+        :gsub(';extension=curl', 'extension=curl')
     local ok, err = util.write_file(path .. '\\php.ini', content)
     if not ok then
         error('Failed to write php.ini: ' .. tostring(err))

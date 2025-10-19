@@ -15,15 +15,26 @@ In the `verzly/php` repository, we collect these installers with daily updates a
 # Install the plugin
 mise plugin install php https://github.com/verzly/mise-php
 
-# Install version
-mise install php@8.4
+# Install/Select version globally
+mise use -g php@8
+
+# Install/Select version locally (for current directory)
+cd /path/to/php/project
+mise use php@7.3
+```
+
+## Up-to-date
+
+```none
+# Upgrade plugin to latest version instantly
+mise plugin upgrade php
 ```
 
 ## Contributing
 
 ```none
 # Link your plugin for development
-mise plugin link php /path/to/verzly-php
+mise plugin link php /path/to/verzly/mise-php
 ```
 
 ## License

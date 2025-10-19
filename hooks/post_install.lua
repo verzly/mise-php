@@ -116,15 +116,23 @@ function InstallComposerForWin(path)
         error('Failed to write composer-setup.php: ' .. tostring(err))
     end
 
-    local phpExe = '"' .. path .. '\\php.exe"'
-    local installDir = path
-    local cmd = string.format('%s "%s" --install-dir="%s" --filename=composer', phpExe, setupPath, installDir)
-    local ok, code, out = util.run_cmd(cmd)
+    local phpPath = path .. "\\php.exe"
+    local installPath = path
+    local cmd = phpPath .. ' ' .. setupPath .. ' --install-dir=' .. installPath
+    if RUNTIME.osType == 'windows' then
+        phpPath = "\"" .. phpPath .. "\""
+        setupPath = "\"" .. setupPath .. "\""
+        installPath = "\"" .. installPath .. "\""
+        local winPrefix = ''
+        util.write_file(path .. '\\composer_install.bat', winPrefix .. phpPath .. ' ' .. setupPath .. ' --install-dir=' .. installPath)
+        cmd = path .. '\\composer_install.bat'
+    end
+    local ok, code, out = util.run_cmd(cmd, true)
     if not ok then
         error('Failed to install Composer. Exit code: ' .. tostring(code) .. '\nOutput:\n' .. tostring(out))
     end
 
-    util.safe_remove(composerDir)
+    util.safe_remove(setupPath)
 
     -- Create .bat wrapper
     local batContent = '@php "%~dp0composer.phar" %*'

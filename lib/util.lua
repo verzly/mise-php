@@ -1,23 +1,34 @@
 local util = {}
 
-function util.run_cmd(cmd)
+function util.run_cmd(cmd, verbose)
+    verbose = verbose or false
+
     local handle = io.popen(cmd .. " 2>&1")
     local output = handle:read("*all")
     local success, _, exit_code = handle:close()
+
+    if verbose and output and #output > 0 then
+        io.stderr:write(output)
+        io.stderr:flush()
+    end
+
     return success, exit_code, output
 end
 
 function util.safe_remove(path)
     if RUNTIME.osType == 'windows' then
-        path = path:gsub('/', '\\')
-        -- Töröljük rekurzívan, ha létezik
-        local attr = lfs.attributes(path)
-        if attr then
-            if attr.mode == 'directory' then
-                os.execute('rmdir /S /Q "' .. path .. '"')
-            else
-                os.remove(path)
-            end
+        -- Remove trailing backslash
+        path = path:gsub("/","\\"):gsub("\\$","")
+
+        -- Check if path exists
+        local f = io.open(path)
+        if f then
+            f:close()
+            -- It's a file
+            os.remove(path)
+        else
+            -- Assume directory and remove recursively
+            os.execute('rmdir /S /Q "' .. path .. '"')
         end
     else
         util.run_cmd('rm -rf "' .. path .. '"')
@@ -26,7 +37,10 @@ end
 
 function util.ensure_dir(path)
     if RUNTIME.osType == 'windows' then
-        os.execute('cmd /c "if not exist "' .. path .. '" mkdir "' .. path .. '" >nul 2>&1"')
+        -- Remove trailing backslash if present
+        path = path:gsub("\\$", "")
+        -- Proper quoting for cmd.exe
+        os.execute('cmd /c if not exist "' .. path .. '" mkdir "' .. path .. '" >nul 2>&1')
     else
         util.run_cmd('mkdir -p "' .. path .. '"')
     end

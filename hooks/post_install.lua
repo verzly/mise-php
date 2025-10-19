@@ -93,11 +93,10 @@ function InstallComposerForWin(path)
     if not content then
         error('Failed to read php.ini-development: ' .. tostring(err))
     end
-
-    content = content:gsub(';%s*extension_dir%s*=.*', 'extension_dir = "ext"')
-    content = content:gsub(';extension=openssl', 'extension=openssl')
-    content = content:gsub(';extension=php_openssl.dll', 'extension=php_openssl.dll')
-
+    content = content
+        :gsub(';%s*extension_dir = "ext"', 'extension_dir = "./ext"')
+        :gsub(';extension=openssl', 'extension=openssl')
+        :gsub(';extension=php_openssl.dll', 'extension=php_openssl.dll')
     local ok, err = util.write_file(path .. '\\php.ini', content)
     if not ok then
         error('Failed to write php.ini: ' .. tostring(err))

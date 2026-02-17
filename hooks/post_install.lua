@@ -20,9 +20,10 @@ function InstallPHPWithPhpBuild(install_path, version)
     local php_build_deps_exe = php_build_dir .. "/install-dependencies.sh"
     
     -- Download php-build
-    local exists = os.execute("test -d " .. php_build_dir .. " >/dev/null 2>&1")
-    if exists ~= 0 then
-        local ok, code, out = util.run_cmd("git clone https://github.com/php-build/php-build " .. php_build_dir)
+    if not util.path_exists(php_build_dir) then
+        local ok, code, out = util.run_cmd(
+            'git clone https://github.com/php-build/php-build "' .. php_build_dir .. '"'
+        )
         if not ok then
             error("Failed to clone php-build: " .. out)
         end
@@ -56,7 +57,7 @@ function InstallPHPWithPhpBuild(install_path, version)
     end
 
     -- Remove temporary php-build
-    util.safe_remove(php_build_dir)
+    -- util.safe_remove(php_build_dir)
 
     -- Install Composer
     InstallComposer(install_path)

@@ -62,8 +62,8 @@ case $DISTRO in
 		# https://github.com/Homebrew/brew/issues/2491
 		xcode-select --install
     brew install autoconf bison re2c pkg-config \
-        libxml2 openssl@3 icu4c zlib libzip oniguruma \
-        freetype jpeg libpng webp gmp libsodium readline bzip2
+      libxml2 openssl@3 icu4c zlib libzip oniguruma \
+      freetype jpeg libpng webp gmp libsodium readline bzip2
 		;;
 	*)
 esac

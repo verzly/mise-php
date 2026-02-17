@@ -12,11 +12,13 @@ function PLUGIN:EnvKeys(ctx)
     local composerHome = ""
 
     if RUNTIME.osType == 'windows' then
-        bin = "\\"
+        bin = mainPath .. "\\"
         composerHome = mainPath .. "\\.composer"
+        composerBin = composerHome .. "\\vendor\\bin"
     else
-        bin = "/bin"
+        bin = mainPath .. "/bin"
         composerHome = mainPath .. "/.composer"
+        composerBin = composerHome .. "/vendor/bin"
     end
 
     util.ensure_dir(composerHome)
@@ -24,7 +26,11 @@ function PLUGIN:EnvKeys(ctx)
     return {
         {
             key = "PATH",
-            value = mainPath .. bin
+            value = bin
+        },
+        {
+            key = "PATH",
+            value = composerBin
         },
         {
             key = "COMPOSER_HOME",

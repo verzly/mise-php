@@ -30,110 +30,40 @@ fi
 case $DISTRO in
 	debian)
 		export DEBIAN_FRONTEND=nointeractive
-		$SUDO apt-get update -q
-		$SUDO apt-get install -q -y --no-install-recommends \
-			autoconf2.13 \
-			autoconf2.64 \
-			autoconf \
-			bash \
-			bison \
-			build-essential \
-			ca-certificates \
-			curl \
-			findutils \
-			git \
-			libbz2-dev \
-			libcurl4-gnutls-dev \
-			libicu-dev \
-			libjpeg-dev \
-			libmcrypt-dev \
-			libonig-dev \
-			libpng-dev \
-			libreadline-dev \
-			libsqlite3-dev \
-			libssl-dev \
-			libtidy-dev \
-			libxml2-dev \
-			libxslt1-dev \
-			libzip-dev \
-			pkg-config \
-			re2c \
-			zlib1g-dev
-		;;
+    $SUDO apt-get install -q -y --no-install-recommends build-essential autoconf bison re2c pkg-config \
+      libxml2-dev libssl-dev libicu-dev libzip-dev libonig-dev \
+      libcurl4-openssl-dev libpng-dev libjpeg-dev libfreetype6-dev \
+      libwebp-dev libgmp-dev libsodium-dev libreadline-dev libbz2-dev
+    ;;
 	rhel)
 		$SUDO dnf install -y yum-utils epel-release
 		if [[ "$VERSION_ID" =~ ^8 ]]; then
-			$SUDO dnf install -y dnf-plugins-core
-			$SUDO dnf config-manager --set-enabled powertools
-			$SUDO dnf install -y autoconf autoconf213
+			# $SUDO dnf config-manager --set-enabled powertools
 			# libmcrypt official
 			$SUDO dnf install -y libmcrypt-devel
 		elif [[ "$VERSION_ID" =~ ^9 ]]; then
-			$SUDO dnf install -y dnf-plugins-core
-			$SUDO dnf config-manager --set-enabled crb
-			$SUDO dnf install -y autoconf
+			# $SUDO dnf config-manager --set-enabled crb
 			# libmcrypt official
 			$SUDO dnf install -y libmcrypt-devel
 		else
-			$SUDO dnf install -y dnf-plugins-core
-			$SUDO dnf config-manager --set-enabled crb
-			$SUDO dnf install -y autoconf
+			# $SUDO dnf config-manager --set-enabled crb
 			# libmcrypt alternative from rhel 10 # https://stackoverflow.com/questions/41272257/mcrypt-is-deprecated-what-is-the-alternative
-			$SUDO dnf install -y libsodium libsodium-devel
+			$SUDO dnf install -y libsodium-devel
 		fi
-		$SUDO dnf install -y \
-			bash \
-			bison \
-			bzip2 \
-			bzip2-devel \
-			curl \
-			diffutils \
-			findutils \
-			gcc \
-			gcc-c++ \
-			git \
-			libarchive \
-			libcurl-devel \
-			libicu-devel \
-			libjpeg-turbo-devel \
-			libpng-devel \
-			libtidy-devel \
-			libxml2-devel \
-			libzip-devel \
-			libxslt-devel \
-			make \
-			oniguruma-devel \
-			openssl-devel \
-			patch \
-			pkgconf \
-			readline-devel \
-			sqlite-devel \
-			zlib-devel \
-			cmake3
+		$SUDO dnf groupinstall "Development Tools"
+    $SUDO dnf install autoconf bison re2c pkgconfig \
+      libxml2-devel openssl-devel libicu-devel libzip-devel oniguruma-devel \
+      libcurl-devel libpng-devel libjpeg-devel freetype-devel \
+      libwebp-devel gmp-devel readline-devel bzip2-devel # libsodium-devel
 		;;
 	darwin)
 		# brew install will fail if a package is already installed
 		# using brew bundle seems to be the recommended alternative
 		# https://github.com/Homebrew/brew/issues/2491
-		brew bundle --file=- <<-EOS
-brew "autoconf"
-brew "autoconf@2.13"
-brew "bzip2"
-brew "icu4c"
-brew "git"
-brew "libedit"
-brew "libiconv"
-brew "libjpeg"
-brew "libxml2"
-brew "libzip"
-brew "oniguruma"
-brew "openssl"
-brew "pkg-config"
-brew "python"
-brew "re2c"
-brew "tidy-html5"
-brew "zlib"
-EOS
+		xcode-select --install
+    brew install autoconf bison re2c pkg-config \
+        libxml2 openssl@3 icu4c zlib libzip oniguruma \
+        freetype jpeg libpng webp gmp libsodium readline bzip2
 		;;
 	*)
 esac

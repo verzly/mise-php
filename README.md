@@ -85,7 +85,10 @@ The list of version numbers is not gathered directly from [`php/php-src`](https:
 
 ### Composer for PHP
 
-Each selected PHP version comes with its own isolated Composer installation. It has its own global packages, its own version, etc. For example, after selecting PHP 8.4.3 via `mise use -g php@8.4.3`, if your Composer version is outdated and you want to update it, you can do so as follows:
+Each PHP version uses its own Composer binary, while sharing the global Composer configuration and cache (`~/.config/composer`, `~/.cache/composer`). This means repositories, authentication, and cache are reused across PHP versions, but Composer always runs against the currently active PHP runtime.
+
+> [!WARNING]
+> Global packages are not fully version-independent. If a package only supports a specific PHP range (e.g. 8.1-8.5), switching to an older PHP version (e.g. 8.0 or 7.4) may require reinstalling a compatible (older) version of that package.
 
 ```none
 # Latest Composer major

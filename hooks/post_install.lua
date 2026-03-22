@@ -32,13 +32,6 @@ function install_php_for_windows(sdkPath, version)
     -- Install Composer
     install_composer(sdkPath)
 
-    -- Clean up source files to save space
-    local cleanCmd = string.format(
-        'cmd /c "cd /d "%s" && rmdir /s /q Zend ext sapi main TSRM build 2>nul && del /f /q configure* aclocal* Makefile* 2>nul"',
-        sdkPath
-    )
-    os.execute(cleanCmd)
-
     print("PHP installation complete!")
 end
 

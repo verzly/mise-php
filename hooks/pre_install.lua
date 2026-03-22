@@ -1,6 +1,6 @@
-local util = require('util')
-require('constants')
-
+--- Returns pre-install information for PHP
+--- @param ctx table Context provided by vfox
+--- @return table Pre-install info
 function PLUGIN:PreInstall(ctx)
     local version = ctx.version
     local releases = self:Available({})
@@ -50,9 +50,11 @@ function get_release_for_linux(release)
 end
 
 function install_dependencies()
-    os.execute('chmod +x ' .. RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh')
-    local ok, code, out = util.run_cmd(RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh')
-    if not ok then
-        error('An unexpected error occurred while installing dependencies.' .. "\nOutput:\n" .. out)
+    print("Installing dependencies...")
+    local path = RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh'
+    os.execute('chmod +x ' .. path)
+    status = os.execute(path)
+    if status ~= 0 and status ~= true then
+        error("Failed to install dependencies")
     end
 end

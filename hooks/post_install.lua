@@ -24,7 +24,6 @@ function install_php_for_windows(sdkPath, version)
         version,
         sdkPath
     )
-
     local status = os.execute(installCmd)
     if status ~= 0 and status ~= true then
         error("Failed to install PHP")

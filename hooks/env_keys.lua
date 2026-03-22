@@ -1,40 +1,38 @@
-local util = require('util')
-
---- Each SDK may have different environment variable configurations.
---- This allows plugins to define custom environment variables (including PATH settings)
---- Note: Be sure to distinguish between environment variable settings for different platforms!
---- @param ctx table Context information
---- @field ctx.path string SDK installation directory
+--- Returns environment variables for PHP
+--- @param ctx table Context provided by vfox
+--- @return table Environment configuration
 function PLUGIN:EnvKeys(ctx)
-    --- this variable is same as ctx.sdkInfo['plugin-name'].path
-    local mainPath = ctx.path
-    local bin = ""
-    local composerHome = ""
+    local sdkInfo = ctx.sdkInfo["php"]
+    local installDir = sdkInfo.path
 
+    local envs = {}
+
+    -- Add PATHs on Windows
     if RUNTIME.osType == 'windows' then
-        bin = mainPath .. "\\"
-        composerHome = mainPath .. "\\.composer"
-        composerBin = composerHome .. "\\vendor\\bin"
+        table.insert(envs, {
+            key = "PATH",
+            value = installDir .. "\\",
+        })
+
+    -- Add PATHs on Linux & macOS
     else
-        bin = mainPath .. "/bin"
-        composerHome = mainPath .. "/.composer"
-        composerBin = composerHome .. "/vendor/bin"
+        table.insert(envs, {
+            key = "PATH",
+            value = installDir .. "\\bin",
+        })
+        table.insert(envs, {
+            key = "PATH",
+            value = installDir .. "\\sbin",
+        })
+
+        -- Add LD_LIBRARY_PATH on Linux
+        if RUNTIME.osType == "linux" then
+          table.insert(envs, {
+              key = "LD_LIBRARY_PATH",
+              value = installDir .. "/lib",
+          })
+        end
     end
 
-    util.ensure_dir(composerHome)
-
-    return {
-        {
-            key = "PATH",
-            value = bin
-        },
-        {
-            key = "PATH",
-            value = composerBin
-        },
-        {
-            key = "COMPOSER_HOME",
-            value = composerHome
-        }
-    }
+    return envs
 end

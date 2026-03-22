@@ -5,9 +5,9 @@
 
 ## How does it differ from the other mise-php plugins?
 
-Although several PHP plugins are available for MISE, they often encounter errors on either Windows or various Linux distributions. The most common issue is locating the correct PHP versions. This is because PHP maintains its latest and older releases on different sites. Moreover, Windows and Linux installers are separated.
+Although some PHP plugins are available for MISE, they often encounter errors on either Windows or various Linux distributions. The most common issue is locating the correct PHP versions. This is because PHP maintains its latest and older releases on different sites. Moreover, Windows and Linux installers are separated.
 
-In the `verzly/php` repository, we collect these installers with daily updates and bundle all installers under a single release, associating them with the appropriate PHP version. The sole purpose of the `verzly/mise-php` plugin is to serve the necessary PHP version installers for both Windows and Linux systems based on the version numbers from `verzly/php`.
+The officially released PHP versions are provided by `verzly/mise-php` for Linux, macOS, and Windows. Additionally, it installs a dedicated Composer for each PHP version to help you avoid version conflicts.
 
 ### Pre-binaries
 
@@ -18,6 +18,8 @@ On Windows, we can work quickly using precompiled binaries.
 For Linux and macOS systems, precompiling for each system is time-consuming, so the `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `/bin/install-dependencies.sh`, which the system runs automatically.
 
 ## Get started
+
+To install PHP versions on any operating system using the verzly/mise-php plugin, you first need a one-time setup.
 
 ```none
 # Install the plugin
@@ -31,11 +33,84 @@ cd /path/to/php/project
 mise use php@7.3
 ```
 
-## Up-to-date
+Once the plugin is installed, you can [start managing PHP versions](#usage).
+
+### Up-to-date
+
+These are stable versions, but plugin updates may occur, which you can later install with a single command.
 
 ```none
 # Upgrade plugin to latest version instantly
 mise plugin upgrade php
+```
+
+## Usage
+
+After installing the plugin, Mise enables the installation of packages named php via the `verzly/mise-php` plugin.
+
+### PHP
+
+You can install multiple PHP versions simultaneously. You can select a version to use globally, but you can also specify project-specific versions for individual projects. We work with official PHP releases - anything released on php.net can be installed.
+
+```none
+# Check available PHP versions
+mise ls-remote php
+
+# Check installed PHP versions
+mise ls php
+
+# Latest PHP major
+mise use php@latest
+
+# Latest PHP 8 minor, patch
+mise use php@8
+
+# Latest PHP 8.4 patch
+mise use php@8.4
+
+# Only PHP 8.4.3 patch
+mise use php@8.4.3
+
+# Change globally selected PHP version
+mise use -g php@8.4.3
+
+# Check current PHP version
+php --version
+
+# Check current Composer version
+composer --version
+```
+
+The list of version numbers is not gathered directly from [`php/php-src`](https://github.com/php/php-src/releases), because the GitHub API enforces rate limiting after a certain number of requests. Instead, we update our `versions.txt` file from a `cache` branch once per day, so it's possible that a release may only be installable via the `verzly/mise-php` plugin with a one-day delay, or may require a manual update.
+
+### Composer for PHP
+
+Each selected PHP version comes with its own isolated Composer installation. It has its own global packages, its own version, etc. For example, after selecting PHP 8.4.3 via `mise use -g php@8.4.3`, if your Composer version is outdated and you want to update it, you can do so as follows:
+
+```none
+# Latest Composer major
+composer self-update
+
+# Latest Composer 2 minor, patch
+composer self-update 2
+
+# Latest Composer 2.7 patch
+composer self-update 2.7
+
+# Only Composer 2.7.9 patch
+composer self-update 2.7.9
+
+# Roll back to the previous version
+composer self-update --rollback
+
+# Update to latest preview/RC version
+composer self-update --preview
+
+# Update to latest snapshot/development version
+composer self-update --snapshot
+
+# Check current Composer version
+composer --version
 ```
 
 ## Contributing
@@ -45,27 +120,10 @@ mise plugin upgrade php
 mise plugin link php /path/to/verzly/mise-php
 ```
 
-## License
+## License & Acknowledgments
 
-This project is a plugin created for MISE by [Zoltán Rózsa](https://github.com/rozsazoltan) under the [GNU Affero General Public License v3.0 (AGPL-3.0)](https://www.gnu.org/licenses/agpl-3.0.html).
+This project would not exist without the PHP Foundation and the creators and contributors of Mise-en-Place. It is open source and released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](https://www.gnu.org/licenses/agpl-3.0.html).
+
+We are grateful to the PHP Foundation for maintaining PHP, and to the creators and contributors of Mise-en-Place for the robust version management ecosystem and plugin support.
 
 Copyright (C) 2020–present [Zoltán Rózsa](https://github.com/rozsazoltan) & [Verzly](https://github.com/verzly)
-
-This version is licensed under the AGPL-3.0.  
-For full license terms, see the [LICENSE](./LICENSE) file.
-
-## Credits
-
-This project is made possible by much love and the other open source software.
-
-|Name|License|
-|:---|:---|
-|[verzly/php](https://github.com/verzly/php)|MIT License © [Zoltán Rózsa](https://github.com/verzly/mise-php) & [Verzly](https://github.com/verzly)|
-
-## Thanks
-
-Appreciation goes to [GitHub Actions](https://github.com/features/actions) for enabling a dependable continuous integration system, which has been essential throughout the development process.
-
-Finally, a heartfelt thank you to the broader [open-source](https://github.com/open-source) community and to the maintainers of the libraries used in this project. Your ongoing efforts make projects like this possible.
-
-**Motivation:** Because _together_, nothing is impossible.

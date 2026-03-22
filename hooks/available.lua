@@ -1,40 +1,25 @@
-local http = require('http')
-local util = require('util')
-require('constants')
-
+--- Returns available PHP versions from GitHub php-src tags
+--- @param ctx table Context provided by vfox
+--- @return table Available versions
 function PLUGIN:Available(ctx)
+    local http = require("http")
+
+    local resp, err = http.get({
+        url = "https://raw.githubusercontent.com/verzly/mise-php/cache/versions.txt",
+        headers = {
+            ["User-Agent"] = "verzly-mise-php",
+        },
+    })
+
+    if err ~= nil or resp.status_code ~= 200 then
+        error("Failed to fetch versions.txt: " .. tostring(err))
+    end
+
     local result = {}
-
-    if not GITHUB_VERSIONS_URL or not GITHUB_RELEASES_URL then
-        print("⚠️ GITHUB_VERSIONS_URL or GITHUB_RELEASES_URL is not set in constants.lua")
-        return result
-    end
-
-    local resp, err = http.get({ url = GITHUB_VERSIONS_URL })
-    if not resp or not resp.body then
-        print("⚠️ Error fetching versions file: " .. tostring(err))
-        return result
-    end
-
-    for line in resp.body:gmatch("[^\r\n]+") do
-        if line and #line > 0 then
-            local versionStr = line:gsub("^v", "")
-            if util.compare_versions(versionStr, "5.3.2") >= 0 then
-                table.insert(result, {
-                    version = versionStr,
-                    name = line,
-                    url = GITHUB_RELEASES_URL .. "/download/" .. line .. "/"
-                })
-            end
+    for version in resp.body:gmatch("[^\n]+") do
+        if version ~= "" then
+            table.insert(result, { version = version })
         end
-    end
-
-    table.sort(result, function(a, b)
-        return util.compare_versions(a.version, b.version) > 0
-    end)
-
-    if #result == 0 then
-        print("⚠️ No available PHP versions were found in the versions file.")
     end
 
     return result

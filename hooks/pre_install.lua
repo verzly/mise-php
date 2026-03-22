@@ -1,6 +1,6 @@
-local util = require('util')
-require('constants')
-
+--- Returns pre-install information for PHP
+--- @param ctx table Context provided by vfox
+--- @return table Pre-install info
 function PLUGIN:PreInstall(ctx)
     local version = ctx.version
     local releases = self:Available({})
@@ -26,37 +26,35 @@ function PLUGIN:PreInstall(ctx)
     end
 
     if RUNTIME.osType == 'windows' then
-        return GetReleaseForWindows(release)
+        return get_release_for_windows(release)
     else
-        InstallDependencies()
-        return GetReleaseForLinux(release)
+        install_dependencies()
+        return get_release_for_linux(release)
     end
 end
 
-function GetReleaseForWindows(release)
-    asset_name = "php-" .. release.version .. "-win-x64.zip"
-    download_url = release.url .. asset_name
-
+function get_release_for_windows(release)
+    -- Download from GitHub php-src releases
     return {
         version = release.version,
-        url = download_url,
+        -- url = "",
     }
 end
 
-function GetReleaseForLinux(release)
-    -- asset_name = "php-" .. release.version .. ".tar.gz"
-    -- download_url = release.url .. asset_name
-
+function get_release_for_linux(release)
+    -- Download from GitHub php-src releases
     return {
         version = release.version,
-        -- url = download_url, -- PHP-Build will be download.
+        url = "https://github.com/php/php-src/archive/php-" .. release.version .. ".tar.gz",
     }
 end
 
-function InstallDependencies()
-    os.execute('chmod +x ' .. RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh')
-    local ok, code, out = util.run_cmd(RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh')
-    if not ok then
-        error('An unexpected error occurred while installing dependencies.' .. "\nOutput:\n" .. out)
+function install_dependencies()
+    print("Installing dependencies...")
+    local path = RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh'
+    os.execute('chmod +x ' .. path)
+    status = os.execute(path)
+    if status ~= 0 and status ~= true then
+        error("Failed to install dependencies")
     end
 end

@@ -1,7 +1,37 @@
 local util = {}
 
+local verbose_flag = os.getenv("MISE_VERBOSE") == "1"
+local function is_verbose(verbose)
+    if verbose == nil then
+        return verbose_flag
+    else
+        return verbose
+    end
+end
+
+local colors = {
+    red    = 31,
+    green  = 32,
+    yellow = 33,
+    blue   = 34,
+    purple = 35,
+    orange = 38,  -- sárgás narancs a 38;5;208 kóddal, vagy egyszerűen 33
+}
+
+local function print_color(color, msg, msg2)
+    msg2 = msg2 or ""  -- ha nincs megadva, üres string
+    local esc = "\27"  -- ANSI escape
+    local code = colors[color] or 0  -- alapértelmezett = reset / fehér
+    io.stdout:write(esc .. "[" .. code .. "m" .. msg .. esc .. "[0m" .. " " .. msg2 .. "\n")
+end
+
 function util.run_cmd(cmd, verbose)
-    verbose = verbose or false
+    verbose = is_verbose(verbose)
+    print(verbose_flag)
+
+    if verbose then
+        print_color("yellow", "CMD", cmd)
+    end
 
     local handle = io.popen(cmd .. " 2>&1")
     local output = handle:read("*all")
@@ -10,6 +40,8 @@ function util.run_cmd(cmd, verbose)
     if verbose and output and #output > 0 then
         io.stderr:write(output)
         io.stderr:flush()
+    elseif verbose then
+        print_color("blue", "Info", "No output")
     end
 
     return success, exit_code, output
@@ -34,6 +66,31 @@ function util.safe_remove(path)
         util.run_cmd('rm -rf "' .. path .. '"')
     end
 end
+
+function util.path_exists(path)
+    if RUNTIME.osType == 'windows' then
+        -- Normalize slashes
+        path = path:gsub("/", "\\")
+
+        -- Check file
+        local f = io.open(path, "r")
+        if f then
+            f:close()
+            return true
+        end
+
+        -- Check directory
+        local ok = os.execute(
+            'cmd /c if exist "' .. path .. '\\*" exit 0 else exit 1'
+        )
+        return ok == true or ok == 0
+    else
+        -- POSIX: test -e works for both file and directory
+        local ok, code = util.run_cmd('test -e "' .. path .. '"')
+        return ok and code == 0
+    end
+end
+
 
 function util.ensure_dir(path)
     if RUNTIME.osType == 'windows' then

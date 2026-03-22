@@ -16,9 +16,10 @@ end
 function install_php_for_windows(sdkPath, version)
     -- Install PHP
     print("Installing PHP...")
-    local scriptPath = assert(lfs.currentdir() .. "\\bin\\install-windows-php.ps1")
+
+    local scriptPath = assert(RUNTIME.pluginDirPath .. "\\bin\\install-windows-php.ps1")
     local installCmd = string.format(
-        'powershell -ExecutionPolicy Bypass -File "%s" -Version %s -ThreadSafe:$false -Scope Custom -CustomPath "%s" -Arch x64',
+        'cmd /c "cd /d %%TEMP%% && powershell -NoProfile -ExecutionPolicy Bypass -File "%s" -Version %s -Arch x64 -CustomPath "%s""',
         scriptPath,
         version,
         sdkPath
@@ -165,53 +166,69 @@ end
 
 function install_composer(sdkPath)
     print("Installing Composer...")
+    if RUNTIME.osType == 'windows' then
+        install_composer_for_windows(sdkPath)
+    else
+        install_composer_for_linux(sdkPath)
+    end
+    print("Composer installation complete!")
+end
 
+function install_composer_for_windows(sdkPath)
     local sep = package.config:sub(1,1)
     local function join_path(...)
-        local args = {...}
-        return table.concat(args, sep)
+        return table.concat({...}, sep)
     end
 
-    local php_bin
-    local composer_setup = join_path(sdkPath, "composer-setup.php")
-    local install_dir
+    local composer_phar = join_path(sdkPath, "composer.phar")
+    local composer_bat  = join_path(sdkPath, "composer.bat")
 
-    if RUNTIME.osType == 'windows' then
-        php_bin = '"' .. join_path(sdkPath, "php.exe") .. '"'
-        install_dir = sdkPath
-    else
-        php_bin = join_path(sdkPath, "bin", "php")
-        install_dir = join_path(sdkPath, "bin")
-    end
-
-    -- Download installer
-    local download_cmd = string.format(
-        '%s -r "copy(\'https://getcomposer.org/installer\', \'%s\');"',
-        php_bin,
-        composer_setup
+    local dl_cmd = string.format(
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://getcomposer.org/composer-stable.phar -OutFile \'%s\'"',
+        composer_phar
     )
-    local status = os.execute(download_cmd)
+    local status = os.execute(dl_cmd)
+    if status ~= 0 and status ~= true then
+        io.stderr:write("Warning: Failed to download Composer\n")
+        return
+    end
+
+    local bat = io.open(composer_bat, "w")
+    if bat then
+        bat:write('@echo off\r\n')
+        bat:write(string.format('"%s" "%%~dp0composer.phar" %%*\r\n', join_path(sdkPath, "php.exe")))
+        bat:close()
+    end
+end
+
+function install_composer_for_linux(sdkPath)
+    local sep = package.config:sub(1,1)
+    local function join_path(...)
+        return table.concat({...}, sep)
+    end
+
+    local php_bin        = join_path(sdkPath, "bin", "php")
+    local composer_setup = join_path(sdkPath, "composer-setup.php")
+    local install_dir    = join_path(sdkPath, "bin")
+
+    local dl_cmd = string.format(
+        '%s -r "copy(\'https://getcomposer.org/installer\', \'%s\');"',
+        php_bin, composer_setup
+    )
+    local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write("Warning: Failed to download Composer installer\n")
         return
     end
 
-    -- Verify and install
     local install_cmd = string.format(
         '%s "%s" --install-dir="%s" --filename=composer',
-        php_bin,
-        composer_setup,
-        install_dir
+        php_bin, composer_setup, install_dir
     )
     status = os.execute(install_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write("Warning: Failed to install Composer\n")
     end
 
-    -- Cleanup
-    if os.remove(composer_setup) == nil then
-        io.stderr:write("Warning: Could not remove composer-setup.php\n")
-    end
-
-    print("Composer installation complete!")
+    os.remove(composer_setup)
 end

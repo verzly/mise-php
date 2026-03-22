@@ -11,18 +11,18 @@ function PLUGIN:EnvKeys(ctx)
     if RUNTIME.osType == 'windows' then
         table.insert(envs, {
             key = "PATH",
-            value = installDir .. "\\",
+            value = installDir,
         })
 
     -- Add PATHs on Linux & macOS
     else
         table.insert(envs, {
             key = "PATH",
-            value = installDir .. "\\bin",
+            value = installDir .. "/bin",
         })
         table.insert(envs, {
             key = "PATH",
-            value = installDir .. "\\sbin",
+            value = installDir .. "/sbin",
         })
 
         -- Add LD_LIBRARY_PATH on Linux

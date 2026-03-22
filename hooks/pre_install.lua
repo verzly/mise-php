@@ -37,7 +37,7 @@ function get_release_for_windows(release)
     -- Download from GitHub php-src releases
     return {
         version = release.version,
-        url = download_url,
+        -- url = "",
     }
 end
 

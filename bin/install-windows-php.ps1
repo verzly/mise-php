@@ -48,11 +48,11 @@ Function Get-File {
     )
     for ($i = 0; $i -lt $Retries; $i++) {
         try {
-            if($OutFile) { Invoke-WebRequest -Uri $Url -OutFile $OutFile -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop; return }
+            if ($OutFile) { Invoke-WebRequest -Uri $Url -OutFile $OutFile -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop; return }
             else { return Invoke-WebRequest -Uri $Url -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop }
         } catch {
             if ($i -eq ($Retries - 1) -and $FallbackUrl) {
-                if($OutFile) { Invoke-WebRequest -Uri $FallbackUrl -OutFile $OutFile -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop; return }
+                if ($OutFile) { Invoke-WebRequest -Uri $FallbackUrl -OutFile $OutFile -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop; return }
                 else { return Invoke-WebRequest -Uri $FallbackUrl -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop }
             } elseif ($i -eq ($Retries - 1)) { throw "Failed to download: $Url" }
         }
@@ -67,20 +67,44 @@ Function Get-VSVersion {
         '8.0'='vs16'; '8.1'='vs16'; '8.2'='vs16'; '8.3'='vs16';
         '8.4'='vs17'; '8.5'='vs17'
     }
-    if ($map.ContainsKey($Version)) { return $map[$Version] }
-    throw "Unsupported PHP version: $Version"
+    $majorMinor = ($Version -split '\.')[0..1] -join '.'
+    if ($map.ContainsKey($majorMinor)) { return $map[$majorMinor] }
+    throw "Unsupported PHP version: $Version (resolved major.minor: $majorMinor)"
 }
 
-Function Get-ReleaseType { param([string]$Version); if ($Version -match "[a-zA-Z]") { return "qa" } else { return "releases" } }
+Function Get-ReleaseType {
+    param([string]$Version)
+    if ($Version -match "[a-zA-Z]") { return "qa" } else { return "releases" }
+}
 
 Function Get-PhpFromUrl {
     param([string]$Version, [string]$Semver, [string]$Arch, [bool]$ThreadSafe, [string]$OutFile)
-    $vs = Get-VSVersion $Version
+    $majorMinor = ($Version -split '\.')[0..1] -join '.'
+    $vs = Get-VSVersion $majorMinor
     $ts = if ($ThreadSafe) { "ts" } else { "nts" }
     $zipName = if ($ThreadSafe) { "php-$Semver-Win32-$vs-$Arch.zip" } else { "php-$Semver-$ts-Win32-$vs-$Arch.zip" }
-    $type = Get-ReleaseType $Semver
-    $base = "https://downloads.php.net/~windows/$type"
-    try { Get-File -Url "$base/$zipName" -OutFile $OutFile } catch { Get-File -Url "$base/archives/$zipName" -OutFile $OutFile }
+
+    $candidates = @(
+        "https://windows.php.net/downloads/releases/$zipName",
+        "https://windows.php.net/downloads/releases/archives/$zipName",
+        "https://windows.php.net/downloads/qa/$zipName",
+        "https://downloads.php.net/~windows/releases/$zipName",
+        "https://downloads.php.net/~windows/releases/archives/$zipName",
+        "https://downloads.php.net/~windows/qa/$zipName"
+    )
+
+    foreach ($url in $candidates) {
+        try {
+            Write-Host "Trying: $url"
+            Get-File -Url $url -OutFile $OutFile -Retries 1
+            Write-Host "Downloaded from: $url"
+            return
+        } catch {
+            continue
+        }
+    }
+
+    throw "Could not download PHP $Semver - tried all known URLs"
 }
 
 $tempFile = [IO.Path]::ChangeExtension([IO.Path]::GetTempFileName(), '.zip')
@@ -97,26 +121,30 @@ try {
     Expand-Archive -Path $tempFile -DestinationPath $installDirectory -Force -ErrorAction Stop
 
     $phpIniProd = Join-Path $installDirectory "php.ini-production"
-    if(-not(Test-Path $phpIniProd)) { $phpIniProd = Join-Path $installDirectory "php.ini-recommended" }
+    if (-not (Test-Path $phpIniProd)) { $phpIniProd = Join-Path $installDirectory "php.ini-recommended" }
     $phpIni = Join-Path $installDirectory "php.ini"
     if (Test-Path $phpIniProd) {
         Copy-Item $phpIniProd $phpIni -Force
         $extDir = Join-Path $installDirectory "ext"
-        (Get-Content $phpIni) -replace '^extension_dir = "./"', "extension_dir = `"$extDir`"" | Set-Content $phpIni
-        (Get-Content $phpIni) -replace ';\s?extension_dir = "ext"', "extension_dir = `"$extDir`"" | Set-Content $phpIni
-        (Get-Content $phpIni) -replace ';\s?date.timezone =', "date.timezone = `"$Timezone`"" | Set-Content $phpIni
+        (Get-Content $phpIni) -replace '^extension_dir = "./"',      "extension_dir = `"$extDir`"" | Set-Content $phpIni
+        (Get-Content $phpIni) -replace ';\s?extension_dir = "ext"',  "extension_dir = `"$extDir`"" | Set-Content $phpIni
+        (Get-Content $phpIni) -replace ';\s?date.timezone =',        "date.timezone = `"$Timezone`""  | Set-Content $phpIni
     }
 
     Function Set-PathEntryFirst {
-        param([ValidateSet('User','Machine')][string]$Target,[string]$Entry)
+        param([ValidateSet('User','Machine')][string]$Target, [string]$Entry)
         $entryNorm = ($Entry.Trim().Trim('"').TrimEnd('\')).ToLowerInvariant()
-        $existing = [Environment]::GetEnvironmentVariable('Path', $Target) -split ';' | Where-Object { ($_ -and ($_.Trim().Trim('"').TrimEnd('\')).ToLowerInvariant() -ne $entryNorm) }
-        [Environment]::SetEnvironmentVariable('Path', ($Entry + ';' + ($existing -join ';')), $Target)
-        $env:Path = ($Entry + ';' + ($env:Path -split ';' | Where-Object { ($_ -and ($_.Trim().Trim('"').TrimEnd('\')).ToLowerInvariant() -ne $entryNorm) } -join ';'))
+
+        $existingUser = [Environment]::GetEnvironmentVariable('Path', $Target) -split ';' |
+            Where-Object { $_ -and ($_.Trim().Trim('"').TrimEnd('\')).ToLowerInvariant() -ne $entryNorm }
+        [Environment]::SetEnvironmentVariable('Path', ($Entry + ';' + ($existingUser -join ';')), $Target)
+
+        $existingEnv = $env:Path -split ';' |
+            Where-Object { $_ -and ($_.Trim().Trim('"').TrimEnd('\')).ToLowerInvariant() -ne $entryNorm }
+        $env:Path = $Entry + ';' + ($existingEnv -join ';')
     }
 
-    $pathTarget = 'User'
-    Set-PathEntryFirst -Target $pathTarget -Entry $installDirectory
+    Set-PathEntryFirst -Target 'User' -Entry $installDirectory
 
     Write-Host ""
     Write-Host "Installed PHP $Semver directly to $installDirectory"

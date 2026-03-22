@@ -16,19 +16,22 @@ end
 function install_php_for_windows(sdkPath, version)
     -- Install PHP
     print("Installing PHP...")
+    local scriptPath = assert(lfs.currentdir() .. "\\bin\\install-windows-php.ps1")
     local installCmd = string.format(
-        "powershell -c \"& ([ScriptBlock]::Create((irm 'https://www.php.net/include/download-instructions/windows.ps1'))) -Version %s -ThreadSafe:$false -Scope Custom -CustomPath '%s' -Arch x64\"",
+        'powershell -ExecutionPolicy Bypass -File "%s" -Version %s -ThreadSafe:$false -Scope Custom -CustomPath "%s" -Arch x64',
+        scriptPath,
         version,
         sdkPath
     )
-    status = os.execute(installCmd)
+
+    local status = os.execute(installCmd)
     if status ~= 0 and status ~= true then
         error("Failed to install PHP")
     end
-    
+
     -- Install Composer
     install_composer(sdkPath)
-    
+
     -- Clean up source files to save space
     local cleanCmd = string.format(
         'cmd /c "cd /d "%s" && rmdir /s /q Zend ext sapi main TSRM build 2>nul && del /f /q configure* aclocal* Makefile* 2>nul"',

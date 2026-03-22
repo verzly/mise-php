@@ -26,34 +26,30 @@ function PLUGIN:PreInstall(ctx)
     end
 
     if RUNTIME.osType == 'windows' then
-        return GetReleaseForWindows(release)
+        return get_release_for_windows(release)
     else
-        InstallDependencies()
-        return GetReleaseForLinux(release)
+        install_dependencies()
+        return get_release_for_linux(release)
     end
 end
 
-function GetReleaseForWindows(release)
-    asset_name = "php-" .. release.version .. "-win-x64.zip"
-    download_url = release.url .. asset_name
-
+function get_release_for_windows(release)
+    -- Download from GitHub php-src releases
     return {
         version = release.version,
         url = download_url,
     }
 end
 
-function GetReleaseForLinux(release)
-    -- asset_name = "php-" .. release.version .. ".tar.gz"
-    -- download_url = release.url .. asset_name
-
+function get_release_for_linux(release)
+    -- Download from GitHub php-src releases
     return {
         version = release.version,
-        -- url = download_url, -- PHP-Build will be download.
+        url = "https://github.com/php/php-src/archive/php-" .. version .. ".tar.gz",
     }
 end
 
-function InstallDependencies()
+function install_dependencies()
     os.execute('chmod +x ' .. RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh')
     local ok, code, out = util.run_cmd(RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh')
     if not ok then

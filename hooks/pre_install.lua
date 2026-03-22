@@ -45,7 +45,7 @@ function get_release_for_linux(release)
     -- Download from GitHub php-src releases
     return {
         version = release.version,
-        url = "https://github.com/php/php-src/archive/php-" .. version .. ".tar.gz",
+        url = "https://github.com/php/php-src/archive/php-" .. release.version .. ".tar.gz",
     }
 end
 

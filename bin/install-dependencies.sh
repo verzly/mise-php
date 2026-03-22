@@ -50,8 +50,8 @@ case $DISTRO in
 			# libmcrypt alternative from rhel 10 # https://stackoverflow.com/questions/41272257/mcrypt-is-deprecated-what-is-the-alternative
 			$SUDO dnf install -y libsodium-devel
 		fi
-		$SUDO dnf groupinstall "Development Tools"
-    $SUDO dnf install autoconf bison re2c pkgconfig \
+		$SUDO dnf groupinstall -y "Development Tools"
+    $SUDO dnf install -y autoconf bison re2c pkgconfig \
       libxml2-devel openssl-devel libicu-devel libzip-devel oniguruma-devel \
       libcurl-devel libpng-devel libjpeg-devel freetype-devel \
       libwebp-devel gmp-devel readline-devel bzip2-devel # libsodium-devel

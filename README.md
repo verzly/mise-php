@@ -17,9 +17,13 @@ On Windows, we can work quickly using precompiled binaries.
 
 For Linux and macOS systems, precompiling for each system is time-consuming, so the `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `/bin/install-dependencies.sh`, which the system runs automatically.
 
+### Cleanup
+
+Before starting the process, it is recommended to make sure that no PHP or Composer installations exist on your system from other sources. If there are, it is advisable to remove them, as from this point onward, `verzly/mise-php` will be responsible for providing access to the PHP and Composer executables.
+
 ## Get started
 
-To install PHP versions on any operating system using the verzly/mise-php plugin, you first need a one-time setup.
+To install PHP versions on any operating system using the `verzly/mise-php` plugin, you first need a one-time setup.
 
 ```none
 # Install the plugin
@@ -114,6 +118,24 @@ composer self-update --snapshot
 
 # Check current Composer version
 composer --version
+```
+
+Have you used Composer before installing verzly/mise-php? Check for and remove any unnecessary Composer binaries.
+
+```none
+# Linux / macOS
+type -a composer
+
+sudo rm -f /path/to/composer
+# Do NOT remove the verzly/mise-php Composer:
+# ~/.local/share/mise/installs/php/8.5.4/bin/composer
+
+# Windows (PowerShell)
+Get-Command composer -All
+
+Remove-Item "C:\path\to\composer.exe" -Force
+# Do NOT remove the verzly/mise-php Composer:
+# %LOCALAPPDATA%\mise\shims\composer.exe
 ```
 
 ## Contributing

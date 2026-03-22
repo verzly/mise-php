@@ -163,21 +163,33 @@ function install_php_for_linux(sdkPath, version)
     print("PHP installation complete!")
 end
 
---- Install Composer
 function install_composer(sdkPath)
     print("Installing Composer...")
 
+    local sep = package.config:sub(1,1)
+    local function join_path(...)
+        local args = {...}
+        return table.concat(args, sep)
+    end
+
+    local php_bin
+    local composer_setup = join_path(sdkPath, "composer-setup.php")
+    local install_dir
+
     if RUNTIME.osType == 'windows' then
-        php_bin = '"' .. sdkPath .. '\\current\\php.exe"'
-        composer_setup = sdkPath .. "\\composer-setup.php"
+        php_bin = '"' .. join_path(sdkPath, "php.exe") .. '"'
+        install_dir = sdkPath
     else
-        php_bin = sdkPath .. "/bin/php"
-        composer_setup = sdkPath .. "/composer-setup.php"
+        php_bin = join_path(sdkPath, "bin", "php")
+        install_dir = join_path(sdkPath, "bin")
     end
 
     -- Download installer
-    local download_cmd =
-        string.format("%s -r \"copy('https://getcomposer.org/installer', '%s/composer-setup.php');\"", php_bin, sdkPath)
+    local download_cmd = string.format(
+        '%s -r "copy(\'https://getcomposer.org/installer\', \'%s\');"',
+        php_bin,
+        composer_setup
+    )
     local status = os.execute(download_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write("Warning: Failed to download Composer installer\n")
@@ -185,26 +197,21 @@ function install_composer(sdkPath)
     end
 
     -- Verify and install
-    if RUNTIME.osType == 'windows' then
-        install_cmd = string.format(
-            '%s "%s" --install-dir="%s\\current" --filename=composer',
-            php_bin,
-            composer_setup,
-            sdkPath
-        )
-    else
-        install_cmd = string.format(
-            "%s '%s' --install-dir='%s/bin' --filename=composer",
-            php_bin,
-            composer_setup,
-            sdkPath
-        )
-    end
+    local install_cmd = string.format(
+        '%s "%s" --install-dir="%s" --filename=composer',
+        php_bin,
+        composer_setup,
+        install_dir
+    )
     status = os.execute(install_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write("Warning: Failed to install Composer\n")
     end
 
     -- Cleanup
-    os.remove(sdkPath .. "/composer-setup.php")
+    if os.remove(composer_setup) == nil then
+        io.stderr:write("Warning: Could not remove composer-setup.php\n")
+    end
+
+    print("Composer installation complete!")
 end

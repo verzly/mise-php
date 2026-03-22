@@ -1,0 +1,117 @@
+name: Update PHP Versions
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-versions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout default branch (for repo access)
+        uses: actions/checkout@v4
+
+      - name: Setup cache branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch origin cache 2>/dev/null || true
+
+          if git ls-remote --exit-code origin cache > /dev/null 2>&1; then
+            git checkout cache
+          else
+            echo "Cache branch does not exist, creating orphan..."
+            git checkout --orphan cache
+            git rm -rf . > /dev/null 2>&1 || true
+            git clean -fd > /dev/null 2>&1 || true
+            touch versions.txt
+            git add versions.txt
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "chore: init cache branch"
+            git push origin cache
+          fi
+
+      - name: Fetch PHP versions from GitHub API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 << 'EOF'
+          import urllib.request
+          import json
+          import re
+
+          def fetch_tags():
+              tags = []
+              page = 1
+              per_page = 100
+
+              while page <= 20:
+                  url = f"https://api.github.com/repos/php/php-src/tags?per_page={per_page}&page={page}"
+                  req = urllib.request.Request(url, headers={
+                      "Accept": "application/vnd.github.v3+json",
+                      "User-Agent": "php-version-tracker",
+                      "Authorization": f"Bearer ${{ env.GH_TOKEN }}",
+                  })
+
+                  with urllib.request.urlopen(req) as resp:
+                      batch = json.loads(resp.read())
+
+                  if not batch:
+                      break
+
+                  tags.extend(batch)
+                  page += 1
+
+                  if len(batch) < per_page:
+                      break
+
+              return tags
+
+          def parse_version(name):
+              m = re.match(r'^php-([0-9]+\.[0-9]+\.\d+[\w\-]*)$', name)
+              return m.group(1) if m else None
+
+          def version_key(v):
+              m = re.match(r'^(\d+)\.(\d+)\.(\d+)(.*)', v)
+              if not m:
+                  return (0, 0, 0, '')
+              major, minor, patch, suffix = int(m[1]), int(m[2]), int(m[3]), m[4]
+              suffix_order = 0 if not suffix else -1
+              return (major, minor, patch, suffix_order)
+
+          tags = fetch_tags()
+
+          seen = set()
+          versions = []
+          for tag in tags:
+              v = parse_version(tag["name"])
+              if v and v not in seen:
+                  seen.add(v)
+                  versions.append(v)
+
+          versions.sort(key=version_key, reverse=True)
+
+          with open("versions.txt", "w") as f:
+              f.write("\n".join(versions) + "\n")
+
+          print(f"Fetched {len(versions)} versions.")
+          EOF
+
+      - name: Commit to cache branch if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add versions.txt
+
+          if git diff --cached --quiet; then
+            echo "No changes, skipping commit."
+          else
+            ADDED=$(git diff --cached --numstat versions.txt | awk '{print $1}')
+            git commit -m "chore: bump php versions cache (+${ADDED} lines)"
+            git push origin cache
+          fi

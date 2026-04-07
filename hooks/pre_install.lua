@@ -72,17 +72,17 @@ function openssl_check_for_linux(release)
 
     if (openssl_too_new == true or openssl_too_new == 0) and php_too_old then
        error(
-    "\n\nFailed to prepare PHP installation.\n\n" ..
-    "Requested PHP version: \27[93m" .. release.version .. "\27[0m\n\n" ..
-    "💡 Tip: \27[93mPHP versions below 8.1 are not compatible with OpenSSL versions newer than 1.1 on this system.\27[0m\n\n" ..
-    "Quick workaround for PHP 7.4.x and 8.0.x with OpenSSL 3:\n" ..
-    "1. Open \27[93mext/openssl/openssl.c\27[0m\n" ..
-    "2. Remove or comment out:\n" ..
-    "   \27[93mREGISTER_LONG_CONSTANT(\"OPENSSL_SSLV23_PADDING\", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);\27[0m\n" ..
-    "3. Re-run the build\n\n" ..
-    "Note: this is only a best-effort workaround and full compatibility is not guaranteed.\n" ..
-    "Recommended: use PHP 8.1 or newer, or build this PHP version against OpenSSL 1.1 instead.\n"
-)
+          "\n\nFailed to prepare PHP installation.\n\n" ..
+          "Requested PHP version: \27[93m" .. release.version .. "\27[0m\n\n" ..
+          "💡 Tip: \27[93mPHP versions below 8.1 are not compatible with OpenSSL versions newer than 1.1 on this system.\27[0m\n\n" ..
+          "Quick workaround for PHP 7.4.x and 8.0.x with OpenSSL 3:\n" ..
+          "1. Open \27[93mext/openssl/openssl.c\27[0m\n" ..
+          "2. Remove or comment out:\n" ..
+          "   \27[93mREGISTER_LONG_CONSTANT(\"OPENSSL_SSLV23_PADDING\", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);\27[0m\n" ..
+          "3. Re-run the build\n\n" ..
+          "Note: this is only a best-effort workaround and full compatibility is not guaranteed.\n" ..
+          "Recommended: use PHP 8.1 or newer, or build this PHP version against OpenSSL 1.1 instead.\n"
+      )
     end
 end
 

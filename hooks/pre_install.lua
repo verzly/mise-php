@@ -25,11 +25,64 @@ function PLUGIN:PreInstall(ctx)
         error("Version not found: " .. version)
     end
 
-    if RUNTIME.osType == 'windows' then
+    if RUNTIME.osType == "windows" then
         return get_release_for_windows(release)
-    else
-        install_dependencies()
-        return get_release_for_linux(release)
+    end
+
+    version_check_for_linux(release)
+    
+    print(
+        "\27[93mWarning:\27[0m " ..
+        "You will see a lot of console output during installation because PHP is built from source " ..
+        "to produce a PHP executable compatible with your system.\n"
+    )
+    os.execute("sleep 3")
+
+    install_dependencies()
+    return get_release_for_linux(release)
+end
+
+function version_check_for_linux(release)
+    openssl_check_for_linux(release) --- PHP 8.1+ with OpenSSL 3 (OK) | PHP 7 with OpenSSL 3 (BAD)
+end
+
+function openssl_check_for_linux(release)
+    local openssl_too_new = os.execute([[
+        sh -c '
+            v="$(openssl version 2>/dev/null | awk "{print \$2}")"
+            major="${v%%.*}"
+            rest="${v#*.}"
+            minor="${rest%%.*}"
+
+            if [ -n "$major" ] && [ -n "$minor" ]; then
+                if [ "$major" -gt 1 ] || { [ "$major" -eq 1 ] && [ "$minor" -gt 1 ]; }; then
+                    exit 0
+                fi
+            fi
+
+            exit 1
+        '
+    ]])
+
+    local php_major, php_minor = string.match(release.version, "^(%d+)%.(%d+)")
+    php_major = tonumber(php_major) or 0
+    php_minor = tonumber(php_minor) or 0
+
+    local php_too_old = (php_major < 8) or (php_major == 8 and php_minor < 1)
+
+    if (openssl_too_new == true or openssl_too_new == 0) and php_too_old then
+       error(
+    "\n\nFailed to prepare PHP installation.\n\n" ..
+    "Requested PHP version: \27[93m" .. release.version .. "\27[0m\n\n" ..
+    "💡 Tip: \27[93mPHP versions below 8.1 are not compatible with OpenSSL versions newer than 1.1 on this system.\27[0m\n\n" ..
+    "Quick workaround for PHP 7.4.x and 8.0.x with OpenSSL 3:\n" ..
+    "1. Open \27[93mext/openssl/openssl.c\27[0m\n" ..
+    "2. Remove or comment out:\n" ..
+    "   \27[93mREGISTER_LONG_CONSTANT(\"OPENSSL_SSLV23_PADDING\", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);\27[0m\n" ..
+    "3. Re-run the build\n\n" ..
+    "Note: this is only a best-effort workaround and full compatibility is not guaranteed.\n" ..
+    "Recommended: use PHP 8.1 or newer, or build this PHP version against OpenSSL 1.1 instead.\n"
+)
     end
 end
 
@@ -51,10 +104,28 @@ end
 
 function install_dependencies()
     print("Installing dependencies...")
+
     local path = RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh'
-    os.execute('chmod +x ' .. path)
-    status = os.execute(path)
+    os.execute('chmod +x "' .. path .. '"')
+
+    local has_sudo = os.execute('command -v sudo >/dev/null 2>&1')
+    if has_sudo == true or has_sudo == 0 then
+        local sudo_ready = os.execute('sudo -n -v >/dev/null 2>&1')
+        if sudo_ready ~= true and sudo_ready ~= 0 then
+            error(
+                "\n\nFailed to install PHP build dependencies.\n\n" ..
+                "💡 Tip: \27[93mRun 'sudo -v' manually first, then restart the installation.\27[0m\n\n" ..
+                "This step requires an already authenticated sudo session.\n"
+            )
+        end
+    end
+
+    local status = os.execute('sh "' .. path .. '"')
     if status ~= 0 and status ~= true then
-        error("Failed to install dependencies")
+        error(
+            "\n\nFailed to install PHP build dependencies.\n\n" ..
+            "💡 Tip: \27[93mThe dependency installation command failed.\27[0m " ..
+            "Check the output above, fix the reported issue, and restart the installation.\n"
+        )
     end
 end

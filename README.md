@@ -138,6 +138,74 @@ Remove-Item "C:\path\to\composer.exe" -Force
 # %LOCALAPPDATA%\mise\shims\composer.exe
 ```
 
+## Debugging
+
+### PHP_VERBOSE=1 - mise-php debug output
+
+By default, build output is hidden. Set `PHP_VERBOSE=1` to see the full output of
+dependency installation, `buildconf`, `configure`, `make`, and Composer installation.
+
+```sh
+PHP_VERBOSE=1 mise install php@8.4.3
+```
+
+### MISE_VERBOSE=1 - mise-en-place debug output
+
+`MISE_VERBOSE` enables verbose output for the mise-en-place tool itself (plugin downloads,
+file handling, hook execution). It does not affect PHP build output.
+
+```sh
+MISE_VERBOSE=1 mise install php@8.4.3
+```
+
+Both can be combined:
+
+```sh
+PHP_VERBOSE=1 MISE_VERBOSE=1 mise install php@8.4.3
+```
+
+## Known Issues
+
+### WSL: Windows PATH exposure
+
+WSL exposes Windows PATH entries inside Linux by default, which can cause the installer
+to pick up a Windows PHP binary (`/mnt/c/...`) or hang waiting for it.
+
+Add the following to `/etc/wsl.conf` and restart WSL:
+
+```ini
+[interop]
+appendWindowsPath=false
+```
+
+```sh
+printf '\n[interop]\nappendWindowsPath=false\n' | sudo tee -a /etc/wsl.conf
+```
+
+Then from Windows PowerShell:
+
+```powershell
+wsl --shutdown
+```
+
+### PHP 8.0 and older: OpenSSL incompatibility (Linux and macOS only)
+
+PHP versions below 8.1 are not compatible with OpenSSL 3.x, which ships by default
+on most modern Linux distributions.
+
+**Recommended:** use PHP 8.1 or newer.
+
+**Workaround for PHP 7.4.x / 8.0.x:**
+
+1. Open `ext/openssl/openssl.c`
+2. Remove or comment out:
+   ```c
+   REGISTER_LONG_CONSTANT("OPENSSL_SSLV23_PADDING", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);
+   ```
+3. Re-run the build
+
+Full compatibility is not guaranteed. Building against OpenSSL 1.1 is the only reliable solution.
+
 ## Contributing
 
 ```none

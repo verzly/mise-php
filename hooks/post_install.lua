@@ -122,6 +122,14 @@ function install_php_for_linux(sdkPath, version)
     local envPrefix = ""
     local configureOptions = "--prefix='" .. sdkPath .. "'"
 
+    -- Verbose
+    local verbose = os.getenv("PHP_VERBOSE") ~= nil
+    local quiet = verbose and "" or " > /dev/null 2>&1"
+
+    if not verbose then
+        print("\27[96mNote:\27[0m Build output is hidden. Set PHP_VERBOSE=1 to see full output.")
+    end
+
     -- Common configure options
     local commonOptions = [[
         --enable-bcmath
@@ -179,35 +187,47 @@ function install_php_for_linux(sdkPath, version)
 
     -- Run buildconf
     print("Running buildconf...")
-    local buildconfCmd = string.format("cd '%s' && ./buildconf --force", sdkPath)
+    local buildconfCmd = string.format("cd '%s' && ./buildconf --force" .. quiet, sdkPath)
     local status = os.execute(buildconfCmd)
     if status ~= 0 and status ~= true then
-        error("Failed to run buildconf")
+        error(
+            "\n\nFailed to run buildconf.\n\n" ..
+            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+        )
     end
 
     -- Run configure
     print("Configuring PHP with options...")
-    local configureCmd = string.format("cd '%s' && %s./configure %s", sdkPath, envPrefix, configureOptions)
+    local configureCmd = string.format("cd '%s' && %s./configure %s" .. quiet, sdkPath, envPrefix, configureOptions)
     status = os.execute(configureCmd)
     if status ~= 0 and status ~= true then
-        error("Failed to configure PHP")
+        error(
+            "\n\nFailed to configure PHP.\n\n" ..
+            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+        )
     end
 
     -- Build PHP
     print("Building PHP (this may take several minutes)...")
     local makeCmd =
-        string.format("cd '%s' && make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)", sdkPath)
+        string.format("cd '%s' && make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. quiet, sdkPath)
     status = os.execute(makeCmd)
     if status ~= 0 and status ~= true then
-        error("Failed to build PHP")
+        error(
+            "\n\nFailed to build PHP.\n\n" ..
+            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+        )
     end
 
     -- Install PHP
     print("Installing PHP...")
-    local installCmd = string.format("cd '%s' && make install", sdkPath)
+    local installCmd = string.format("cd '%s' && make install" .. quiet, sdkPath)
     status = os.execute(installCmd)
     if status ~= 0 and status ~= true then
-        error("Failed to install PHP")
+        error(
+            "\n\nFailed to install PHP.\n\n" ..
+            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+        )
     end
 
     -- Create conf.d directory
@@ -402,6 +422,15 @@ function install_composer(sdkPath)
 end
 
 function install_composer_for_windows(sdkPath)
+    -- Verbose
+    local verbose = os.getenv("PHP_VERBOSE") ~= nil
+    local quiet = verbose and "" or " | Out-Null"
+
+    if not verbose then
+        print("\27[96mNote:\27[0m Composer installation output is hidden. Set PHP_VERBOSE=1 to see full output.")
+    end
+
+    -- Install Composer
     local sep = package.config:sub(1,1)
     local function join_path(...)
         return table.concat({...}, sep)
@@ -411,12 +440,15 @@ function install_composer_for_windows(sdkPath)
     local composer_bat  = join_path(sdkPath, "composer.bat")
 
     local dl_cmd = string.format(
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://getcomposer.org/composer-stable.phar -OutFile \'%s\'"',
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://getcomposer.org/composer-stable.phar -OutFile \'%s\'"' .. quiet,
         composer_phar
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
-        io.stderr:write("Warning: Failed to download Composer\n")
+        io.stderr:write(
+            "\27[91mError:\27[0m Failed to download Composer.\n" ..
+            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. (version or "VERSION") .. "'\27[0m to see the full output.\n"
+        )
         return
     end
 
@@ -429,6 +461,15 @@ function install_composer_for_windows(sdkPath)
 end
 
 function install_composer_for_linux(sdkPath)
+    -- Verbose
+    local verbose = os.getenv("PHP_VERBOSE") ~= nil
+    local quiet = verbose and "" or " > /dev/null 2>&1"
+
+    if not verbose then
+        print("\27[96mNote:\27[0m Composer installation output is hidden. Set PHP_VERBOSE=1 to see full output.")
+    end
+    
+    -- Install Composer
     local sep = package.config:sub(1,1)
     local function join_path(...)
         return table.concat({...}, sep)
@@ -439,22 +480,27 @@ function install_composer_for_linux(sdkPath)
     local install_dir    = join_path(sdkPath, "bin")
 
     local dl_cmd = string.format(
-        '%s -r "copy(\'https://getcomposer.org/installer\', \'%s\');"',
+        '%s -r "copy(\'https://getcomposer.org/installer\', \'%s\');"' .. quiet,
         php_bin, composer_setup
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
-        io.stderr:write("Warning: Failed to download Composer installer\n")
-        return
+        io.stderr:write(
+            "\27[91mError:\27[0m Failed to install Composer.\n" ..
+            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. (version or "VERSION") .. "'\27[0m to see the full output.\n"
+        )
     end
 
     local install_cmd = string.format(
-        '%s "%s" --install-dir="%s" --filename=composer',
+        '%s "%s" --install-dir="%s" --filename=composer' .. quiet,
         php_bin, composer_setup, install_dir
     )
     status = os.execute(install_cmd)
     if status ~= 0 and status ~= true then
-        io.stderr:write("Warning: Failed to install Composer\n")
+        io.stderr:write(
+            "\27[91mError:\27[0m Failed to install Composer.\n" ..
+            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. (version or "VERSION") .. "'\27[0m to see the full output.\n"
+        )
     end
 
     os.remove(composer_setup)

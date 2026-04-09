@@ -1,7 +1,27 @@
 # verzly/mise-php
 
+![verzly-mise-php-example](https://github.com/user-attachments/assets/c57759f1-0ffc-4175-b96a-ca259a9c814d)
+
 > [!IMPORTANT]
-> The plugin requires a MISE installation to be used. <a href="https://github.com/jdx/mise#quickstart" target="_blank">Go to Quickstart</a>
+> The plugin requires a [jdx/mise](https://github.com/jdx/mise) installation to be used. <a href="https://mise.jdx.dev/getting-started.html" target="_blank">Go to install guide</a>
+>
+> ```none
+> # Linux or macOS
+> curl https://mise.run | sh
+>
+> # Windows
+> winget install jdx.mise
+> ```
+>
+> Activation in your shell profile is required for global use and for registering commands. <a href="https://mise.jdx.dev/getting-started.html#activate-mise" target="_blank">Go to activate guide</a>
+>
+> ```none
+> # Linux or macOS
+> echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc
+>
+> # Windows
+> (&mise activate pwsh) | Out-String | Invoke-Expression
+> ```
 
 ## How does it differ from the other mise-php plugins?
 
@@ -145,7 +165,7 @@ Remove-Item "C:\path\to\composer.exe" -Force
 By default, build output is hidden. Set `PHP_VERBOSE=1` to see the full output of
 dependency installation, `buildconf`, `configure`, `make`, and Composer installation.
 
-```sh
+```none
 PHP_VERBOSE=1 mise install php@8.4.3
 ```
 
@@ -154,13 +174,13 @@ PHP_VERBOSE=1 mise install php@8.4.3
 `MISE_VERBOSE` enables verbose output for the mise-en-place tool itself (plugin downloads,
 file handling, hook execution). It does not affect PHP build output.
 
-```sh
+```none
 MISE_VERBOSE=1 mise install php@8.4.3
 ```
 
 Both can be combined:
 
-```sh
+```none
 PHP_VERBOSE=1 MISE_VERBOSE=1 mise install php@8.4.3
 ```
 
@@ -178,13 +198,13 @@ Add the following to `/etc/wsl.conf` and restart WSL:
 appendWindowsPath=false
 ```
 
-```sh
+```none
 printf '\n[interop]\nappendWindowsPath=false\n' | sudo tee -a /etc/wsl.conf
 ```
 
 Then from Windows PowerShell:
 
-```powershell
+```none
 wsl --shutdown
 ```
 

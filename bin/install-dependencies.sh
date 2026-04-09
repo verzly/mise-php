@@ -9,6 +9,8 @@ if [ -f /etc/debian_version ]; then
 	DISTRO=debian
 elif [ -f /etc/redhat-release ]; then
 	DISTRO=rhel
+elif [ -f /etc/arch-release ]; then
+	DISTRO=arch
 elif [ "$(uname -s)" = "Darwin" ]; then
 	DISTRO=darwin
 else
@@ -16,7 +18,7 @@ else
 	exit 1
 fi
 
-if command -v sudo; then
+if command -v sudo > /dev/null 2>&1; then
 	SUDO=sudo
 else
 	SUDO=
@@ -37,10 +39,7 @@ case "$DISTRO" in
 		$SUDO dnf install -y yum-utils epel-release
 
 		case "${VERSION_ID:-}" in
-			8*)
-				$SUDO dnf install -y libmcrypt-devel
-				;;
-			9*)
+			8*|9*)
 				$SUDO dnf install -y libmcrypt-devel
 				;;
 			*)
@@ -55,6 +54,14 @@ case "$DISTRO" in
 			libcurl-devel libpng-devel libjpeg-devel freetype-devel \
 			libwebp-devel gmp-devel readline-devel bzip2-devel \
 			sqlite-devel gd-devel
+		;;
+	arch)
+		$SUDO pacman -Sy --noconfirm --needed \
+			base-devel autoconf bison re2c pkgconf \
+			libxml2 openssl icu libzip oniguruma \
+			curl libpng libjpeg-turbo freetype2 \
+			libwebp gmp libsodium readline bzip2 \
+			sqlite gd
 		;;
 	darwin)
 		xcode-select --install 2>/dev/null || true

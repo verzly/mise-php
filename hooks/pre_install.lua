@@ -32,11 +32,11 @@ function PLUGIN:PreInstall(ctx)
     version_check_for_linux(release)
     
     print(
-        "\27[93mWarning:\27[0m " ..
-        "You will see a lot of console output during installation because PHP is built from source " ..
-        "to produce a PHP executable compatible with your system.\n"
+        "\27[96mNote:\27[0m " ..
+        "PHP will be compiled from source for your system. " ..
+        "Required build dependencies will be installed automatically. " ..
+        "See: https://github.com/verzly/mise-php/blob/master/bin/install-dependencies.sh"
     )
-    os.execute("sleep 3")
 
     install_dependencies()
     return get_release_for_linux(release)
@@ -103,6 +103,14 @@ function get_release_for_linux(release)
 end
 
 function install_dependencies()
+    -- Verbose
+    local verbose = os.getenv("PHP_VERBOSE") ~= nil
+    local quiet = verbose and "" or " > /dev/null 2>&1"
+
+    if not verbose then
+        print("\27[96mNote:\27[0m Dependency installation output is hidden. Set PHP_VERBOSE=1 to see full output.")
+    end
+    
     print("Installing dependencies...")
 
     local path = RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh'
@@ -120,7 +128,7 @@ function install_dependencies()
         end
     end
 
-    local status = os.execute('sh "' .. path .. '"')
+    local status = os.execute('sh "' .. path .. '"' .. quiet)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to install PHP build dependencies.\n\n" ..

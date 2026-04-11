@@ -363,6 +363,7 @@ function configure_macos(configureOptions, homebrew_prefix)
     end
 
     -- Optional packages with configure flags
+    -- extra_flags: LDFLAGS/CPPFLAGS needed for keg-only packages without .pc files
     local optional_packages = {
         { name = "gmp", flag = "--with-gmp" },
         { name = "libsodium", flag = "--with-sodium" },
@@ -373,9 +374,12 @@ function configure_macos(configureOptions, homebrew_prefix)
         { name = "libpng", flag = "--with-png" },
         { name = "readline", flag = "--with-readline" },
         { name = "bzip2", flag = "--with-bz2" },
-        { name = "libiconv", flag = "--with-iconv" },
+        { name = "libiconv", flag = "--with-iconv", extra_flags = true },
         { name = "libpq", flag = "--with-pdo-pgsql" },
     }
+
+    local ldflags = {}
+    local cppflags = {}
 
     for _, pkg in ipairs(optional_packages) do
         local pkg_path = homebrew_prefix .. "/opt/" .. pkg.name
@@ -383,9 +387,26 @@ function configure_macos(configureOptions, homebrew_prefix)
         if f ~= nil then
             f:close()
             configureOptions = configureOptions .. " " .. pkg.flag .. "='" .. pkg_path .. "'"
+            if pkg.extra_flags then
+                table.insert(ldflags, "-L" .. pkg_path .. "/lib")
+                table.insert(cppflags, "-I" .. pkg_path .. "/include")
+            end
         else
             io.stderr:write("Info: " .. pkg.name .. " not found, skipping " .. pkg.flag .. "\n")
         end
+    end
+
+    if #ldflags > 0 then
+        local existing = os.getenv("LDFLAGS") or ""
+        local val = table.concat(ldflags, " ")
+        if existing ~= "" then val = val .. " " .. existing end
+        envPrefix = envPrefix .. 'export LDFLAGS="' .. val .. '" && '
+    end
+    if #cppflags > 0 then
+        local existing = os.getenv("CPPFLAGS") or ""
+        local val = table.concat(cppflags, " ")
+        if existing ~= "" then val = val .. " " .. existing end
+        envPrefix = envPrefix .. 'export CPPFLAGS="' .. val .. '" && '
     end
 
     -- Add external-gd if we have the dependencies

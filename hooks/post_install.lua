@@ -113,10 +113,19 @@ function install_php_for_windows(sdkPath, version)
         error("Failed to install PHP")
     end
 
+    -- Verify PHP installation
+    local php_bin = sdkPath .. "\\php.exe"
+    local ok, why, code = os.execute('"' .. php_bin .. '" --version > NUL 2>&1')
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+        error(
+            "\n\nPHP installation appears to be broken: 'php --version' failed.\n\n" ..
+            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+        )
+    end
+    print("PHP installation complete!")
+
     -- Install Composer
     install_composer(sdkPath)
-
-    print("PHP installation complete!")
 end
 
 function install_php_for_linux(sdkPath, version)
@@ -244,6 +253,18 @@ function install_php_for_linux(sdkPath, version)
         confFile:close()
     end
 
+    -- Verify PHP installation
+    local php_bin = sdkPath .. "/bin/php"
+    local ok, why, code = os.execute('"' .. php_bin .. '" --version > /dev/null 2>&1')
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+        error(
+            "\n\nPHP installation appears to be broken: 'php --version' failed.\n\n" ..
+            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+        )
+    end
+
+    print("PHP installation complete!")
+
     -- Install Composer
     install_composer(sdkPath)
 
@@ -254,8 +275,6 @@ function install_php_for_linux(sdkPath, version)
         sdkPath
     )
     os.execute(cleanCmd)
-
-    print("PHP installation complete!")
 end
 
 --- Configure options for macOS with Homebrew
@@ -454,11 +473,21 @@ function install_composer_for_windows(sdkPath)
         return
     end
 
+    local php_bin = join_path(sdkPath, "php.exe")
     local bat = io.open(composer_bat, "w")
     if bat then
         bat:write('@echo off\r\n')
-        bat:write(string.format('"%s" "%%~dp0composer.phar" %%*\r\n', join_path(sdkPath, "php.exe")))
+        bat:write(string.format('"%s" "%%~dp0composer.phar" %%*\r\n', php_bin))
         bat:close()
+    end
+
+    -- Verify Composer installation
+    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. composer_phar .. '" --version > NUL 2>&1')
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+        io.stderr:write(
+            "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..
+            "💡 Tip: \27[93mRun 'composer --version'\27[0m manually after installation to confirm it works.\n"
+        )
     end
 end
 
@@ -502,4 +531,14 @@ function install_composer_for_linux(sdkPath)
     end
 
     os.remove(composer_setup)
+
+    -- Verify Composer installation
+    local composer_bin = install_dir .. "/composer"
+    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. composer_bin .. '" --version > /dev/null 2>&1')
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+        io.stderr:write(
+            "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..
+            "💡 Tip: \27[93mRun 'composer --version'\27[0m manually after installation to confirm it works.\n"
+        )
+    end
 end

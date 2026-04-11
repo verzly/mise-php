@@ -503,8 +503,8 @@ function install_composer_for_linux(sdkPath)
     local install_dir    = join_path(sdkPath, "bin")
 
     local dl_cmd = string.format(
-        '%s -r "copy(\'https://getcomposer.org/installer\', \'%s\');"' .. QUIET,
-        php_bin, composer_setup
+        'curl -fsSL https://getcomposer.org/installer -o "%s"' .. QUIET,
+        composer_setup
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then

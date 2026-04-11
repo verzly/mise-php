@@ -158,6 +158,20 @@ Remove-Item "C:\path\to\composer.exe" -Force
 # %LOCALAPPDATA%\mise\shims\composer.exe
 ```
 
+## Advanced
+
+### PHP_SKIP_DEPS=1 - skip dependency installation
+
+By default, the plugin automatically installs required build dependencies before
+compiling PHP. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
+
+```none
+PHP_SKIP_DEPS=1 mise install php@8.4.3
+```
+
+Useful when dependencies are already present or managed externally
+(e.g. CI environments, containers, custom setups).
+
 ## Debugging
 
 ### PHP_VERBOSE=1 - mise-php debug output

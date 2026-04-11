@@ -1,6 +1,7 @@
 --- Returns pre-install information for PHP
 --- @param ctx table Context provided by vfox
 --- @return table Pre-install info
+local SKIP_DEPS  = os.getenv("PHP_SKIP_DEPS") ~= nil
 function PLUGIN:PreInstall(ctx)
     local version = ctx.version
     local releases = self:Available({})
@@ -38,7 +39,12 @@ function PLUGIN:PreInstall(ctx)
         "See: https://github.com/verzly/mise-php/blob/master/bin/install-dependencies.sh"
     )
 
-    install_dependencies()
+    if SKIP_DEPS then
+        print("\27[96mNote:\27[0m Skipping dependency installation (PHP_SKIP_DEPS is set).")
+    else
+        install_dependencies()
+    end
+    
     return get_release_for_linux(release)
 end
 

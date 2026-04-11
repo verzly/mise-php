@@ -1,0 +1,32 @@
+local env = require("env")
+
+--- Returns environment variables to set when this plugin is active
+--- Documentation: https://mise.jdx.dev/env-plugin-development.html#miseenv-hook
+--- @param ctx {options: table} Context (options = plugin configuration from mise.toml)
+--- @return table[] List of environment variable definitions with key/value pairs
+function PLUGIN:MiseEnv(ctx)
+    local options = ctx.options or {}
+    -- object for child process envs
+    local env_vars = {}
+
+    if options.skip_deps == true or options.skip_deps == "true" or options.skip_deps == "1" then
+        -- for current process
+        env.setenv("PHP_SKIP_DEPS", 1)
+        -- for child process
+        -- table.insert(env_vars, { key = "PHP_SKIP_DEPS", value = "1" })    
+    end
+
+    if options.verbose == true or options.verbose == "true" or options.verbose == "1" then
+      e nv.setenv("PHP_VERBOSE", 1)
+    end
+
+    if options.extra_configure_options ~= nil and options.extra_configure_options ~= "" and options.extra_configure_options ~= false then
+        env.setenv("PHP_EXTRA_CONFIGURE_OPTIONS", tostring(options.extra_configure_options))
+    end
+
+    if options.configure_options ~= nil and options.configure_options ~= "" and options.configure_options ~= false then
+        env.setenv("PHP_CONFIGURE_OPTIONS", tostring(options.configure_options))
+    end
+
+    return env_vars
+end

@@ -5,7 +5,7 @@
 > [!IMPORTANT]
 > The plugin requires a [jdx/mise](https://github.com/jdx/mise) installation to be used. <a href="https://mise.jdx.dev/getting-started.html" target="_blank">Go to install guide</a>
 >
-> ```none
+> ```sh
 > # Linux or macOS
 > curl https://mise.run | sh
 >
@@ -15,7 +15,7 @@
 >
 > Activation in your shell profile is required for global use and for registering commands. <a href="https://mise.jdx.dev/getting-started.html#activate-mise" target="_blank">Go to activate guide</a>
 >
-> ```none
+> ```sh
 > # Linux or macOS
 > echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc
 >
@@ -45,7 +45,7 @@ Before starting the process, it is recommended to make sure that no PHP or Compo
 
 To install PHP versions on any operating system using the `verzly/mise-php` plugin, you first need a one-time setup.
 
-```none
+```sh
 # Install the plugin
 mise plugin install php https://github.com/verzly/mise-php
 
@@ -59,11 +59,23 @@ mise use php@7.3
 
 Once the plugin is installed, you can [start managing PHP versions](#usage).
 
+> [!TIP]
+> Once PHP is installed and dependencies are in place, you can permanently skip the dependency installation step on future installs.<br>
+> See [Skip dependency installation](#skip-dependency-installation) for details.
+>
+> ```sh
+> # First install
+> mise use -g php@latest
+>
+> # Disable dependency installation for future installs
+> mise config set env._.php.skip_deps true
+> ```
+
 ### Up-to-date
 
 These are stable versions, but plugin updates may occur, which you can later install with a single command.
 
-```none
+```sh
 # Upgrade plugin to latest version instantly
 mise plugin upgrade php
 ```
@@ -76,7 +88,7 @@ After installing the plugin, Mise enables the installation of packages named php
 
 You can install multiple PHP versions simultaneously. You can select a version to use globally, but you can also specify project-specific versions for individual projects. We work with official PHP releases - anything released on php.net can be installed.
 
-```none
+```sh
 # Check available PHP versions
 mise ls-remote php
 
@@ -114,7 +126,7 @@ Each PHP version uses its own Composer binary, while sharing the global Composer
 > [!WARNING]
 > Global packages are not fully version-independent. If a package only supports a specific PHP range (e.g. 8.1-8.5), switching to an older PHP version (e.g. 8.0 or 7.4) may require reinstalling a compatible (older) version of that package.
 
-```none
+```sh
 # Latest Composer major
 composer self-update
 
@@ -142,7 +154,7 @@ composer --version
 
 Have you used Composer before installing verzly/mise-php? Check for and remove any unnecessary Composer binaries.
 
-```none
+```sh
 # Linux / macOS
 type -a composer
 
@@ -168,24 +180,46 @@ This plugin sets the following environment variables:
 | `PATH` | macOS, Linux | `<install_dir>/bin`, `<install_dir>/sbin` |
 | `LD_LIBRARY_PATH` | Linux only | `<install_dir>/lib` |
 
-### Custom configure options
+### Custom configure options (macOS and Linux)
 
 > [!Note]
 > On Windows, PHP is installed from prebuilt binaries from [windows.php.net](https://windows.php.net) - configure options do not apply.
 
 Add extra configure options on top of the defaults:
 
-```none
+```sh
+# One-time use
 PHP_EXTRA_CONFIGURE_OPTIONS="--with-pdo-sqlite" mise install php@8.4.3
+
+# Save permanently
+mise config set env._.php.extra_configure_options "--with-pdo-sqlite"
+# Subsequent installs will apply the extra configure options automatically
+mise install php@8.4.3
+
+# Remove saved value
+mise config set env._.php.extra_configure_options false
+# Default options will be used again
+mise install php@8.4.3
 ```
 
 Override all configure options (prefix is always preserved):
 
-```none
+```sh
+# One-time use
 PHP_CONFIGURE_OPTIONS="--with-openssl --enable-mbstring" mise install php@8.4.3
+
+# Save permanently
+mise config set env._.php.configure_options "--with-openssl --enable-mbstring"
+# Subsequent installs will use the custom configure options automatically
+mise install php@8.4.3
+
+# Remove saved value
+mise config set env._.php.configure_options false
+# Default options will be used again
+mise install php@8.4.3
 ```
 
-**Defaults (macOS and Linux):**
+#### Defaults
 
 ```none
 --enable-bcmath --enable-calendar --enable-dba --enable-exif --enable-fpm
@@ -217,8 +251,19 @@ The following options are additionally detected based on available libraries:
 By default, the plugin automatically installs required build dependencies before
 compiling PHP. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
 
-```none
+```sh
+# One-time use
 PHP_SKIP_DEPS=1 mise install php@8.4.3
+
+# Enable permanently
+mise config set -t string env._.php.skip_deps true
+# Subsequent installs will skip dependency installation automatically
+mise install php@8.4.3
+
+# Disable
+mise config set -t string env._.php.skip_deps false
+# Dependency installation will run again
+mise install php@8.4.3
 ```
 
 Useful when dependencies are already present or managed externally
@@ -231,8 +276,19 @@ Useful when dependencies are already present or managed externally
 By default, build output is hidden. Set `PHP_VERBOSE=1` to see the full output of
 dependency installation, `buildconf`, `configure`, `make`, and Composer installation.
 
-```none
+```sh
+# One-time use
 PHP_VERBOSE=1 mise install php@8.4.3
+
+# Enable permanently
+mise config set -t string env._.php.verbose true
+# Subsequent installs will show full build output automatically
+mise install php@8.4.3
+
+# Disable
+mise config set -t string env._.php.verbose false
+# Build output will be hidden again
+mise install php@8.4.3
 ```
 
 ### MISE_VERBOSE=1 - mise-en-place debug output
@@ -240,14 +296,24 @@ PHP_VERBOSE=1 mise install php@8.4.3
 `MISE_VERBOSE` enables verbose output for the mise-en-place tool itself (plugin downloads,
 file handling, hook execution). It does not affect PHP build output.
 
-```none
+```sh
 MISE_VERBOSE=1 mise install php@8.4.3
+
+# or
+mise install php@8.4.3 --verbose
 ```
 
 Both can be combined:
 
-```none
+```sh
 PHP_VERBOSE=1 MISE_VERBOSE=1 mise install php@8.4.3
+
+# or
+PHP_VERBOSE=1 mise install php@8.4.3 --verbose
+
+# or enable PHP verbose permanently, then combine with --verbose as needed
+mise config set -t string env._.php.verbose true
+mise install php@8.4.3 --verbose
 ```
 
 ## Known Issues
@@ -264,13 +330,13 @@ Add the following to `/etc/wsl.conf` and restart WSL:
 appendWindowsPath=false
 ```
 
-```none
+```sh
 printf '\n[interop]\nappendWindowsPath=false\n' | sudo tee -a /etc/wsl.conf
 ```
 
 Then from Windows PowerShell:
 
-```none
+```sh
 wsl --shutdown
 ```
 
@@ -309,9 +375,15 @@ PHP versions below 7.2 depend on `libmcrypt`, which is not installed automatical
 
 ## Contributing
 
-```none
+```sh
 # Link your plugin for development
-mise plugin link php /path/to/verzly/mise-php
+mise plugin link php-dev /path/to/verzly/mise-php
+
+# Enable force PHP verbose
+mise config set env._.php-dev.verbose true
+
+# Test
+mise install php-dev@latest
 ```
 
 ## License & Acknowledgments

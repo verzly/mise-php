@@ -166,6 +166,7 @@ function install_php_for_linux(sdkPath, version)
         --with-config-file-scan-dir=']] .. sdkPath .. [[/conf.d'
         --with-curl
         --with-mhash
+        --with-openssl
         --with-mysqli=mysqlnd
         --with-pdo-mysql=mysqlnd
         --with-zlib
@@ -430,7 +431,7 @@ end
 --- Configure options for Linux
 function configure_linux(configureOptions)
     -- On Linux, most libraries are in standard paths
-    configureOptions = configureOptions .. " --with-openssl --with-curl --with-readline --with-gettext"
+    configureOptions = configureOptions .. " --with-curl --with-readline --with-gettext"
 
     -- Check for GD dependencies
     local gd_check = os.execute("pkg-config --exists libpng 2>/dev/null")

@@ -83,7 +83,7 @@ Once the plugin is installed, you can [start managing PHP versions](#usage).
 > Or set individual options via CLI:
 >
 > ```sh
-> mise config set -t string env._.php.extra_configure_options "--with-pdo-sqlite"
+> mise config set env._.php.extra_configure_options "--with-pdo-sqlite"
 > ```
 
 ### Up-to-date
@@ -276,12 +276,12 @@ compiling PHP. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
 PHP_SKIP_DEPS=1 mise install php@8.4.3
 
 # Enable permanently
-mise config set -t string env._.php.skip_deps true
+mise config set env._.php.skip_deps true
 # Subsequent installs will skip dependency installation automatically
 mise install php@8.4.3
 
 # Disable
-mise config set -t string env._.php.skip_deps false
+mise config set env._.php.skip_deps false
 # Dependency installation will run again
 mise install php@8.4.3
 ```
@@ -301,12 +301,12 @@ dependency installation, `buildconf`, `configure`, `make`, and Composer installa
 PHP_VERBOSE=1 mise install php@8.4.3
 
 # Enable permanently
-mise config set -t string env._.php.verbose true
+mise config set env._.php.verbose true
 # Subsequent installs will show full build output automatically
 mise install php@8.4.3
 
 # Disable
-mise config set -t string env._.php.verbose false
+mise config set env._.php.verbose false
 # Build output will be hidden again
 mise install php@8.4.3
 ```
@@ -332,7 +332,7 @@ PHP_VERBOSE=1 MISE_VERBOSE=1 mise install php@8.4.3
 PHP_VERBOSE=1 mise install php@8.4.3 --verbose
 
 # or enable PHP verbose permanently, then combine with --verbose as needed
-mise config set -t string env._.php.verbose true
+mise config set env._.php.verbose true
 mise install php@8.4.3 --verbose
 ```
 

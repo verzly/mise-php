@@ -158,9 +158,51 @@ Remove-Item "C:\path\to\composer.exe" -Force
 # %LOCALAPPDATA%\mise\shims\composer.exe
 ```
 
-## Advanced
+### Custom configure options
 
-### PHP_SKIP_DEPS=1 - skip dependency installation
+> [!Note]
+> On Windows, PHP is installed from prebuilt binaries from [windows.php.net](https://windows.php.net) - configure options do not apply.
+
+Add extra configure options on top of the defaults:
+
+```none
+PHP_EXTRA_CONFIGURE_OPTIONS="--with-pdo-sqlite" mise install php@8.4.3
+```
+
+Override all configure options (prefix is always preserved):
+
+```none
+PHP_CONFIGURE_OPTIONS="--with-openssl --enable-mbstring" mise install php@8.4.3
+```
+
+**Defaults (macOS and Linux):**
+
+```none
+--enable-bcmath --enable-calendar --enable-dba --enable-exif --enable-fpm
+--enable-ftp --enable-gd --enable-intl --enable-mbregex --enable-mbstring
+--enable-mysqlnd --enable-pcntl --enable-shmop --enable-soap --enable-sockets
+--enable-sysvmsg --enable-sysvsem --enable-sysvshm --with-curl --with-mhash
+--with-mysqli=mysqlnd --with-pdo-mysql=mysqlnd --with-zlib --with-pear
+--with-openssl --with-readline --with-gettext --without-pcre-jit --without-snmp
+```
+
+The following options are additionally detected based on available libraries:
+
+| Option | macOS | Linux |
+|---|---|---|
+| `--with-gmp` | if `brew install gmp` | |
+| `--with-sodium` | if `brew install libsodium` | |
+| `--with-freetype` | if `brew install freetype` | |
+| `--with-jpeg` | if `brew install jpeg` | |
+| `--with-webp` | if `brew install webp` | |
+| `--with-png` | if `brew install libpng` | |
+| `--with-bz2` | if `brew install bzip2` | |
+| `--with-iconv` | if `brew install libiconv` | |
+| `--with-external-gd` | if freetype + jpeg + libpng installed | if `libpng` via pkg-config |
+| `--with-pdo-pgsql` | if `brew install libpq` | if `pg_config` in PATH |
+| `--with-zip` | if `brew install libzip` | if `libzip` via pkg-config |
+
+### Skip dependency installation
 
 By default, the plugin automatically installs required build dependencies before
 compiling PHP. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
@@ -222,23 +264,38 @@ Then from Windows PowerShell:
 wsl --shutdown
 ```
 
-### PHP 8.0 and older: OpenSSL incompatibility (Linux and macOS only)
+### PHP < 8.1 OpenSSL incompatibility (Linux and macOS only)
 
-PHP versions below 8.1 are not compatible with OpenSSL 3.x, which ships by default
-on most modern Linux distributions.
+PHP versions below 8.1 are not compatible with OpenSSL 3.x, which ships by default on most modern Linux distributions.
 
-**Recommended:** use PHP 8.1 or newer.
+> [!TIP]
+> Use PHP 8.1 or newer, or build against OpenSSL 1.1 instead.
 
-**Workaround for PHP 7.4.x / 8.0.x:**
+Workaround for PHP 7.4.x / 8.0.x:
 
 1. Open `ext/openssl/openssl.c`
 2. Remove or comment out:
-   ```c
+```c
    REGISTER_LONG_CONSTANT("OPENSSL_SSLV23_PADDING", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);
-   ```
+```
 3. Re-run the build
 
-Full compatibility is not guaranteed. Building against OpenSSL 1.1 is the only reliable solution.
+> [!WARNING]
+> Full compatibility is not guaranteed. This is a best-effort workaround only.
+
+### PHP < 7.2 requires libmcrypt (Linux and macOS only)
+
+PHP versions below 7.2 depend on `libmcrypt`, which is not installed automatically. Install it manually before running `mise install`:
+
+| Distro | Command |
+|---|---|
+| Debian/Ubuntu | `sudo apt-get install libmcrypt-dev` |
+| Fedora | `sudo dnf install libmcrypt-devel` |
+| RHEL/Rocky/Alma | `sudo dnf install epel-release && sudo dnf install libmcrypt-devel` |
+| Arch | `sudo pacman -S libmcrypt` |
+
+> [!Note]
+> `mcrypt` was removed in PHP 7.2. Consider using PHP 7.2 or newer instead.
 
 ## Contributing
 

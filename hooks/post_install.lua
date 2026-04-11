@@ -1,12 +1,8 @@
-local function is_verbose()
-    if os.getenv("PHP_VERBOSE") ~= nil then return true end
-    local mise_v = os.getenv("MISE_VERBOSE")
-    if mise_v ~= nil and mise_v ~= "" and mise_v ~= "0" then return true end
-    return false
-end
+local env = require("lib/env")
 
-local VERBOSE = is_verbose()
-local QUIET   = VERBOSE and "" or " > /dev/null 2>&1"
+local VERBOSE   = env.VERBOSE
+local QUIET     = env.QUIET
+local SKIP_DEPS = env.SKIP_DEPS
 
 --- Performs additional setup after installation
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#postinstall-hook

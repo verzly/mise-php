@@ -221,7 +221,7 @@ function install_php_for_linux(sdkPath, version)
     -- Build PHP
     print("Building PHP (this may take several minutes)...")
     local makeCmd =
-        string.format("cd '%s' && make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. QUIET, sdkPath)
+        string.format("cd '%s' && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. QUIET, sdkPath, envPrefix)
     status = os.execute(makeCmd)
     if status ~= 0 and status ~= true then
         error(
@@ -232,7 +232,7 @@ function install_php_for_linux(sdkPath, version)
 
     -- Install PHP
     print("Installing PHP...")
-    local installCmd = string.format("cd '%s' && make install" .. QUIET, sdkPath)
+    local installCmd = string.format("cd '%s' && %smake install" .. QUIET, sdkPath, envPrefix)
     status = os.execute(installCmd)
     if status ~= 0 and status ~= true then
         error(

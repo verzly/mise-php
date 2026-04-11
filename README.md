@@ -71,6 +71,21 @@ Once the plugin is installed, you can [start managing PHP versions](#usage).
 > mise config set env._.php.skip_deps true
 > ```
 
+> [!TIP]
+> You can persist any combination of plugin options in `mise.toml` instead of passing them on every install.<br>
+> See [Custom configure options](#custom-configure-options-macos-and-linux) for details.
+>
+> ```sh
+> [env]
+> _.php = { extra_configure_options = "--with-pdo-sqlite" }
+> ```
+>
+> Or set individual options via CLI:
+>
+> ```sh
+> mise config set -t string env._.php.extra_configure_options "--with-pdo-sqlite"
+> ```
+
 ### Up-to-date
 
 These are stable versions, but plugin updates may occur, which you can later install with a single command.
@@ -184,6 +199,11 @@ This plugin sets the following environment variables:
 
 > [!Note]
 > On Windows, PHP is installed from prebuilt binaries from [windows.php.net](https://windows.php.net) - configure options do not apply.
+
+> [!WARNING]
+> When using custom configure options, you are responsible for ensuring the required
+> build dependencies are installed on your system. The plugin only installs dependencies
+> for the default configuration automatically.
 
 Add extra configure options on top of the defaults:
 

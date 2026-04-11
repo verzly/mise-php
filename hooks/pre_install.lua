@@ -43,7 +43,8 @@ function PLUGIN:PreInstall(ctx)
 end
 
 function version_check_for_linux(release)
-    openssl_check_for_linux(release) --- PHP 8.1+ with OpenSSL 3 (OK) | PHP 7 with OpenSSL 3 (BAD)
+    openssl_check_for_linux(release)  --- PHP < 8.1 with OpenSSL 3 (BAD)
+    mcrypt_check_for_linux(release)   --- PHP < 7.2 requires libmcrypt
 end
 
 function openssl_check_for_linux(release)
@@ -83,6 +84,30 @@ function openssl_check_for_linux(release)
           "Note: this is only a best-effort workaround and full compatibility is not guaranteed.\n" ..
           "Recommended: use PHP 8.1 or newer, or build this PHP version against OpenSSL 1.1 instead.\n"
       )
+    end
+end
+
+function mcrypt_check_for_linux(release)
+    local php_major, php_minor = string.match(release.version, "^(%d+)%.(%d+)")
+    php_major = tonumber(php_major) or 0
+    php_minor = tonumber(php_minor) or 0
+
+    local needs_mcrypt = (php_major < 7) or (php_major == 7 and php_minor < 2)
+    if not needs_mcrypt then
+        return
+    end
+
+    local mcrypt_found = os.execute("pkg-config --exists libmcrypt 2>/dev/null")
+    if mcrypt_found ~= 0 and mcrypt_found ~= true then
+        error(
+            "\n\nPHP " .. release.version .. " requires libmcrypt, which was not found on this system.\n\n" ..
+            "💡 Tip: Install it first:\n" ..
+            "  Debian/Ubuntu:   \27[93msudo apt-get install libmcrypt-dev\27[0m\n" ..
+            "  Fedora:          \27[93msudo dnf install libmcrypt-devel\27[0m\n" ..
+            "  RHEL/Rocky/Alma: \27[93msudo dnf install epel-release && sudo dnf install libmcrypt-devel\27[0m\n" ..
+            "  Arch:            \27[93msudo pacman -S libmcrypt\27[0m\n\n" ..
+            "Note: mcrypt was removed in PHP 7.2. Consider using PHP 7.2 or newer instead.\n"
+        )
     end
 end
 

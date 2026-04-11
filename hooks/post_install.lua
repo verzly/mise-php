@@ -169,7 +169,7 @@ function install_php_for_linux(sdkPath, version)
         --with-mysqli=mysqlnd
         --with-pdo-mysql=mysqlnd
         --with-zlib
-        --with-pear
+        --without-pear
         --without-pcre-jit
         --without-snmp
     ]]

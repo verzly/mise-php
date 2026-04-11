@@ -1,6 +1,16 @@
---- Compiles and installs PHP from source
---- @param ctx table Context provided by vfox
---- @field ctx.sdkInfo table SDK information with version and path
+local function is_verbose()
+    if os.getenv("PHP_VERBOSE") ~= nil then return true end
+    local mise_v = os.getenv("MISE_VERBOSE")
+    if mise_v ~= nil and mise_v ~= "" and mise_v ~= "0" then return true end
+    return false
+end
+
+local VERBOSE = is_verbose()
+local QUIET   = VERBOSE and "" or " > /dev/null 2>&1"
+
+--- Performs additional setup after installation
+--- Documentation: https://mise.jdx.dev/tool-plugin-development.html#postinstall-hook
+--- @param ctx {rootPath: string, runtimeVersion: string, sdkInfo: table} Context
 function PLUGIN:PostInstall(ctx)
     local sdkInfo = ctx.sdkInfo["php"]
     local version = sdkInfo.version
@@ -122,11 +132,7 @@ function install_php_for_linux(sdkPath, version)
     local envPrefix = ""
     local configureOptions = "--prefix='" .. sdkPath .. "'"
 
-    -- Verbose
-    local verbose = os.getenv("PHP_VERBOSE") ~= nil
-    local quiet = verbose and "" or " > /dev/null 2>&1"
-
-    if not verbose then
+    if not VERBOSE then
         print("\27[96mNote:\27[0m Build output is hidden. Set PHP_VERBOSE=1 to see full output.")
     end
 
@@ -187,7 +193,7 @@ function install_php_for_linux(sdkPath, version)
 
     -- Run buildconf
     print("Running buildconf...")
-    local buildconfCmd = string.format("cd '%s' && ./buildconf --force" .. quiet, sdkPath)
+    local buildconfCmd = string.format("cd '%s' && ./buildconf --force" .. QUIET, sdkPath)
     local status = os.execute(buildconfCmd)
     if status ~= 0 and status ~= true then
         error(
@@ -198,7 +204,7 @@ function install_php_for_linux(sdkPath, version)
 
     -- Run configure
     print("Configuring PHP with options...")
-    local configureCmd = string.format("cd '%s' && %s./configure %s" .. quiet, sdkPath, envPrefix, configureOptions)
+    local configureCmd = string.format("cd '%s' && %s./configure %s" .. QUIET, sdkPath, envPrefix, configureOptions)
     status = os.execute(configureCmd)
     if status ~= 0 and status ~= true then
         error(
@@ -210,7 +216,7 @@ function install_php_for_linux(sdkPath, version)
     -- Build PHP
     print("Building PHP (this may take several minutes)...")
     local makeCmd =
-        string.format("cd '%s' && make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. quiet, sdkPath)
+        string.format("cd '%s' && make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. QUIET, sdkPath)
     status = os.execute(makeCmd)
     if status ~= 0 and status ~= true then
         error(
@@ -221,7 +227,7 @@ function install_php_for_linux(sdkPath, version)
 
     -- Install PHP
     print("Installing PHP...")
-    local installCmd = string.format("cd '%s' && make install" .. quiet, sdkPath)
+    local installCmd = string.format("cd '%s' && make install" .. QUIET, sdkPath)
     status = os.execute(installCmd)
     if status ~= 0 and status ~= true then
         error(
@@ -422,11 +428,7 @@ function install_composer(sdkPath)
 end
 
 function install_composer_for_windows(sdkPath)
-    -- Verbose
-    local verbose = os.getenv("PHP_VERBOSE") ~= nil
-    local quiet = verbose and "" or " | Out-Null"
-
-    if not verbose then
+    if not VERBOSE then
         print("\27[96mNote:\27[0m Composer installation output is hidden. Set PHP_VERBOSE=1 to see full output.")
     end
 
@@ -440,7 +442,7 @@ function install_composer_for_windows(sdkPath)
     local composer_bat  = join_path(sdkPath, "composer.bat")
 
     local dl_cmd = string.format(
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://getcomposer.org/composer-stable.phar -OutFile \'%s\'"' .. quiet,
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://getcomposer.org/composer-stable.phar -OutFile \'%s\'"' .. QUIET,
         composer_phar
     )
     local status = os.execute(dl_cmd)
@@ -461,11 +463,7 @@ function install_composer_for_windows(sdkPath)
 end
 
 function install_composer_for_linux(sdkPath)
-    -- Verbose
-    local verbose = os.getenv("PHP_VERBOSE") ~= nil
-    local quiet = verbose and "" or " > /dev/null 2>&1"
-
-    if not verbose then
+    if not VERBOSE then
         print("\27[96mNote:\27[0m Composer installation output is hidden. Set PHP_VERBOSE=1 to see full output.")
     end
     
@@ -480,7 +478,7 @@ function install_composer_for_linux(sdkPath)
     local install_dir    = join_path(sdkPath, "bin")
 
     local dl_cmd = string.format(
-        '%s -r "copy(\'https://getcomposer.org/installer\', \'%s\');"' .. quiet,
+        '%s -r "copy(\'https://getcomposer.org/installer\', \'%s\');"' .. QUIET,
         php_bin, composer_setup
     )
     local status = os.execute(dl_cmd)
@@ -492,7 +490,7 @@ function install_composer_for_linux(sdkPath)
     end
 
     local install_cmd = string.format(
-        '%s "%s" --install-dir="%s" --filename=composer' .. quiet,
+        '%s "%s" --install-dir="%s" --filename=composer' .. QUIET,
         php_bin, composer_setup, install_dir
     )
     status = os.execute(install_cmd)

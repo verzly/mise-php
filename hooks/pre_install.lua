@@ -1,6 +1,17 @@
---- Returns pre-install information for PHP
---- @param ctx table Context provided by vfox
---- @return table Pre-install info
+local function is_verbose()
+    if os.getenv("PHP_VERBOSE") ~= nil then return true end
+    local mise_v = os.getenv("MISE_VERBOSE")
+    if mise_v ~= nil and mise_v ~= "" and mise_v ~= "0" then return true end
+    return false
+end
+
+local VERBOSE = is_verbose()
+local QUIET   = VERBOSE and "" or " > /dev/null 2>&1"
+
+--- Returns download information for a specific version
+--- Documentation: https://mise.jdx.dev/tool-plugin-development.html#preinstall-hook
+--- @param ctx {version: string, runtimeVersion: string} Context
+--- @return table Version and download information
 function PLUGIN:PreInstall(ctx)
     local version = ctx.version
     local releases = self:Available({})
@@ -103,12 +114,8 @@ function get_release_for_linux(release)
 end
 
 function install_dependencies()
-    -- Verbose
-    local verbose = os.getenv("PHP_VERBOSE") ~= nil
-    local quiet = verbose and "" or " > /dev/null 2>&1"
-
-    if not verbose then
-        print("\27[96mNote:\27[0m Dependency installation output is hidden. Set PHP_VERBOSE=1 to see full output.")
+    if not VERBOSE then
+        print("\27[96mNote:\27[0m Dependency installation output is hidden. Set PHP_VERBOSE=1 or use --verbose to see full output.")
     end
     
     print("Installing dependencies...")
@@ -128,7 +135,7 @@ function install_dependencies()
         end
     end
 
-    local status = os.execute('sh "' .. path .. '"' .. quiet)
+    local status = os.execute('sh "' .. path .. '"' .. QUIET)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to install PHP build dependencies.\n\n" ..

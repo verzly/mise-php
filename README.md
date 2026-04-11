@@ -158,6 +158,16 @@ Remove-Item "C:\path\to\composer.exe" -Force
 # %LOCALAPPDATA%\mise\shims\composer.exe
 ```
 
+### Environment variables
+
+This plugin sets the following environment variables:
+
+| Variable | OS | Value |
+|---|---|---|
+| `PATH` | Windows | `<install_dir>` |
+| `PATH` | macOS, Linux | `<install_dir>/bin`, `<install_dir>/sbin` |
+| `LD_LIBRARY_PATH` | Linux only | `<install_dir>/lib` |
+
 ### Custom configure options
 
 > [!Note]

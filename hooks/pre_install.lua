@@ -149,15 +149,19 @@ function install_dependencies()
     local path = RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh'
     os.execute('chmod +x "' .. path .. '"')
 
-    local has_sudo = os.execute('command -v sudo >/dev/null 2>&1')
-    if has_sudo == true or has_sudo == 0 then
-        local sudo_ready = os.execute('sudo -n -v >/dev/null 2>&1')
-        if sudo_ready ~= true and sudo_ready ~= 0 then
-            error(
-                "\n\nFailed to install PHP build dependencies.\n\n" ..
-                "💡 Tip: \27[93mRun 'sudo -v' manually first, then restart the installation.\27[0m\n\n" ..
-                "This step requires an already authenticated sudo session.\n"
-            )
+    local is_macos = os.execute('uname -s | grep -q Darwin >/dev/null 2>&1') == 0 or
+                     os.execute('uname -s | grep -q Darwin') == true
+    if not is_macos then
+        local has_sudo = os.execute('command -v sudo >/dev/null 2>&1')
+        if has_sudo == true or has_sudo == 0 then
+            local sudo_ready = os.execute('sudo -n -v >/dev/null 2>&1')
+            if sudo_ready ~= true and sudo_ready ~= 0 then
+                error(
+                    "\n\nFailed to install PHP build dependencies.\n\n" ..
+                    "💡 Tip: \27[93mRun 'sudo -v' manually first, then restart the installation.\27[0m\n\n" ..
+                    "This step requires an already authenticated sudo session.\n"
+                )
+            end
         end
     end
 

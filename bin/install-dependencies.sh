@@ -52,6 +52,7 @@ case "$DISTRO" in
   fedora)
     $SUDO dnf install -y --skip-unavailable \
       @development-tools \
+      @c-development \
       autoconf bison re2c \
       libxml2-devel openssl-devel libicu-devel libzip-devel oniguruma-devel \
       libcurl-devel libpng-devel libjpeg-devel freetype-devel \

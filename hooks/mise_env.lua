@@ -17,7 +17,7 @@ function PLUGIN:MiseEnv(ctx)
     end
 
     if options.verbose == true or options.verbose == "true" or options.verbose == "1" then
-      e nv.setenv("PHP_VERBOSE", 1)
+        env.setenv("PHP_VERBOSE", 1)
     end
 
     if options.extra_configure_options ~= nil and options.extra_configure_options ~= "" and options.extra_configure_options ~= false then

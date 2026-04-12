@@ -2,6 +2,46 @@
 
 ![verzly-mise-php-example](https://github.com/user-attachments/assets/c57759f1-0ffc-4175-b96a-ca259a9c814d)
 
+`verzly/mise-php` is a [jdx/mise](https://github.com/jdx/mise) plugin for installing and managing PHP on Linux, macOS, and Windows. Install multiple PHP versions side by side, each with its own dedicated Composer binary. Switch between versions globally or per project, and customize the build configuration to fit your exact needs.
+
+- [How it works](#how-does-it-differ-from-the-other-mise-php-plugins)
+  - [Pre-binaries](#pre-binaries)
+  - [Build from source](#build-from-source)
+  - [Cleanup](#cleanup)
+- [Get started](#get-started)
+  - [Upgrade](#up-to-date)
+- [Usage](#usage)
+  - [PHP](#php)
+  - [Composer](#composer-for-php)
+  - [Environment variables](#environment-variables)
+  - [Custom configure options](#custom-configure-options-macos-and-linux)
+  - [Skip dependency installation](#skip-dependency-installation)
+- [Debugging](#debugging)
+- [Known Issues](#known-issues)
+- [Contributing](#contributing)
+
+Read on to learn why `verzly/mise-php` was created and what makes it work the way it does. Or jump straight to [Get started](#get-started) for quick installation steps, or to [Upgrade](#up-to-date) if you are already using the plugin.
+
+## How does it differ from the other mise-php plugins?
+
+Although some PHP plugins are available for [jdx/mise](https://github.com/jdx/mise), they often encounter errors on either Windows or various Linux distributions. The most common issue is locating the correct PHP versions. This is because PHP maintains its latest and older releases on different sites. Moreover, Windows and Linux installers are separated.
+
+The officially released PHP versions are provided by `verzly/mise-php` for Linux, macOS, and Windows. Additionally, it installs a dedicated Composer for each PHP version to help you avoid version conflicts.
+
+### Pre-binaries
+
+On Windows, we can work quickly using precompiled binaries.
+
+### Build from source
+
+For Linux and macOS systems, precompiling for each system is time-consuming, so the `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `/bin/install-dependencies.sh`, which the system runs automatically.
+
+### Cleanup
+
+Before starting the process, it is recommended to make sure that no PHP or Composer installations exist on your system from other sources. If there are, it is advisable to remove them, as from this point onward, `verzly/mise-php` will be responsible for providing access to the PHP and Composer executables.
+
+## Get started
+
 > [!IMPORTANT]
 > The plugin requires a [jdx/mise](https://github.com/jdx/mise) installation to be used. <a href="https://mise.jdx.dev/getting-started.html" target="_blank">Go to install guide</a>
 >
@@ -22,26 +62,6 @@
 > # Windows
 > (&mise activate pwsh) | Out-String | Invoke-Expression
 > ```
-
-## How does it differ from the other mise-php plugins?
-
-Although some PHP plugins are available for MISE, they often encounter errors on either Windows or various Linux distributions. The most common issue is locating the correct PHP versions. This is because PHP maintains its latest and older releases on different sites. Moreover, Windows and Linux installers are separated.
-
-The officially released PHP versions are provided by `verzly/mise-php` for Linux, macOS, and Windows. Additionally, it installs a dedicated Composer for each PHP version to help you avoid version conflicts.
-
-### Pre-binaries
-
-On Windows, we can work quickly using precompiled binaries.
-
-### Build from source
-
-For Linux and macOS systems, precompiling for each system is time-consuming, so the `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `/bin/install-dependencies.sh`, which the system runs automatically.
-
-### Cleanup
-
-Before starting the process, it is recommended to make sure that no PHP or Composer installations exist on your system from other sources. If there are, it is advisable to remove them, as from this point onward, `verzly/mise-php` will be responsible for providing access to the PHP and Composer executables.
-
-## Get started
 
 To install PHP versions on any operating system using the `verzly/mise-php` plugin, you first need a one-time setup.
 
@@ -97,7 +117,7 @@ mise plugin upgrade php
 
 ## Usage
 
-After installing the plugin, Mise enables the installation of packages named php via the `verzly/mise-php` plugin.
+After installing the plugin, [jdx/mise](https://github.com/jdx/mise) enables the installation of packages named php via the `verzly/mise-php` plugin.
 
 ### PHP
 
@@ -167,7 +187,7 @@ composer self-update --snapshot
 composer --version
 ```
 
-Have you used Composer before installing verzly/mise-php? Check for and remove any unnecessary Composer binaries.
+Have you used Composer before installing `verzly/mise-php`? Check for and remove any unnecessary Composer binaries.
 
 ```sh
 # Linux / macOS
@@ -313,7 +333,7 @@ mise install php@8.4.3
 
 ### MISE_VERBOSE=1 - mise-en-place debug output
 
-`MISE_VERBOSE` enables verbose output for the mise-en-place tool itself (plugin downloads,
+`MISE_VERBOSE` enables verbose output for the [mise-en-place](https://github.com/jdx/mise) tool itself (plugin downloads,
 file handling, hook execution). It does not affect PHP build output.
 
 ```sh
@@ -408,8 +428,8 @@ mise install php-dev@latest
 
 ## License & Acknowledgments
 
-This project would not exist without the PHP Foundation and the creators and contributors of Mise-en-Place. It is open source and released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](https://www.gnu.org/licenses/agpl-3.0.html).
+This project would not exist without the PHP Foundation and the creators and contributors of [mise-en-place](https://github.com/jdx/mise). It is open source and released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](https://www.gnu.org/licenses/agpl-3.0.html).
 
-We are grateful to the PHP Foundation for maintaining PHP, and to the creators and contributors of Mise-en-Place for the robust version management ecosystem and plugin support.
+We are grateful to the PHP Foundation for maintaining PHP, and to the creators and contributors of [mise-en-place](https://github.com/jdx/mise) for the robust version management ecosystem and plugin support.
 
 Copyright (C) 2020–present [Zoltán Rózsa](https://github.com/rozsazoltan) & [Verzly](https://github.com/verzly)

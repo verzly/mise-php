@@ -262,6 +262,9 @@ function install_php_for_linux(sdkPath, version)
 
     print("PHP installation complete!")
 
+    -- Install PECL extensions
+    install_pecl_extensions(sdkPath, envPrefix)
+
     -- Install Composer
     install_composer(sdkPath)
 
@@ -452,6 +455,59 @@ function configure_linux(configureOptions)
     end
 
     return configureOptions
+end
+
+function install_pecl_extensions(sdkPath, envPrefix)
+    local phpize = sdkPath .. "/bin/phpize"
+    local phpconfig = sdkPath .. "/bin/php-config"
+
+    local f = io.open(phpize, "r")
+    if not f then
+        io.stderr:write("\27[93mWarning:\27[0m phpize not found, skipping PECL extensions.\n")
+        return
+    end
+    f:close()
+
+    local extensions = {
+        { name = "redis", url = "https://pecl.php.net/get/redis" },
+    }
+
+    local tmpdir = os.tmpname() .. "_pecl"
+    os.execute("mkdir -p '" .. tmpdir .. "'")
+
+    for _, ext in ipairs(extensions) do
+        print("Installing PECL extension: " .. ext.name .. "...")
+        local extdir = tmpdir .. "/" .. ext.name
+        local cmd = string.format(
+            "mkdir -p '%s' && cd '%s' && " ..
+            "curl -fsSL '%s' | tar xz --strip-components=1 && " ..
+            "%s '%s' && " ..
+            "%s ./configure --with-php-config='%s' && " ..
+            "%s make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2) && " ..
+            "%s make install",
+            extdir, extdir,
+            ext.url,
+            envPrefix or "", phpize,
+            envPrefix or "", phpconfig,
+            envPrefix or "",
+            envPrefix or ""
+        )
+        if QUIET ~= "" then
+            cmd = cmd .. QUIET
+        end
+        local status = os.execute(cmd)
+        if status ~= 0 and status ~= true then
+            io.stderr:write("\27[93mWarning:\27[0m Failed to install " .. ext.name .. " PECL extension.\n")
+        else
+            local iniFile = io.open(sdkPath .. "/conf.d/" .. ext.name .. ".ini", "w")
+            if iniFile then
+                iniFile:write("extension=" .. ext.name .. ".so\n")
+                iniFile:close()
+            end
+        end
+    end
+
+    os.execute("rm -rf '" .. tmpdir .. "'")
 end
 
 function install_composer(sdkPath)

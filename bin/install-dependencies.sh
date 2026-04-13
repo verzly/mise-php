@@ -47,7 +47,7 @@ case "$DISTRO" in
       libxml2-dev libssl-dev libicu-dev libzip-dev libonig-dev \
       libcurl4-openssl-dev libpng-dev libjpeg-dev libfreetype6-dev \
       libwebp-dev libgmp-dev libsodium-dev libreadline-dev libbz2-dev \
-      libsqlite3-dev libgd-dev
+      libsqlite3-dev libgd-dev libhiredis-dev
     ;;
   fedora)
     $SUDO dnf install -y --skip-unavailable \
@@ -58,7 +58,7 @@ case "$DISTRO" in
       libxml2-devel openssl-devel libicu-devel libzip-devel oniguruma-devel \
       libcurl-devel libpng-devel libjpeg-devel freetype-devel \
       libwebp-devel gmp-devel libsodium-devel readline-devel bzip2-devel \
-      sqlite-devel gd-devel
+      sqlite-devel gd-devel hiredis-devel
     ;;
   rhel)
     case "${VERSION_ID:-}" in
@@ -76,7 +76,7 @@ case "$DISTRO" in
       libxml2-devel openssl-devel libicu-devel libzip-devel oniguruma-devel \
       libcurl-devel libpng-devel libjpeg-devel freetype-devel \
       libwebp-devel gmp-devel libsodium-devel readline-devel bzip2-devel \
-      sqlite-devel gd-devel
+      sqlite-devel gd-devel hiredis-devel
     ;;
   arch)
     $SUDO pacman -Sy --noconfirm --needed \
@@ -84,13 +84,13 @@ case "$DISTRO" in
       libxml2 openssl icu libzip oniguruma \
       curl libpng libjpeg-turbo freetype2 \
       libwebp gmp libsodium readline bzip2 \
-      sqlite gd
+      sqlite gd hiredis
     ;;
   darwin)
     xcode-select --install 2>/dev/null || true
     brew install autoconf bison re2c pkg-config \
       libxml2 openssl@3 icu4c zlib libzip oniguruma \
       freetype jpeg libpng webp gmp libsodium readline bzip2 \
-      sqlite gd
+      sqlite gd hiredis
     ;;
 esac

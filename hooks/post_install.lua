@@ -1,8 +1,9 @@
 local env = require("lib/env")
 
-local VERBOSE   = env.VERBOSE
-local QUIET     = env.QUIET
-local SKIP_DEPS = env.SKIP_DEPS
+local VERBOSE         = env.VERBOSE
+local QUIET           = env.QUIET
+local SKIP_DEPS       = env.SKIP_DEPS
+local PECL_EXTENSIONS = env.PECL_EXTENSIONS
 
 --- Performs additional setup after installation
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#postinstall-hook
@@ -166,10 +167,10 @@ function install_php_for_linux(sdkPath, version)
         --with-config-file-scan-dir=']] .. sdkPath .. [[/conf.d'
         --with-curl
         --with-mhash
+        --with-openssl
         --with-mysqli=mysqlnd
         --with-pdo-mysql=mysqlnd
         --with-zlib
-        --with-pear
         --without-pcre-jit
         --without-snmp
     ]]
@@ -177,6 +178,15 @@ function install_php_for_linux(sdkPath, version)
     -- Clean up whitespace in common options
     commonOptions = string.gsub(commonOptions, "%s+", " ")
     configureOptions = configureOptions .. " " .. commonOptions
+
+    -- PEAR was removed from the PHP source tree in 8.5
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
+    if major > 8 or (major == 8 and minor >= 5) then
+        configureOptions = configureOptions .. " --without-pear"
+    else
+        configureOptions = configureOptions .. " --with-pear"
+    end
 
     if os_type == "darwin" then
         configureOptions, envPrefix = configure_macos(configureOptions, homebrew_prefix)
@@ -221,7 +231,7 @@ function install_php_for_linux(sdkPath, version)
     -- Build PHP
     print("Building PHP (this may take several minutes)...")
     local makeCmd =
-        string.format("cd '%s' && make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. QUIET, sdkPath)
+        string.format("cd '%s' && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. QUIET, sdkPath, envPrefix)
     status = os.execute(makeCmd)
     if status ~= 0 and status ~= true then
         error(
@@ -232,7 +242,7 @@ function install_php_for_linux(sdkPath, version)
 
     -- Install PHP
     print("Installing PHP...")
-    local installCmd = string.format("cd '%s' && make install" .. QUIET, sdkPath)
+    local installCmd = string.format("cd '%s' && %smake install" .. QUIET, sdkPath, envPrefix)
     status = os.execute(installCmd)
     if status ~= 0 and status ~= true then
         error(
@@ -260,6 +270,9 @@ function install_php_for_linux(sdkPath, version)
     end
 
     print("PHP installation complete!")
+
+    -- Install PECL extensions
+    install_pecl_extensions(sdkPath, envPrefix)
 
     -- Install Composer
     install_composer(sdkPath)
@@ -363,6 +376,7 @@ function configure_macos(configureOptions, homebrew_prefix)
     end
 
     -- Optional packages with configure flags
+    -- extra_flags: LDFLAGS/CPPFLAGS needed for keg-only packages without .pc files
     local optional_packages = {
         { name = "gmp", flag = "--with-gmp" },
         { name = "libsodium", flag = "--with-sodium" },
@@ -373,9 +387,12 @@ function configure_macos(configureOptions, homebrew_prefix)
         { name = "libpng", flag = "--with-png" },
         { name = "readline", flag = "--with-readline" },
         { name = "bzip2", flag = "--with-bz2" },
-        { name = "libiconv", flag = "--with-iconv" },
+        { name = "libiconv", flag = "--with-iconv", missing_flag = "--without-iconv", extra_flags = true },
         { name = "libpq", flag = "--with-pdo-pgsql" },
     }
+
+    local ldflags = {}
+    local cppflags = {}
 
     for _, pkg in ipairs(optional_packages) do
         local pkg_path = homebrew_prefix .. "/opt/" .. pkg.name
@@ -383,9 +400,31 @@ function configure_macos(configureOptions, homebrew_prefix)
         if f ~= nil then
             f:close()
             configureOptions = configureOptions .. " " .. pkg.flag .. "='" .. pkg_path .. "'"
+            if pkg.extra_flags then
+                table.insert(ldflags, "-L" .. pkg_path .. "/lib")
+                table.insert(cppflags, "-I" .. pkg_path .. "/include")
+            end
         else
-            io.stderr:write("Info: " .. pkg.name .. " not found, skipping " .. pkg.flag .. "\n")
+            if pkg.missing_flag then
+                configureOptions = configureOptions .. " " .. pkg.missing_flag
+                io.stderr:write("Info: " .. pkg.name .. " not found, using " .. pkg.missing_flag .. "\n")
+            else
+                io.stderr:write("Info: " .. pkg.name .. " not found, skipping " .. pkg.flag .. "\n")
+            end
         end
+    end
+
+    if #ldflags > 0 then
+        local existing = os.getenv("LDFLAGS") or ""
+        local val = table.concat(ldflags, " ")
+        if existing ~= "" then val = val .. " " .. existing end
+        envPrefix = envPrefix .. 'export LDFLAGS="' .. val .. '" && '
+    end
+    if #cppflags > 0 then
+        local existing = os.getenv("CPPFLAGS") or ""
+        local val = table.concat(cppflags, " ")
+        if existing ~= "" then val = val .. " " .. existing end
+        envPrefix = envPrefix .. 'export CPPFLAGS="' .. val .. '" && '
     end
 
     -- Add external-gd if we have the dependencies
@@ -409,7 +448,7 @@ end
 --- Configure options for Linux
 function configure_linux(configureOptions)
     -- On Linux, most libraries are in standard paths
-    configureOptions = configureOptions .. " --with-openssl --with-curl --with-readline --with-gettext"
+    configureOptions = configureOptions .. " --with-curl --with-readline --with-gettext"
 
     -- Check for GD dependencies
     local gd_check = os.execute("pkg-config --exists libpng 2>/dev/null")
@@ -430,6 +469,64 @@ function configure_linux(configureOptions)
     end
 
     return configureOptions
+end
+
+function install_pecl_extensions(sdkPath, envPrefix)
+    if #PECL_EXTENSIONS == 0 then
+        return
+    end
+
+    local phpize = sdkPath .. "/bin/phpize"
+    local phpconfig = sdkPath .. "/bin/php-config"
+
+    local f = io.open(phpize, "r")
+    if not f then
+        io.stderr:write("\27[93mWarning:\27[0m phpize not found, skipping PECL extensions.\n")
+        return
+    end
+    f:close()
+
+    local extensions = {}
+    for _, name in ipairs(PECL_EXTENSIONS) do
+        table.insert(extensions, { name = name, url = "https://pecl.php.net/get/" .. name })
+    end
+
+    local tmpdir = "/tmp/mise-php-pecl-" .. os.time()
+    os.execute("mkdir -p '" .. tmpdir .. "'")
+
+    for _, ext in ipairs(extensions) do
+        print("Installing PECL extension: " .. ext.name .. "...")
+        local extdir = tmpdir .. "/" .. ext.name
+        local cmd = string.format(
+            "mkdir -p '%s' && cd '%s' && " ..
+            "curl -fsSL '%s' | tar xz --strip-components=1 && " ..
+            "%s '%s' && " ..
+            "%s ./configure --with-php-config='%s' && " ..
+            "%s make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2) && " ..
+            "%s make install",
+            extdir, extdir,
+            ext.url,
+            envPrefix, phpize,
+            envPrefix, phpconfig,
+            envPrefix,
+            envPrefix
+        )
+        if QUIET ~= "" then
+            cmd = cmd .. QUIET
+        end
+        local status = os.execute(cmd)
+        if status ~= 0 and status ~= true then
+            io.stderr:write("\27[93mWarning:\27[0m Failed to install " .. ext.name .. " PECL extension.\n")
+        else
+            local iniFile = io.open(sdkPath .. "/conf.d/" .. ext.name .. ".ini", "w")
+            if iniFile then
+                iniFile:write("extension=" .. ext.name .. ".so\n")
+                iniFile:close()
+            end
+        end
+    end
+
+    os.execute("rm -rf '" .. tmpdir .. "'")
 end
 
 function install_composer(sdkPath)
@@ -503,8 +600,8 @@ function install_composer_for_linux(sdkPath)
     local install_dir    = join_path(sdkPath, "bin")
 
     local dl_cmd = string.format(
-        '%s -r "copy(\'https://getcomposer.org/installer\', \'%s\');"' .. QUIET,
-        php_bin, composer_setup
+        'curl -fsSL https://getcomposer.org/installer -o "%s"' .. QUIET,
+        composer_setup
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then

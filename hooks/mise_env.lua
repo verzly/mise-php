@@ -28,5 +28,9 @@ function PLUGIN:MiseEnv(ctx)
         env.setenv("PHP_CONFIGURE_OPTIONS", tostring(options.configure_options))
     end
 
+    if options.pecl_extensions ~= nil and options.pecl_extensions ~= "" and options.pecl_extensions ~= false then
+        env.setenv("PHP_PECL_EXTENSIONS", tostring(options.pecl_extensions))
+    end
+
     return env_vars
 end

@@ -51,8 +51,18 @@ jobs:
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
 
-      - name: Install latest PHP via mise-php
-        run: mise use -g php@latest
+      - name: Install latest PHP via mise-php (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mise config set env._.php.verbose true
+          mise config set env._.php.configure_options "--with-openssl --enable-mbstring"
+          mise use -g php@latest --verbose
+
+      - name: Install latest PHP via mise-php (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mise config set env._.php.verbose true
+          mise use -g php@latest --verbose
 
       - name: Check versions
         run: |

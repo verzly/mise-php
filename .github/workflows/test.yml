@@ -53,12 +53,16 @@ jobs:
 
       - name: Install latest PHP via mise-php (Linux / macOS)
         if: runner.os != 'Windows'
-        run: PHP_VERBOSE=1 mise use -g php@latest --verbose
+        env:
+          PHP_VERBOSE: "1"
+        run: mise use -g php@latest --verbose
 
       - name: Install latest PHP via mise-php (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: PHP_VERBOSE=1 mise use -g php@latest --verbose
+        env:
+          PHP_VERBOSE: "1"
+        run: mise use -g php@latest --verbose
 
       - name: Check versions
         run: |

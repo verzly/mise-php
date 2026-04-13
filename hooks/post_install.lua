@@ -207,9 +207,33 @@ end
 function install_php_for_linux(sdkPath, version)
     fail_if_windows_php_is_visible_or_hangs()
     
-    print("Using PHP build profile: " .. buildProfile)
     local buildProfile = normalize_build_profile()
+    print("Using PHP build profile: " .. buildProfile)
+
+    local envPrefix = ""
     local configureOptions = build_configure_options_for_profile(sdkPath, version, buildProfile)
+
+    -- Clean up whitespace in common options
+    commonOptions = string.gsub(commonOptions, "%s+", " ")
+    configureOptions = configureOptions .. " " .. commonOptions
+
+    if os_type == "darwin" then
+        configureOptions, envPrefix = configure_macos(configureOptions, homebrew_prefix)
+    else
+        configureOptions = configure_linux(configureOptions)
+    end
+
+    -- Allow user to override configure options
+    local extraOptions = os.getenv("PHP_EXTRA_CONFIGURE_OPTIONS")
+    if extraOptions ~= nil and extraOptions ~= "" then
+        configureOptions = configureOptions .. " " .. extraOptions
+    end
+
+    local userOptions = os.getenv("PHP_CONFIGURE_OPTIONS")
+    if userOptions ~= nil and userOptions ~= "" then
+        -- User provided full options, use those instead (but keep prefix)
+        configureOptions = "--prefix='" .. sdkPath .. "' " .. userOptions
+    end
 
     if not VERBOSE then
         print("\27[96mNote:\27[0m Build output is hidden. Set PHP_VERBOSE=1 to see full output.")

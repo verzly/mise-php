@@ -69,21 +69,3 @@ jobs:
         run: |
           mise exec -- php --version
           mise exec -- composer --version
-
-  remove-label:
-    name: Remove needs-ci label
-    needs: install
-    if: always() && needs.install.result != 'skipped'
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-    steps:
-      - uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.removeLabel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              name: 'needs-ci',
-            })

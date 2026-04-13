@@ -44,7 +44,7 @@ jobs:
         shell: pwsh
         run: |
           winget install jdx.mise --accept-package-agreements --accept-source-agreements
-          $miseBin = "$env:LOCALAPPDATA\mise\bin"
+          $miseBin = Split-Path (Get-Command mise).Source
           echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           $env:PATH = "$miseBin;$env:PATH"
 

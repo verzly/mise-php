@@ -433,7 +433,12 @@ function configure_macos(configureOptions, homebrew_prefix)
                 table.insert(cppflags, "-I" .. pkg_path .. "/include")
             end
         else
-            io.stderr:write("Info: " .. pkg.name .. " not found, skipping " .. pkg.flag .. "\n")
+            if pkg.missing_flag then
+                configureOptions = configureOptions .. " " .. pkg.missing_flag
+                io.stderr:write("Info: " .. pkg.name .. " not found, using " .. pkg.missing_flag .. "\n")
+            else
+                io.stderr:write("Info: " .. pkg.name .. " not found, skipping " .. pkg.flag .. "\n")
+            end
         end
     end
 

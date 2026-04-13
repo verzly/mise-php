@@ -55,6 +55,7 @@ jobs:
         if: runner.os != 'Windows'
         env:
           PHP_VERBOSE: "1"
+          PHP_CONFIGURE_OPTIONS: "--enable-mbstring" 
         run: mise use -g php@latest --verbose
 
       - name: Install latest PHP via mise-php (Windows)

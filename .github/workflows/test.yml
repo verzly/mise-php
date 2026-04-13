@@ -56,14 +56,14 @@ jobs:
         env:
           PHP_VERBOSE: '1'
           PHP_BUILD_PROFILE: 'minimal'
-        run: mise use -g php@8.5.5 --verbose
+        run: mise use -g php@8.5.5
 
       - name: Install PHP via mise-php (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           PHP_VERBOSE: '1'
-        run: mise use -g php@8.5.5 --verbose
+        run: mise use -g php@8.5.5
 
       - name: Check versions
         run: |

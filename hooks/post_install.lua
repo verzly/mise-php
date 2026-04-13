@@ -262,7 +262,7 @@ function install_php_for_linux(sdkPath, version)
     -- Build PHP
     print("Building PHP (this may take several minutes)...")
     local makeCmd =
-        string.format("cd '%s' && make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. QUIET, sdkPath)
+        string.format("cd '%s' && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. QUIET, sdkPath, envPrefix)
     status = os.execute(makeCmd)
     if status ~= 0 and status ~= true then
         error(
@@ -273,7 +273,7 @@ function install_php_for_linux(sdkPath, version)
 
     -- Install PHP
     print("Installing PHP...")
-    local installCmd = string.format("cd '%s' && make install" .. QUIET, sdkPath)
+    local installCmd = string.format("cd '%s' && %smake install" .. QUIET, sdkPath, envPrefix)
     status = os.execute(installCmd)
     if status ~= 0 and status ~= true then
         error(
@@ -433,12 +433,7 @@ function configure_macos(configureOptions, homebrew_prefix)
                 table.insert(cppflags, "-I" .. pkg_path .. "/include")
             end
         else
-            if pkg.missing_flag then
-                configureOptions = configureOptions .. " " .. pkg.missing_flag
-                io.stderr:write("Info: " .. pkg.name .. " not found, using " .. pkg.missing_flag .. "\n")
-            else
-                io.stderr:write("Info: " .. pkg.name .. " not found, skipping " .. pkg.flag .. "\n")
-            end
+            io.stderr:write("Info: " .. pkg.name .. " not found, skipping " .. pkg.flag .. "\n")
         end
     end
 

@@ -53,7 +53,7 @@ jobs:
 
       - name: Install latest PHP via mise-php (Linux / macOS)
         if: runner.os != 'Windows'
-        run: PHP_VERBOSE=1 PHP_CONFIGURE_OPTIONS="--with-openssl --enable-mbstring" mise use -g php@latest --verbose
+        run: PHP_VERBOSE=1 PHP_CONFIGURE_OPTIONS="--enable-mbstring" mise use -g php@latest --verbose
 
       - name: Install latest PHP via mise-php (Windows)
         if: runner.os == 'Windows'

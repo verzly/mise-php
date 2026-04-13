@@ -170,7 +170,6 @@ function install_php_for_linux(sdkPath, version)
         --with-mysqli=mysqlnd
         --with-pdo-mysql=mysqlnd
         --with-zlib
-        --without-pear
         --without-pcre-jit
         --without-snmp
     ]]
@@ -178,6 +177,15 @@ function install_php_for_linux(sdkPath, version)
     -- Clean up whitespace in common options
     commonOptions = string.gsub(commonOptions, "%s+", " ")
     configureOptions = configureOptions .. " " .. commonOptions
+
+    -- PEAR was removed from the PHP source tree in 8.5
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
+    if major > 8 or (major == 8 and minor >= 5) then
+        configureOptions = configureOptions .. " --without-pear"
+    else
+        configureOptions = configureOptions .. " --with-pear"
+    end
 
     if os_type == "darwin" then
         configureOptions, envPrefix = configure_macos(configureOptions, homebrew_prefix)
@@ -472,7 +480,7 @@ function install_pecl_extensions(sdkPath, envPrefix)
         { name = "redis", url = "https://pecl.php.net/get/redis" },
     }
 
-    local tmpdir = os.tmpname() .. "_pecl"
+    local tmpdir = "/tmp/mise-php-pecl-" .. os.time()
     os.execute("mkdir -p '" .. tmpdir .. "'")
 
     for _, ext in ipairs(extensions) do
@@ -487,10 +495,10 @@ function install_pecl_extensions(sdkPath, envPrefix)
             "%s make install",
             extdir, extdir,
             ext.url,
-            envPrefix or "", phpize,
-            envPrefix or "", phpconfig,
-            envPrefix or "",
-            envPrefix or ""
+            envPrefix, phpize,
+            envPrefix, phpconfig,
+            envPrefix,
+            envPrefix
         )
         if QUIET ~= "" then
             cmd = cmd .. QUIET

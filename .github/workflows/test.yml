@@ -51,19 +51,19 @@ jobs:
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
 
-      - name: Install latest PHP via mise-php (Linux / macOS)
+      - name: Install PHP via mise-php (Linux / macOS)
         if: runner.os != 'Windows'
         env:
-          PHP_VERBOSE: "1"
-          PHP_BUILD_PROFILE: minimal
-        run: mise use -g php@latest --verbose
+          PHP_VERBOSE: '1'
+          PHP_BUILD_PROFILE: 'minimal'
+        run: mise use -g php@8.5.5 --verbose
 
-      - name: Install latest PHP via mise-php (Windows)
+      - name: Install PHP via mise-php (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          PHP_VERBOSE: "1"
-        run: mise use -g php@latest --verbose
+          PHP_VERBOSE: '1'
+        run: mise use -g php@8.5.5 --verbose
 
       - name: Check versions
         run: |

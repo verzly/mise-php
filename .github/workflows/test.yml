@@ -55,7 +55,6 @@ jobs:
         if: runner.os != 'Windows'
         env:
           PHP_VERBOSE: "1"
-          PHP_CONFIGURE_OPTIONS: "--enable-mbstring"
           PHP_BUILD_PROFILE: minimal
         run: mise use -g php@latest --verbose
 

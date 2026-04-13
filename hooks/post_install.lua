@@ -207,17 +207,15 @@ end
 function install_php_for_linux(sdkPath, version)
     fail_if_windows_php_is_visible_or_hangs()
     
+    local os_type = RUNTIME.osType
     local buildProfile = normalize_build_profile()
     print("Using PHP build profile: " .. buildProfile)
 
     local envPrefix = ""
     local configureOptions = build_configure_options_for_profile(sdkPath, version, buildProfile)
 
-    -- Clean up whitespace in common options
-    commonOptions = string.gsub(commonOptions, "%s+", " ")
-    configureOptions = configureOptions .. " " .. commonOptions
-
     if os_type == "darwin" then
+        local homebrew_prefix = os.getenv("HOMEBREW_PREFIX") or "/opt/homebrew"
         configureOptions, envPrefix = configure_macos(configureOptions, homebrew_prefix)
     else
         configureOptions = configure_linux(configureOptions)

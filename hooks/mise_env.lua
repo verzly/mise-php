@@ -28,5 +28,9 @@ function PLUGIN:MiseEnv(ctx)
         env.setenv("PHP_CONFIGURE_OPTIONS", tostring(options.configure_options))
     end
 
+    if options.build_profile ~= nil and options.build_profile ~= "" and options.build_profile ~= false then
+        env.setenv("PHP_BUILD_PROFILE", tostring(options.build_profile))
+    end
+
     return env_vars
 end

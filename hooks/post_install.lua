@@ -124,25 +124,33 @@ function install_php_for_windows(sdkPath, version)
     install_composer(sdkPath)
 end
 
-function install_php_for_linux(sdkPath, version)
-    fail_if_windows_php_is_visible_or_hangs()
-    
-    -- mise extracts tarball to sdkPath, with top-level directory stripped
-    -- So sdkPath IS the source directory (php-src-php-X.Y.Z contents)
+local function normalize_build_profile()
+    local profile = os.getenv("PHP_BUILD_PROFILE") or "full"
+    profile = string.lower(profile)
 
-    local os_type = RUNTIME.osType
-    local homebrew_prefix = os.getenv("HOMEBREW_PREFIX") or "/opt/homebrew"
-
-    -- Build environment and configure options
-    local envPrefix = ""
-    local configureOptions = "--prefix='" .. sdkPath .. "'"
-
-    if not VERBOSE then
-        print("\27[96mNote:\27[0m Build output is hidden. Set PHP_VERBOSE=1 to see full output.")
+    if profile ~= "full" and profile ~= "minimal" then
+        io.stderr:write(
+            "\27[93mWarning:\27[0m Unknown PHP_BUILD_PROFILE='" .. profile .. "', using 'full'.\n"
+        )
+        profile = "full"
     end
 
-    -- Common configure options
-    local commonOptions = [[
+    return profile
+end
+
+local function build_configure_options_for_profile(sdkPath, version, profile)
+    local configureOptions = "--prefix='" .. sdkPath .. "'"
+
+    local requiredOptions = [[
+        --sysconfdir=']] .. sdkPath .. [['
+        --with-config-file-path=']] .. sdkPath .. [['
+        --with-config-file-scan-dir=']] .. sdkPath .. [[/conf.d'
+        --with-openssl
+        --with-zlib
+        --enable-mbstring
+    ]]
+
+    local fullOptions = [[
         --enable-bcmath
         --enable-calendar
         --enable-dba
@@ -152,7 +160,6 @@ function install_php_for_linux(sdkPath, version)
         --enable-gd
         --enable-intl
         --enable-mbregex
-        --enable-mbstring
         --enable-mysqlnd
         --enable-pcntl
         --enable-shmop
@@ -161,41 +168,53 @@ function install_php_for_linux(sdkPath, version)
         --enable-sysvmsg
         --enable-sysvsem
         --enable-sysvshm
-        --sysconfdir=']] .. sdkPath .. [['
-        --with-config-file-path=']] .. sdkPath .. [['
-        --with-config-file-scan-dir=']] .. sdkPath .. [[/conf.d'
         --with-curl
         --with-mhash
         --with-mysqli=mysqlnd
         --with-pdo-mysql=mysqlnd
-        --with-zlib
-        --with-pear
         --without-pcre-jit
         --without-snmp
     ]]
 
-    -- Clean up whitespace in common options
-    commonOptions = string.gsub(commonOptions, "%s+", " ")
-    configureOptions = configureOptions .. " " .. commonOptions
+    local minimalOptions = [[
+        --without-pcre-jit
+        --without-snmp
+    ]]
 
-    if os_type == "darwin" then
-        configureOptions, envPrefix = configure_macos(configureOptions, homebrew_prefix)
+    requiredOptions = string.gsub(requiredOptions, "%s+", " ")
+    fullOptions = string.gsub(fullOptions, "%s+", " ")
+    minimalOptions = string.gsub(minimalOptions, "%s+", " ")
+
+    configureOptions = configureOptions .. " " .. requiredOptions
+
+    if profile == "minimal" then
+        configureOptions = configureOptions .. " " .. minimalOptions
     else
-        configureOptions = configure_linux(configureOptions)
+        configureOptions = configureOptions .. " " .. fullOptions
     end
 
-    -- Allow user to override configure options
-    local extraOptions = os.getenv("PHP_EXTRA_CONFIGURE_OPTIONS")
-    if extraOptions ~= nil and extraOptions ~= "" then
-        configureOptions = configureOptions .. " " .. extraOptions
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
+    if major > 8 or (major == 8 and minor >= 5) then
+        configureOptions = configureOptions .. " --without-pear"
+    else
+        configureOptions = configureOptions .. " --with-pear"
     end
 
-    local userOptions = os.getenv("PHP_CONFIGURE_OPTIONS")
-    if userOptions ~= nil and userOptions ~= "" then
-        -- User provided full options, use those instead (but keep prefix)
-        configureOptions = "--prefix='" .. sdkPath .. "' " .. userOptions
-    end
+    return configureOptions
+end
 
+function install_php_for_linux(sdkPath, version)
+    fail_if_windows_php_is_visible_or_hangs()
+    
+    print("Using PHP build profile: " .. buildProfile)
+    local buildProfile = normalize_build_profile()
+    local configureOptions = build_configure_options_for_profile(sdkPath, version, buildProfile)
+
+    if not VERBOSE then
+        print("\27[96mNote:\27[0m Build output is hidden. Set PHP_VERBOSE=1 to see full output.")
+    end
+    
     -- Run buildconf
     print("Running buildconf...")
     local buildconfCmd = string.format("cd '%s' && ./buildconf --force" .. QUIET, sdkPath)

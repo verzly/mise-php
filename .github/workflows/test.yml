@@ -44,25 +44,26 @@ jobs:
         shell: pwsh
         run: |
           winget install jdx.mise --accept-package-agreements --accept-source-agreements
-          $miseBin = "$env:LOCALAPPDATA\mise\bin"
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+          $miseBin = Split-Path (Get-Command mise).Source
           echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          $env:PATH = "$miseBin;$env:PATH"
 
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
 
       - name: Install latest PHP via mise-php (Linux / macOS)
         if: runner.os != 'Windows'
-        run: |
-          mise config set env._.php.verbose true
-          mise config set env._.php.configure_options "--with-openssl --enable-mbstring"
-          mise use -g php@latest --verbose
+        env:
+          PHP_VERBOSE: "1"
+          PHP_CONFIGURE_OPTIONS: "--enable-mbstring" 
+        run: mise use -g php@latest --verbose
 
       - name: Install latest PHP via mise-php (Windows)
         if: runner.os == 'Windows'
-        run: |
-          mise config set env._.php.verbose true
-          mise use -g php@latest --verbose
+        shell: pwsh
+        env:
+          PHP_VERBOSE: "1"
+        run: mise use -g php@latest --verbose
 
       - name: Check versions
         run: |
@@ -74,6 +75,8 @@ jobs:
     needs: install
     if: always() && needs.install.result != 'skipped'
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - uses: actions/github-script@v7
         with:

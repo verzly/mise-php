@@ -1,8 +1,9 @@
 local env = require("lib/env")
 
-local VERBOSE   = env.VERBOSE
-local QUIET     = env.QUIET
-local SKIP_DEPS = env.SKIP_DEPS
+local VERBOSE         = env.VERBOSE
+local QUIET           = env.QUIET
+local SKIP_DEPS       = env.SKIP_DEPS
+local PECL_EXTENSIONS = env.PECL_EXTENSIONS
 
 --- Performs additional setup after installation
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#postinstall-hook
@@ -466,6 +467,10 @@ function configure_linux(configureOptions)
 end
 
 function install_pecl_extensions(sdkPath, envPrefix)
+    if #PECL_EXTENSIONS == 0 then
+        return
+    end
+
     local phpize = sdkPath .. "/bin/phpize"
     local phpconfig = sdkPath .. "/bin/php-config"
 
@@ -476,9 +481,10 @@ function install_pecl_extensions(sdkPath, envPrefix)
     end
     f:close()
 
-    local extensions = {
-        { name = "redis", url = "https://pecl.php.net/get/redis" },
-    }
+    local extensions = {}
+    for _, name in ipairs(PECL_EXTENSIONS) do
+        table.insert(extensions, { name = name, url = "https://pecl.php.net/get/" .. name })
+    end
 
     local tmpdir = "/tmp/mise-php-pecl-" .. os.time()
     os.execute("mkdir -p '" .. tmpdir .. "'")

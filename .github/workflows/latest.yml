@@ -1,0 +1,72 @@
+name: Update latest tag
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-latest-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch all tags
+        run: git fetch --tags --force
+
+      - name: Determine highest stable semver tag
+        id: semver
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HIGHEST_TAG="$(
+            git tag -l \
+              | grep -E '^(v)?[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V \
+              | tail -n 1
+          )"
+
+          if [ -z "${HIGHEST_TAG:-}" ]; then
+            echo "No stable semantic version tags found."
+            exit 1
+          fi
+
+          echo "highest_tag=$HIGHEST_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Read published release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "release_tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Stop if published release is not the highest stable semver tag
+        if: steps.release.outputs.release_tag != steps.semver.outputs.highest_tag
+        shell: bash
+        run: |
+          echo "Published release tag: ${{ steps.release.outputs.release_tag }}"
+          echo "Highest stable semver tag: ${{ steps.semver.outputs.highest_tag }}"
+          echo "Skipping latest tag update."
+
+      - name: Move latest tag to the published highest release tag
+        if: steps.release.outputs.release_tag == steps.semver.outputs.highest_tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TARGET_TAG="${{ steps.release.outputs.release_tag }}"
+          TARGET_SHA="$(git rev-list -n 1 "$TARGET_TAG")"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag -fa latest "$TARGET_SHA" -m "Update latest -> $TARGET_TAG"
+          git push origin refs/tags/latest --force

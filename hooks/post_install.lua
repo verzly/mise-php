@@ -4,6 +4,7 @@ local VERBOSE         = env.VERBOSE
 local QUIET           = env.QUIET
 local SKIP_DEPS       = env.SKIP_DEPS
 local PECL_EXTENSIONS = env.PECL_EXTENSIONS
+local PIE_EXTENSIONS = env.PIE_EXTENSIONS
 
 --- Performs additional setup after installation
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#postinstall-hook
@@ -98,6 +99,9 @@ function install_php_for_windows(sdkPath, version)
     -- Install PHP
     print("Installing PHP...")
 
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
+
     local scriptPath = assert(RUNTIME.pluginDirPath .. "\\bin\\install-windows-php.ps1")
     local installCmd = string.format(
         'cmd /c "cd /d %%TEMP%% && powershell -NoProfile -ExecutionPolicy Bypass -File "%s" -Version %s -Arch x64 -CustomPath "%s""',
@@ -121,12 +125,24 @@ function install_php_for_windows(sdkPath, version)
     end
     print("PHP installation complete!")
 
+    -- Install PIE & extensions
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
+
+    if major > 8 or (major == 8 and minor >= 1) then
+        install_pie(sdkPath)
+        install_pie_extensions(sdkPath)
+    end
+
     -- Install Composer
     install_composer(sdkPath)
 end
 
 function install_php_for_linux(sdkPath, version)
     fail_if_windows_php_is_visible_or_hangs()
+
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
     
     -- mise extracts tarball to sdkPath, with top-level directory stripped
     -- So sdkPath IS the source directory (php-src-php-X.Y.Z contents)
@@ -180,8 +196,6 @@ function install_php_for_linux(sdkPath, version)
     configureOptions = configureOptions .. " " .. commonOptions
 
     -- PEAR was removed from the PHP source tree in 8.5
-    local major, minor = version:match("^(%d+)%.(%d+)")
-    major, minor = tonumber(major) or 0, tonumber(minor) or 0
     if major > 8 or (major == 8 and minor >= 5) then
         configureOptions = configureOptions .. " --without-pear"
     else
@@ -272,7 +286,15 @@ function install_php_for_linux(sdkPath, version)
     print("PHP installation complete!")
 
     -- Install PECL extensions
-    install_pecl_extensions(sdkPath, envPrefix)
+    if not (major > 8 or (major == 8 and minor >= 5)) then
+        install_pecl_extensions(sdkPath, envPrefix)
+    end
+
+    -- Install PIE & extensions
+    if major > 8 or (major == 8 and minor >= 1) then
+        install_pie(sdkPath)
+        install_pie_extensions(sdkPath)
+    end
 
     -- Install Composer
     install_composer(sdkPath)
@@ -527,6 +549,166 @@ function install_pecl_extensions(sdkPath, envPrefix)
     end
 
     os.execute("rm -rf '" .. tmpdir .. "'")
+end
+
+function install_pie(sdkPath)
+    print("Installing PIE...")
+    if RUNTIME.osType == "windows" then
+        install_pie_for_windows(sdkPath)
+    else
+        install_pie_for_linux(sdkPath)
+    end
+    print("PIE installation complete!")
+end
+
+function install_pie_for_linux(sdkPath)
+    local php_bin = sdkPath .. "/bin/php"
+    local pie_bin = sdkPath .. "/bin/pie"
+    local pie_phar = sdkPath .. "/pie.phar"
+
+    local dl_cmd = string.format(
+        'curl -fsSL https://github.com/php/pie/releases/latest/download/pie.phar -o "%s"' .. QUIET,
+        pie_phar
+    )
+    local status = os.execute(dl_cmd)
+    if status ~= 0 and status ~= true then
+        io.stderr:write("\27[93mWarning:\27[0m Failed to download PIE.\n")
+        return
+    end
+
+    local wrapper = io.open(pie_bin, "w")
+    if not wrapper then
+        io.stderr:write("\27[93mWarning:\27[0m Failed to create PIE wrapper.\n")
+        return
+    end
+
+    wrapper:write("#!/usr/bin/env sh\n")
+    wrapper:write('exec "' .. php_bin .. '" "' .. pie_phar .. '" "$@"\n')
+    wrapper:close()
+
+    os.execute('chmod +x "' .. pie_bin .. '"')
+
+    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. pie_phar .. '" --version > /dev/null 2>&1')
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+        io.stderr:write("\27[93mWarning:\27[0m PIE verification failed.\n")
+    end
+end
+
+function install_pie_for_windows(sdkPath)
+    local sep = package.config:sub(1,1)
+    local function join_path(...)
+        return table.concat({...}, sep)
+    end
+
+    local php_bin  = join_path(sdkPath, "php.exe")
+    local pie_phar = join_path(sdkPath, "pie.phar")
+    local pie_bat  = join_path(sdkPath, "pie.bat")
+
+    local dl_cmd = string.format(
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile \'%s\'"' .. QUIET,
+        pie_phar
+    )
+    local status = os.execute(dl_cmd)
+    if status ~= 0 and status ~= true then
+        io.stderr:write("\27[93mWarning:\27[0m Failed to download PIE.\n")
+        return
+    end
+
+    local bat = io.open(pie_bat, "w")
+    if not bat then
+        io.stderr:write("\27[93mWarning:\27[0m Failed to create PIE wrapper.\n")
+        return
+    end
+
+    bat:write('@echo off\r\n')
+    bat:write(string.format('"%s" "%%~dp0pie.phar" %%*\r\n', php_bin))
+    bat:close()
+
+    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. pie_phar .. '" --version > NUL 2>&1')
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+        io.stderr:write("\27[93mWarning:\27[0m PIE verification failed.\n")
+    end
+end
+
+function install_pie_extensions(sdkPath)
+    if #PIE_EXTENSIONS == 0 then
+        return
+    end
+
+    if RUNTIME.osType == "windows" then
+        install_pie_extensions_for_windows(sdkPath)
+    else
+        install_pie_extensions_for_linux(sdkPath)
+    end
+end
+
+function install_pie_extensions_for_linux(sdkPath)
+    local php_bin = sdkPath .. "/bin/php"
+    local phpize = sdkPath .. "/bin/phpize"
+    local phpconfig = sdkPath .. "/bin/php-config"
+    local pie_phar = sdkPath .. "/pie.phar"
+
+    local f = io.open(pie_phar, "r")
+    if not f then
+        io.stderr:write("\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n")
+        return
+    end
+    f:close()
+
+    for _, pkg in ipairs(PIE_EXTENSIONS) do
+        print("Installing PIE extension: " .. pkg .. "...")
+
+        local cmd = string.format(
+            '"%s" "%s" install --with-php-path="%s" --with-php-config="%s" --with-phpize-path="%s" "%s"%s',
+            php_bin,
+            pie_phar,
+            php_bin,
+            phpconfig,
+            phpize,
+            pkg,
+            QUIET
+        )
+
+        local status = os.execute(cmd)
+        if status ~= 0 and status ~= true then
+            io.stderr:write("\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n")
+        end
+    end
+end
+
+function install_pie_extensions_for_windows(sdkPath)
+    local sep = package.config:sub(1,1)
+    local function join_path(...)
+        return table.concat({...}, sep)
+    end
+
+    local php_bin  = join_path(sdkPath, "php.exe")
+    local pie_phar = join_path(sdkPath, "pie.phar")
+
+    local f = io.open(pie_phar, "r")
+    if not f then
+        io.stderr:write("\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n")
+        return
+    end
+    f:close()
+
+    for _, pkg in ipairs(PIE_EXTENSIONS) do
+        print("Installing PIE extension: " .. pkg .. "...")
+
+        local cmd = string.format(
+            '"%s" "%s" install --with-php-path="%s" "%s"%s',
+            php_bin,
+            pie_phar,
+            php_bin,
+            pkg,
+            QUIET
+        )
+
+        local status = os.execute(cmd)
+        if status ~= 0 and status ~= true then
+            io.stderr:write("\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n")
+        end
+    end
 end
 
 function install_composer(sdkPath)

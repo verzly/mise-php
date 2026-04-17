@@ -32,5 +32,9 @@ function PLUGIN:MiseEnv(ctx)
         env.setenv("PHP_PECL_EXTENSIONS", tostring(options.pecl_extensions))
     end
 
+    if options.pie_extensions ~= nil and options.pie_extensions ~= "" and options.pie_extensions ~= false then
+        env.setenv("PHP_PIE_EXTENSIONS", tostring(options.pie_extensions))
+    end
+
     return env_vars
 end

@@ -605,7 +605,7 @@ function install_pie_for_windows(sdkPath)
     local pie_bat  = join_path(sdkPath, "pie.bat")
 
     local dl_cmd = string.format(
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile ''%s''"' .. QUIET,
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile \'%s\'"' .. QUIET,
         pie_phar
     )
     local status = os.execute(dl_cmd)

@@ -122,6 +122,15 @@ function install_php_for_windows(sdkPath, version)
     end
     print("PHP installation complete!")
 
+    -- Install PIE & extensions
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
+
+    if major > 8 or (major == 8 and minor >= 1) then
+        install_pie(sdkPath)
+        install_pie_extensions(sdkPath)
+    end
+
     -- Install Composer
     install_composer(sdkPath)
 end
@@ -273,14 +282,17 @@ function install_php_for_linux(sdkPath, version)
     print("PHP installation complete!")
 
     -- Install PECL extensions
+    if not (major > 8 or (major == 8 and minor >= 5)) then
+        install_pecl_extensions(sdkPath, envPrefix)
+    end
+
+    -- Install PIE & extensions
     local major, minor = version:match("^(%d+)%.(%d+)")
     major, minor = tonumber(major) or 0, tonumber(minor) or 0
 
-    if major > 8 or (major == 8 and minor >= 5) then
+    if major > 8 or (major == 8 and minor >= 1) then
         install_pie(sdkPath)
         install_pie_extensions(sdkPath)
-    else
-        install_pecl_extensions(sdkPath, envPrefix)
     end
 
     -- Install Composer
@@ -539,42 +551,82 @@ function install_pecl_extensions(sdkPath, envPrefix)
 end
 
 function install_pie(sdkPath)
-    local php_bin = sdkPath .. "/bin/php"
-    local pie_phar = sdkPath .. "/bin/pie"
-    local tmp_phar = sdkPath .. "/pie.phar"
-
     print("Installing PIE...")
+    if RUNTIME.osType == "windows" then
+        install_pie_for_windows(sdkPath)
+    else
+        install_pie_for_linux(sdkPath)
+    end
+    print("PIE installation complete!")
+end
+
+function install_pie_for_linux(sdkPath)
+    local php_bin = sdkPath .. "/bin/php"
+    local pie_bin = sdkPath .. "/bin/pie"
+    local pie_phar = sdkPath .. "/pie.phar"
 
     local dl_cmd = string.format(
         'curl -fsSL https://github.com/php/pie/releases/latest/download/pie.phar -o "%s"' .. QUIET,
-        tmp_phar
+        pie_phar
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write("\27[93mWarning:\27[0m Failed to download PIE.\n")
-        return false
+        return
     end
 
-    local wrapper = io.open(pie_phar, "w")
+    local wrapper = io.open(pie_bin, "w")
     if not wrapper then
         io.stderr:write("\27[93mWarning:\27[0m Failed to create PIE wrapper.\n")
-        return false
+        return
     end
 
     wrapper:write("#!/usr/bin/env sh\n")
-    wrapper:write('exec "' .. php_bin .. '" "' .. tmp_phar .. '" "$@"\n')
+    wrapper:write('exec "' .. php_bin .. '" "' .. pie_phar .. '" "$@"\n')
     wrapper:close()
 
-    os.execute('chmod +x "' .. pie_phar .. '"')
+    os.execute('chmod +x "' .. pie_bin .. '"')
 
-    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. tmp_phar .. '" --version > /dev/null 2>&1')
+    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. pie_phar .. '" --version > /dev/null 2>&1')
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         io.stderr:write("\27[93mWarning:\27[0m PIE verification failed.\n")
-        return false
+    end
+end
+
+function install_pie_for_windows(sdkPath)
+    local sep = package.config:sub(1,1)
+    local function join_path(...)
+        return table.concat({...}, sep)
     end
 
-    print("PIE installation complete!")
-    return true
+    local php_bin  = join_path(sdkPath, "php.exe")
+    local pie_phar = join_path(sdkPath, "pie.phar")
+    local pie_bat  = join_path(sdkPath, "pie.bat")
+
+    local dl_cmd = string.format(
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile ''%s''"' .. QUIET,
+        pie_phar
+    )
+    local status = os.execute(dl_cmd)
+    if status ~= 0 and status ~= true then
+        io.stderr:write("\27[93mWarning:\27[0m Failed to download PIE.\n")
+        return
+    end
+
+    local bat = io.open(pie_bat, "w")
+    if not bat then
+        io.stderr:write("\27[93mWarning:\27[0m Failed to create PIE wrapper.\n")
+        return
+    end
+
+    bat:write('@echo off\r\n')
+    bat:write(string.format('"%s" "%%~dp0pie.phar" %%*\r\n', php_bin))
+    bat:close()
+
+    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. pie_phar .. '" --version > NUL 2>&1')
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+        io.stderr:write("\27[93mWarning:\27[0m PIE verification failed.\n")
+    end
 end
 
 function install_pie_extensions(sdkPath)
@@ -582,6 +634,14 @@ function install_pie_extensions(sdkPath)
         return
     end
 
+    if RUNTIME.osType == "windows" then
+        install_pie_extensions_for_windows(sdkPath)
+    else
+        install_pie_extensions_for_linux(sdkPath)
+    end
+end
+
+function install_pie_extensions_for_linux(sdkPath)
     local php_bin = sdkPath .. "/bin/php"
     local phpize = sdkPath .. "/bin/phpize"
     local phpconfig = sdkPath .. "/bin/php-config"
@@ -604,6 +664,41 @@ function install_pie_extensions(sdkPath)
             php_bin,
             phpconfig,
             phpize,
+            pkg,
+            QUIET
+        )
+
+        local status = os.execute(cmd)
+        if status ~= 0 and status ~= true then
+            io.stderr:write("\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n")
+        end
+    end
+end
+
+function install_pie_extensions_for_windows(sdkPath)
+    local sep = package.config:sub(1,1)
+    local function join_path(...)
+        return table.concat({...}, sep)
+    end
+
+    local php_bin  = join_path(sdkPath, "php.exe")
+    local pie_phar = join_path(sdkPath, "pie.phar")
+
+    local f = io.open(pie_phar, "r")
+    if not f then
+        io.stderr:write("\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n")
+        return
+    end
+    f:close()
+
+    for _, pkg in ipairs(PIE_EXTENSIONS) do
+        print("Installing PIE extension: " .. pkg .. "...")
+
+        local cmd = string.format(
+            '"%s" "%s" install --with-php-path="%s" "%s"%s',
+            php_bin,
+            pie_phar,
+            php_bin,
             pkg,
             QUIET
         )

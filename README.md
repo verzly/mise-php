@@ -9,10 +9,15 @@
   - [Build from source](#build-from-source)
   - [Cleanup](#cleanup)
 - [Get started](#get-started)
+  - [Install mise](#get-started)
+  - [Activate mise](#get-started)
+  - [Install plugin](#get-started)
   - [Upgrade](#up-to-date)
 - [Usage](#usage)
   - [PHP](#php)
   - [Composer](#composer-for-php)
+  - [PIE](#pie-for-php)
+  - [PECL](#pecl-for-php)
   - [Environment variables](#environment-variables)
   - [Custom configure options](#custom-configure-options-macos-and-linux)
   - [Skip dependency installation](#skip-dependency-installation)
@@ -196,13 +201,108 @@ type -a composer
 sudo rm -f /path/to/composer
 # Do NOT remove the verzly/mise-php Composer:
 # ~/.local/share/mise/installs/php/8.5.4/bin/composer
+# or the shim managed by mise:
+# ~/.local/share/mise/shims/composer
 
 # Windows (PowerShell)
 Get-Command composer -All
 
 Remove-Item "C:\path\to\composer.exe" -Force
 # Do NOT remove the verzly/mise-php Composer:
+# %LOCALAPPDATA%\mise\installs\php\<version>\composer.bat
+# or the shim managed by mise:
 # %LOCALAPPDATA%\mise\shims\composer.exe
+```
+
+### PIE for PHP
+
+[PIE](https://github.com/php/pie) is the modern replacement for PECL and the official installer for PHP extensions. It works similarly to Composer, but installs extensions directly into the active PHP runtime.
+
+PIE can be used with PHP 8.1 and newer, and on PHP 8.5 and newer it is the recommended way to install extensions.
+
+`verzly/mise-php` automatically installs PIE for supported PHP versions, and can also install configured PIE extensions during PHP installation. This allows you to persist your preferred extensions and have them installed automatically for every new PHP version.
+
+Each PHP version has its own dedicated PIE executable, which always operates on the currently active PHP runtime managed by `mise`.
+
+```sh
+# Check current PHP version
+php --version
+
+# Install extensions for the active PHP version
+pie install redis/phpredis
+pie install xdebug/xdebug
+```
+
+You can install extensions during PHP installation by providing a list via `PHP_PIE_EXTENSIONS`:
+
+```sh
+# One-time use (Linux / macOS / Bash)
+PHP_PIE_EXTENSIONS="redis/phpredis xdebug/xdebug" mise install php@8.5.0
+
+# One-time use (Windows PowerShell)
+$env:PHP_PIE_EXTENSIONS="redis/phpredis xdebug/xdebug"; mise install php@8.5.0
+```
+
+You can also persist commonly used extensions so they are automatically installed whenever a new PHP version is installed:
+
+```sh
+# Persist PIE extensions globally (set this before installing a PHP version)
+mise config set env._.php.pie_extensions "redis/phpredis xdebug/xdebug"
+```
+
+```toml
+[env]
+_.php = { pie_extensions = "redis/phpredis xdebug/xdebug" }
+```
+
+Have you used PIE before installing `verzly/mise-php`? Check for and remove any unnecessary PIE binaries.
+
+```sh
+# Linux / macOS
+type -a pie
+
+sudo rm -f /path/to/pie
+# Do NOT remove the verzly/mise-php PIE:
+# ~/.local/share/mise/installs/php/<version>/bin/pie
+# or the shim managed by mise:
+# ~/.local/share/mise/shims/pie
+
+# Windows (PowerShell)
+Get-Command pie -All
+
+Remove-Item "C:\path\to\pie.exe" -Force
+# Do NOT remove the verzly/mise-php PIE:
+# %LOCALAPPDATA%\mise\installs\php\<version>\pie.bat
+# or the shim managed by mise:
+# %LOCALAPPDATA%\mise\shims\pie.exe
+```
+
+### PECL for PHP
+
+> [!WARNING]
+> PECL is deprecated and is not supported for PHP 8.5 and newer. Use [PIE](#pie-for-php) instead.
+
+PECL can be used for installing extensions on PHP 8.4 and older versions.
+
+You can install extensions during PHP installation by providing a list via `PHP_PECL_EXTENSIONS`:
+
+```sh
+# One-time use (Linux / macOS / Bash)
+PHP_PECL_EXTENSIONS="redis xdebug" mise install php@8.4.3
+
+# One-time use (Windows PowerShell)
+$env:PHP_PECL_EXTENSIONS="redis xdebug"; mise install php@8.4.3
+```
+
+You can also persist commonly used extensions so they are automatically installed whenever a new PHP version is installed:
+
+```sh
+mise config set env._.php.pecl_extensions "redis xdebug"
+```
+
+```toml
+[env]
+_.php = { pecl_extensions = "redis xdebug" }
 ```
 
 ### Environment variables
@@ -228,8 +328,11 @@ This plugin sets the following environment variables:
 Add extra configure options on top of the defaults:
 
 ```sh
-# One-time use
+# One-time use (Linux / macOS / Bash)
 PHP_EXTRA_CONFIGURE_OPTIONS="--with-pdo-sqlite" mise install php@8.4.3
+
+# One-time use (Windows PowerShell)
+$env:PHP_EXTRA_CONFIGURE_OPTIONS="--with-pdo-sqlite"; mise install php@8.4.3
 
 # Save permanently
 mise config set env._.php.extra_configure_options "--with-pdo-sqlite"
@@ -245,8 +348,11 @@ mise install php@8.4.3
 Override all configure options (prefix is always preserved):
 
 ```sh
-# One-time use
+# One-time use (Linux / macOS / Bash)
 PHP_CONFIGURE_OPTIONS="--with-openssl --enable-mbstring" mise install php@8.4.3
+
+# One-time use (Windows PowerShell)
+$env:PHP_CONFIGURE_OPTIONS="--with-openssl --enable-mbstring"; mise install php@8.4.3
 
 # Save permanently
 mise config set env._.php.configure_options "--with-openssl --enable-mbstring"
@@ -292,8 +398,11 @@ By default, the plugin automatically installs required build dependencies before
 compiling PHP. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
 
 ```sh
-# One-time use
+# One-time use (Linux / macOS / Bash)
 PHP_SKIP_DEPS=1 mise install php@8.4.3
+
+# One-time use (Windows PowerShell)
+$env:PHP_SKIP_DEPS=1; mise install php@8.4.3
 
 # Enable permanently
 mise config set env._.php.skip_deps true
@@ -317,8 +426,11 @@ By default, build output is hidden. Set `PHP_VERBOSE=1` to see the full output o
 dependency installation, `buildconf`, `configure`, `make`, and Composer installation.
 
 ```sh
-# One-time use
+# One-time use (Linux / macOS / Bash)
 PHP_VERBOSE=1 mise install php@8.4.3
+
+# One-time use (Windows PowerShell)
+$env:PHP_VERBOSE=1; mise install php@8.4.3
 
 # Enable permanently
 mise config set env._.php.verbose true
@@ -346,10 +458,17 @@ mise install php@8.4.3 --verbose
 Both can be combined:
 
 ```sh
+# With only env variables
+# Linux / macOS / Bash
 PHP_VERBOSE=1 MISE_VERBOSE=1 mise install php@8.4.3
+# Windows PowerShell
+$env:PHP_VERBOSE=1; $env:MISE_VERBOSE=1; mise install php@8.4.3
 
-# or
+# or with --verbose flag & env variable
+# Linux / macOS / Bash
 PHP_VERBOSE=1 mise install php@8.4.3 --verbose
+# Windows PowerShell
+$env:PHP_VERBOSE=1; mise install php@8.4.3 --verbose
 
 # or enable PHP verbose permanently, then combine with --verbose as needed
 mise config set env._.php.verbose true

@@ -123,8 +123,14 @@ Once the plugin is installed, you can [start managing PHP versions](#usage).
 These are stable versions, but plugin updates may occur, which you can later install with a single command.
 
 ```sh
-# Upgrade plugin to latest version instantly
-mise plugin upgrade php
+# Upgrade plugin to latest version instantly (Recommended)
+mise plugin upgrade php#latest
+
+# Upgrade plugin to a specific tag
+mise plugin upgrade php#v0.6.0
+
+# Upgrade plugin to a specific commit
+mise plugin upgrade php#7a6858b
 ```
 
 ## Usage

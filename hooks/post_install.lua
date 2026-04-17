@@ -99,6 +99,9 @@ function install_php_for_windows(sdkPath, version)
     -- Install PHP
     print("Installing PHP...")
 
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
+
     local scriptPath = assert(RUNTIME.pluginDirPath .. "\\bin\\install-windows-php.ps1")
     local installCmd = string.format(
         'cmd /c "cd /d %%TEMP%% && powershell -NoProfile -ExecutionPolicy Bypass -File "%s" -Version %s -Arch x64 -CustomPath "%s""',
@@ -137,6 +140,9 @@ end
 
 function install_php_for_linux(sdkPath, version)
     fail_if_windows_php_is_visible_or_hangs()
+
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
     
     -- mise extracts tarball to sdkPath, with top-level directory stripped
     -- So sdkPath IS the source directory (php-src-php-X.Y.Z contents)
@@ -190,8 +196,6 @@ function install_php_for_linux(sdkPath, version)
     configureOptions = configureOptions .. " " .. commonOptions
 
     -- PEAR was removed from the PHP source tree in 8.5
-    local major, minor = version:match("^(%d+)%.(%d+)")
-    major, minor = tonumber(major) or 0, tonumber(minor) or 0
     if major > 8 or (major == 8 and minor >= 5) then
         configureOptions = configureOptions .. " --without-pear"
     else
@@ -287,9 +291,6 @@ function install_php_for_linux(sdkPath, version)
     end
 
     -- Install PIE & extensions
-    local major, minor = version:match("^(%d+)%.(%d+)")
-    major, minor = tonumber(major) or 0, tonumber(minor) or 0
-
     if major > 8 or (major == 8 and minor >= 1) then
         install_pie(sdkPath)
         install_pie_extensions(sdkPath)

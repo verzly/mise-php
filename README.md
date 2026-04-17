@@ -2,7 +2,14 @@
 
 ![verzly-mise-php-example](https://github.com/user-attachments/assets/c57759f1-0ffc-4175-b96a-ca259a9c814d)
 
-`verzly/mise-php` is a [jdx/mise](https://github.com/jdx/mise) plugin for installing and managing PHP on Linux, macOS, and Windows. Install multiple PHP versions side by side, each with its own dedicated Composer binary. Switch between versions globally or per project, and customize the build configuration to fit your exact needs.
+`verzly/mise-php` is a [jdx/mise](https://github.com/jdx/mise) plugin for installing and managing PHP on Linux, macOS, and Windows.
+
+It provides an integrated PHP toolchain with built-in support for:
+- **Composer** (per-version dependency management)
+- **PIE** (next-generation extension installer, PHP ≥ 8.1)
+- **PECL** (legacy extension support, PHP ≤ 8.4)
+
+Install multiple PHP versions side by side, each with its own isolated runtime, Composer, and extension environment. Switch between versions globally or per project, and customize the build configuration to fit your exact needs.
 
 - [How it works](#how-does-it-differ-from-the-other-mise-php-plugins)
   - [Pre-binaries](#pre-binaries)
@@ -158,6 +165,9 @@ composer --version
 
 # Check current PIE version (available from PHP 8.1)
 pie --version
+
+# Check current PECL version (deprecated on PHP 8.5+, use PIE instead)
+pecl version
 ```
 
 The list of version numbers is not gathered directly from [`php/php-src`](https://github.com/php/php-src/releases), because the GitHub API enforces rate limiting after a certain number of requests. Instead, we update our `versions.txt` file from a `cache` branch once per day, so it's possible that a release may only be installable via the `verzly/mise-php` plugin with a one-day delay, or may require a manual update.
@@ -319,12 +329,39 @@ Remove-Item "C:\path\to\pie.exe" -Force
 # %LOCALAPPDATA%\mise\shims\pie.exe
 ```
 
-### PECL for PHP (Deprecated for PHP 8.5 and newer)
+Így nézne ki egy **PECL szekció ugyanolyan minőségben és struktúrában**, csak warninggal és korlátozásokkal:
+
+### PECL for PHP
 
 > [!WARNING]
 > PECL is deprecated and is not supported for PHP 8.5 and newer. Use [PIE](#pie-for-php) instead.
 
-PECL can be used for installing extensions on PHP 8.4 and older versions.
+> [!WARNING]
+> `pecl install` performs a direct source build and install of extensions. It does not provide version isolation, dependency management, or reproducibility guarantees.
+
+PECL is the legacy installer for PHP extensions. It can be used with PHP 8.4 and older versions.
+
+`verzly/mise-php` can automatically install PECL extensions during PHP installation, allowing you to persist your preferred extensions and have them installed automatically for every new PHP version.
+
+Each PHP version uses its own extension directory, ensuring isolation between PHP versions.
+
+List of available PECL extensions:
+- <https://pecl.php.net/packages.php>
+
+```sh
+# Update PECL channel metadata (refresh available packages list)
+pecl channel-update pecl.php.net
+
+# Install extensions for the active PHP version
+pecl install redis
+pecl install xdebug
+
+# Show installed PECL extensions
+pecl list
+
+# Check current PECL version
+pecl version
+```
 
 You can install extensions during PHP installation by providing a list via `PHP_PECL_EXTENSIONS`:
 
@@ -342,13 +379,13 @@ You can also persist commonly used extensions so they are automatically installe
 mise config set env._.php.pecl_extensions "redis xdebug"
 ```
 
-List of available PIE extensions:
-- <https://pecl.php.net/packages.php>
-
 ```toml
 [env]
 _.php = { pecl_extensions = "redis xdebug" }
 ```
+
+> [!TIP]
+> Extension names differ from PIE (e.g. `redis` vs `redis/phpredis`).
 
 ### Environment variables
 

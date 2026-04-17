@@ -155,6 +155,9 @@ php --version
 
 # Check current Composer version
 composer --version
+
+# Check current PIE version (available from PHP 8.1)
+pie --version
 ```
 
 The list of version numbers is not gathered directly from [`php/php-src`](https://github.com/php/php-src/releases), because the GitHub API enforces rate limiting after a certain number of requests. Instead, we update our `versions.txt` file from a `cache` branch once per day, so it's possible that a release may only be installable via the `verzly/mise-php` plugin with a one-day delay, or may require a manual update.
@@ -167,25 +170,25 @@ Each PHP version uses its own Composer binary, while sharing the global Composer
 > Global packages are not fully version-independent. If a package only supports a specific PHP range (e.g. 8.1-8.5), switching to an older PHP version (e.g. 8.0 or 7.4) may require reinstalling a compatible (older) version of that package.
 
 ```sh
-# Latest Composer major
+# Manage Composer versions (self-update commands)
+
+# Update to the latest major version
 composer self-update
-
-# Latest Composer 2 minor, patch
+# Update within a specific major version (latest minor/patch)
 composer self-update 2
-
-# Latest Composer 2.7 patch
+# Update within a specific minor version (latest patch)
 composer self-update 2.7
-
-# Only Composer 2.7.9 patch
+# Install a specific version
 composer self-update 2.7.9
-
-# Roll back to the previous version
+# Roll back to the previously installed version
 composer self-update --rollback
 
-# Update to latest preview/RC version
+# Switch release channels
+# Use stable releases (recommended, default)
+composer self-update --stable
+# Use preview / release candidate versions
 composer self-update --preview
-
-# Update to latest snapshot/development version
+# Use development snapshot versions
 composer self-update --snapshot
 
 # Check current Composer version
@@ -224,6 +227,12 @@ PIE can be used with PHP 8.1 and newer, and on PHP 8.5 and newer it is the recom
 
 Each PHP version has its own dedicated PIE executable, which always operates on the currently active PHP runtime managed by `mise`.
 
+> [!NOTE]
+> Installed packages are stored in a central location, but they are handled separately for each PHP version based on the detected PHP runtime.
+
+List of available PIE extensions:
+- <https://packagist.org/extensions>
+
 ```sh
 # Check current PHP version
 php --version
@@ -231,6 +240,12 @@ php --version
 # Install extensions for the active PHP version
 pie install redis/phpredis
 pie install xdebug/xdebug
+
+# In a PHP project, install missing top-level extensions from composer.json
+pie install
+
+# Show installed extensions for the active PHP version
+pie show
 ```
 
 You can install extensions during PHP installation by providing a list via `PHP_PIE_EXTENSIONS`:
@@ -255,6 +270,33 @@ mise config set env._.php.pie_extensions "redis/phpredis xdebug/xdebug"
 _.php = { pie_extensions = "redis/phpredis xdebug/xdebug" }
 ```
 
+Within a given PHP version, you can install a specific PIE version or update it to the latest version, similar to Composer.
+
+```sh
+# Manage PIE versions (similar to Composer self-update)
+
+# Update to the latest stable major version
+pie self-update
+# Update within a specific major version (latest minor/patch)
+pie self-update 1
+# Update within a specific minor version (latest patch)
+pie self-update 1.4
+# Install a specific version
+pie self-update 1.4.1
+
+# Verify the installed PIE binary
+pie self-verify
+
+# Switch release channels
+# Use stable releases (recommended, default)
+pie self-update --stable
+# Use preview / release candidate versions
+pie self-update --preview
+
+# Check current PIE version
+pie --version
+```
+
 Have you used PIE before installing `verzly/mise-php`? Check for and remove any unnecessary PIE binaries.
 
 ```sh
@@ -277,7 +319,7 @@ Remove-Item "C:\path\to\pie.exe" -Force
 # %LOCALAPPDATA%\mise\shims\pie.exe
 ```
 
-### PECL for PHP
+### PECL for PHP (Deprecated for PHP 8.5 and newer)
 
 > [!WARNING]
 > PECL is deprecated and is not supported for PHP 8.5 and newer. Use [PIE](#pie-for-php) instead.
@@ -299,6 +341,9 @@ You can also persist commonly used extensions so they are automatically installe
 ```sh
 mise config set env._.php.pecl_extensions "redis xdebug"
 ```
+
+List of available PIE extensions:
+- <https://pecl.php.net/packages.php>
 
 ```toml
 [env]

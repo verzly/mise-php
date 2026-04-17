@@ -79,6 +79,7 @@ To install PHP versions on any operating system using the `verzly/mise-php` plug
 
 ```sh
 # Install the plugin
+# NOTE: If you are not contributing and want to use stable releases, always use the `#latest` suffix to avoid tracking the development branch.
 mise plugin install php https://github.com/verzly/mise-php#latest
 
 # Install/Select version globally
@@ -123,10 +124,14 @@ Once the plugin is installed, you can [start managing PHP versions](#usage).
 These are stable versions, but plugin updates may occur, which you can later install with a single command.
 
 ```sh
-# Upgrade plugin to latest version instantly (Recommended)
+# Upgrade plugin (follows the originally installed target, e.g. `#latest`)
+# NOTE: If the plugin was installed with `#latest`, this will continue to track and update to the latest stable release automatically.
+mise plugin upgrade php
+
+# Upgrade plugin to latest version instantly (recommended, avoids dev branch)
 mise plugin upgrade php#latest
 
-# Upgrade plugin to a specific tag
+# Upgrade plugin to a specific release tag
 mise plugin upgrade php#v0.6.0
 
 # Upgrade plugin to a specific commit

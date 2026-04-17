@@ -329,8 +329,6 @@ Remove-Item "C:\path\to\pie.exe" -Force
 # %LOCALAPPDATA%\mise\shims\pie.exe
 ```
 
-Így nézne ki egy **PECL szekció ugyanolyan minőségben és struktúrában**, csak warninggal és korlátozásokkal:
-
 ### PECL for PHP
 
 > [!WARNING]

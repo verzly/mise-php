@@ -4,6 +4,7 @@ local VERBOSE         = env.VERBOSE
 local QUIET           = env.QUIET
 local SKIP_DEPS       = env.SKIP_DEPS
 local PECL_EXTENSIONS = env.PECL_EXTENSIONS
+local PIE_EXTENSIONS = env.PIE_EXTENSIONS
 
 --- Performs additional setup after installation
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#postinstall-hook
@@ -272,7 +273,15 @@ function install_php_for_linux(sdkPath, version)
     print("PHP installation complete!")
 
     -- Install PECL extensions
-    install_pecl_extensions(sdkPath, envPrefix)
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
+
+    if major > 8 or (major == 8 and minor >= 5) then
+        install_pie(sdkPath)
+        install_pie_extensions(sdkPath)
+    else
+        install_pecl_extensions(sdkPath, envPrefix)
+    end
 
     -- Install Composer
     install_composer(sdkPath)
@@ -527,6 +536,83 @@ function install_pecl_extensions(sdkPath, envPrefix)
     end
 
     os.execute("rm -rf '" .. tmpdir .. "'")
+end
+
+function install_pie(sdkPath)
+    local php_bin = sdkPath .. "/bin/php"
+    local pie_phar = sdkPath .. "/bin/pie"
+    local tmp_phar = sdkPath .. "/pie.phar"
+
+    print("Installing PIE...")
+
+    local dl_cmd = string.format(
+        'curl -fsSL https://github.com/php/pie/releases/latest/download/pie.phar -o "%s"' .. QUIET,
+        tmp_phar
+    )
+    local status = os.execute(dl_cmd)
+    if status ~= 0 and status ~= true then
+        io.stderr:write("\27[93mWarning:\27[0m Failed to download PIE.\n")
+        return false
+    end
+
+    local wrapper = io.open(pie_phar, "w")
+    if not wrapper then
+        io.stderr:write("\27[93mWarning:\27[0m Failed to create PIE wrapper.\n")
+        return false
+    end
+
+    wrapper:write("#!/usr/bin/env sh\n")
+    wrapper:write('exec "' .. php_bin .. '" "' .. tmp_phar .. '" "$@"\n')
+    wrapper:close()
+
+    os.execute('chmod +x "' .. pie_phar .. '"')
+
+    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. tmp_phar .. '" --version > /dev/null 2>&1')
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+        io.stderr:write("\27[93mWarning:\27[0m PIE verification failed.\n")
+        return false
+    end
+
+    print("PIE installation complete!")
+    return true
+end
+
+function install_pie_extensions(sdkPath)
+    if #PIE_EXTENSIONS == 0 then
+        return
+    end
+
+    local php_bin = sdkPath .. "/bin/php"
+    local phpize = sdkPath .. "/bin/phpize"
+    local phpconfig = sdkPath .. "/bin/php-config"
+    local pie_phar = sdkPath .. "/pie.phar"
+
+    local f = io.open(pie_phar, "r")
+    if not f then
+        io.stderr:write("\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n")
+        return
+    end
+    f:close()
+
+    for _, pkg in ipairs(PIE_EXTENSIONS) do
+        print("Installing PIE extension: " .. pkg .. "...")
+
+        local cmd = string.format(
+            '"%s" "%s" install --with-php-path="%s" --with-php-config="%s" --with-phpize-path="%s" "%s"%s',
+            php_bin,
+            pie_phar,
+            php_bin,
+            phpconfig,
+            phpize,
+            pkg,
+            QUIET
+        )
+
+        local status = os.execute(cmd)
+        if status ~= 0 and status ~= true then
+            io.stderr:write("\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n")
+        end
+    end
 end
 
 function install_composer(sdkPath)

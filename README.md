@@ -79,7 +79,7 @@ To install PHP versions on any operating system using the `verzly/mise-php` plug
 
 ```sh
 # Install the plugin
-mise plugin install php https://github.com/verzly/mise-php
+mise plugin install php https://github.com/verzly/mise-php#latest
 
 # Install/Select version globally
 mise use -g php@8

@@ -21,52 +21,52 @@ jobs:
       - name: Fetch all tags
         run: git fetch --tags --force
 
-      - name: Determine highest stable semver tag
-        id: semver
+      - name: Resolve latest release tag from GitHub API
+        id: latest_release
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
 
-          HIGHEST_TAG="$(
-            git tag -l \
-              | grep -E '^(v)?[0-9]+\.[0-9]+\.[0-9]+$' \
-              | sort -V \
-              | tail -n 1
+          TAG_NAME="$(
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              /repos/${{ github.repository }}/releases/latest \
+              --jq '.tag_name'
           )"
 
-          if [ -z "${HIGHEST_TAG:-}" ]; then
-            echo "No stable semantic version tags found."
+          if [ -z "${TAG_NAME:-}" ] || [ "${TAG_NAME}" = "null" ]; then
+            echo "Failed to resolve latest release tag."
             exit 1
           fi
 
-          echo "highest_tag=$HIGHEST_TAG" >> "$GITHUB_OUTPUT"
+          if ! git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null; then
+            echo "Latest release tag '$TAG_NAME' does not exist in git refs."
+            exit 1
+          fi
 
-      - name: Read published release tag
-        id: release
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "release_tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          TARGET_SHA="$(git rev-list -n 1 "$TAG_NAME")"
 
-      - name: Stop if published release is not the highest stable semver tag
-        if: steps.release.outputs.release_tag != steps.semver.outputs.highest_tag
-        shell: bash
-        run: |
-          echo "Published release tag: ${{ steps.release.outputs.release_tag }}"
-          echo "Highest stable semver tag: ${{ steps.semver.outputs.highest_tag }}"
-          echo "Skipping latest tag update."
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Move latest tag to the published highest release tag
-        if: steps.release.outputs.release_tag == steps.semver.outputs.highest_tag
+          echo "Latest release tag: $TAG_NAME"
+          echo "Target SHA: $TARGET_SHA"
+
+      - name: Move latest tag to latest release
         shell: bash
         run: |
           set -euo pipefail
 
-          TARGET_TAG="${{ steps.release.outputs.release_tag }}"
-          TARGET_SHA="$(git rev-list -n 1 "$TARGET_TAG")"
+          TARGET_TAG="${{ steps.latest_release.outputs.tag_name }}"
+          TARGET_SHA="${{ steps.latest_release.outputs.target_sha }}"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git tag -fa latest "$TARGET_SHA" -m "Update latest -> $TARGET_TAG"
+          # Create/update lightweight tag so tools can resolve it as a normal commit ref
+          git tag -f latest "$TARGET_SHA"
           git push origin refs/tags/latest --force
+
+          echo "Updated latest -> $TARGET_TAG ($TARGET_SHA)"

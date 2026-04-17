@@ -20,14 +20,26 @@ local function parse_pecl_extensions()
     return extensions
 end
 
+local function parse_pie_extensions()
+    local val = os.getenv("PHP_PIE_EXTENSIONS")
+    if val == nil or val == "" then return {} end
+    local extensions = {}
+    for ext in val:gmatch("[^,%s]+") do
+        table.insert(extensions, ext)
+    end
+    return extensions
+end
+
 local VERBOSE         = is_verbose()
 local QUIET           = VERBOSE and "" or " > /dev/null 2>&1"
 local SKIP_DEPS       = is_enabled("PHP_SKIP_DEPS")
 local PECL_EXTENSIONS = parse_pecl_extensions()
+local PIE_EXTENSIONS  = parse_pie_extensions()
 
 return {
     VERBOSE         = VERBOSE,
     QUIET           = QUIET,
     SKIP_DEPS       = SKIP_DEPS,
     PECL_EXTENSIONS = PECL_EXTENSIONS,
+    PIE_EXTENSIONS  = PIE_EXTENSIONS,
 }

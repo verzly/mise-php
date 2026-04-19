@@ -4,7 +4,19 @@ local VERBOSE         = env.VERBOSE
 local QUIET           = env.QUIET
 local SKIP_DEPS       = env.SKIP_DEPS
 local PECL_EXTENSIONS = env.PECL_EXTENSIONS
-local PIE_EXTENSIONS = env.PIE_EXTENSIONS
+local PIE_EXTENSIONS  = env.PIE_EXTENSIONS
+
+local function verbose_tip(version)
+    return "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. (version or "VERSION") .. "'\27[0m to see the full output.\n"
+end
+
+local function manual_tip(command)
+    return "💡 Tip: \27[93mRun '" .. command .. "'\27[0m manually after installation to confirm it works.\n"
+end
+
+local function see(anchor)
+    return "→ See: https://github.com/verzly/mise-php#" .. anchor .. "\n"
+end
 
 --- Performs additional setup after installation
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#postinstall-hook
@@ -47,7 +59,7 @@ local function fail_if_windows_php_is_visible_or_hangs()
 
     os.remove(php_path_file)
 
-    local detect_cmd = string.format([[
+    local detect_cmd = string.format([[ 
         sh -c '
             PHP_PATH="$(command -v php 2>/dev/null || true)"
             printf "%%s" "$PHP_PATH" > "%s"
@@ -89,7 +101,8 @@ local function fail_if_windows_php_is_visible_or_hangs()
             "Detected PHP path: \27[93m" .. (detected_php_path ~= "" and detected_php_path or "(unknown)") .. "\27[0m\n\n" ..
             "💡 Tip: Add the following to \27[93m/etc/wsl.conf\27[0m and restart WSL:\n\n" ..
             "\27[93m[interop]\nappendWindowsPath=false\27[0m\n\n" ..
-            "Then run \27[93mwsl --shutdown\27[0m from Windows, update your \27[93m~/.bashrc\27[0m if needed, and restart the installation.\n"
+            "Then run \27[93mwsl --shutdown\27[0m from Windows, update your \27[93m~/.bashrc\27[0m if needed, and restart the installation.\n" ..
+            see("wsl-windows-path-exposure")
 
         error(warning)
     end
@@ -111,7 +124,11 @@ function install_php_for_windows(sdkPath, version)
     )
     local status = os.execute(installCmd)
     if status ~= 0 and status ~= true then
-        error("Failed to install PHP")
+        error(
+            "\n\nFailed to install PHP.\n\n" ..
+            verbose_tip(version) ..
+            see("debugging")
+        )
     end
 
     -- Verify PHP installation
@@ -120,22 +137,20 @@ function install_php_for_windows(sdkPath, version)
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(
             "\n\nPHP installation appears to be broken: 'php --version' failed.\n\n" ..
-            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+            verbose_tip(version) ..
+            see("debugging")
         )
     end
     print("PHP installation complete!")
 
-    -- Install PIE & extensions
-    local major, minor = version:match("^(%d+)%.(%d+)")
-    major, minor = tonumber(major) or 0, tonumber(minor) or 0
-
+    -- Install PIE and PIE extensions
     if major > 8 or (major == 8 and minor >= 1) then
-        install_pie(sdkPath)
-        install_pie_extensions(sdkPath)
+        install_pie(sdkPath, version)
+        install_pie_extensions(sdkPath, version)
     end
 
     -- Install Composer
-    install_composer(sdkPath)
+    install_composer(sdkPath, version)
 end
 
 function install_php_for_linux(sdkPath, version)
@@ -143,10 +158,9 @@ function install_php_for_linux(sdkPath, version)
 
     local major, minor = version:match("^(%d+)%.(%d+)")
     major, minor = tonumber(major) or 0, tonumber(minor) or 0
-    
-    -- mise extracts tarball to sdkPath, with top-level directory stripped
-    -- So sdkPath IS the source directory (php-src-php-X.Y.Z contents)
 
+    -- mise extracts the tarball to sdkPath with the top-level directory stripped,
+    -- so sdkPath is the PHP source directory
     local os_type = RUNTIME.osType
     local homebrew_prefix = os.getenv("HOMEBREW_PREFIX") or "/opt/homebrew"
 
@@ -191,11 +205,10 @@ function install_php_for_linux(sdkPath, version)
         --without-snmp
     ]]
 
-    -- Clean up whitespace in common options
     commonOptions = string.gsub(commonOptions, "%s+", " ")
     configureOptions = configureOptions .. " " .. commonOptions
 
-    -- PEAR was removed from the PHP source tree in 8.5
+    -- PEAR was removed from the PHP source tree in 8.5.
     if major > 8 or (major == 8 and minor >= 5) then
         configureOptions = configureOptions .. " --without-pear"
     else
@@ -208,15 +221,15 @@ function install_php_for_linux(sdkPath, version)
         configureOptions = configure_linux(configureOptions)
     end
 
-    -- Allow user to override configure options
+    -- Allow user to append configure options
     local extraOptions = os.getenv("PHP_EXTRA_CONFIGURE_OPTIONS")
     if extraOptions ~= nil and extraOptions ~= "" then
         configureOptions = configureOptions .. " " .. extraOptions
     end
 
+    -- Allow user to replace configure options entirely while preserving prefix
     local userOptions = os.getenv("PHP_CONFIGURE_OPTIONS")
     if userOptions ~= nil and userOptions ~= "" then
-        -- User provided full options, use those instead (but keep prefix)
         configureOptions = "--prefix='" .. sdkPath .. "' " .. userOptions
     end
 
@@ -227,7 +240,8 @@ function install_php_for_linux(sdkPath, version)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to run buildconf.\n\n" ..
-            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+            verbose_tip(version) ..
+            see("debugging")
         )
     end
 
@@ -238,19 +252,24 @@ function install_php_for_linux(sdkPath, version)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to configure PHP.\n\n" ..
-            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+            verbose_tip(version) ..
+            see("debugging")
         )
     end
 
     -- Build PHP
     print("Building PHP (this may take several minutes)...")
-    local makeCmd =
-        string.format("cd '%s' && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. QUIET, sdkPath, envPrefix)
+    local makeCmd = string.format(
+        "cd '%s' && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. QUIET,
+        sdkPath,
+        envPrefix
+    )
     status = os.execute(makeCmd)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to build PHP.\n\n" ..
-            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+            verbose_tip(version) ..
+            see("debugging")
         )
     end
 
@@ -261,7 +280,8 @@ function install_php_for_linux(sdkPath, version)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to install PHP.\n\n" ..
-            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+            verbose_tip(version) ..
+            see("debugging")
         )
     end
 
@@ -279,7 +299,8 @@ function install_php_for_linux(sdkPath, version)
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(
             "\n\nPHP installation appears to be broken: 'php --version' failed.\n\n" ..
-            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. version .. "'\27[0m to see the full output, fix the reported issue, and restart the installation.\n"
+            verbose_tip(version) ..
+            see("debugging")
         )
     end
 
@@ -287,17 +308,17 @@ function install_php_for_linux(sdkPath, version)
 
     -- Install PECL extensions
     if not (major > 8 or (major == 8 and minor >= 5)) then
-        install_pecl_extensions(sdkPath, envPrefix)
+        install_pecl_extensions(sdkPath, envPrefix, version)
     end
 
-    -- Install PIE & extensions
+    -- Install PIE and PIE extensions
     if major > 8 or (major == 8 and minor >= 1) then
-        install_pie(sdkPath)
-        install_pie_extensions(sdkPath)
+        install_pie(sdkPath, version)
+        install_pie_extensions(sdkPath, version)
     end
 
     -- Install Composer
-    install_composer(sdkPath)
+    install_composer(sdkPath, version)
 
     -- Clean up source files to save space
     print("Cleaning up source files...")
@@ -314,8 +335,8 @@ function configure_macos(configureOptions, homebrew_prefix)
     local pkg_config_paths = {}
 
     -- Required packages
-    -- Note: bzip2 doesn't have pkgconfig, freetype/libpng depend on it
-    -- So we don't add freetype/libpng to PKG_CONFIG_PATH, instead rely on path-based detection
+    -- bzip2 does not ship pkg-config metadata, and freetype/libpng depend on it,
+    -- so freetype/libpng are handled by path-based detection instead
     local required_packages = {
         { name = "bison", path_only = true },
         { name = "re2c", path_only = true },
@@ -359,7 +380,7 @@ function configure_macos(configureOptions, homebrew_prefix)
         end
 
         if pkg_path ~= nil then
-            -- Check for /bin for path_only packages, /lib for others
+            -- Check /bin for path-only packages and /lib for the rest
             local check_dir = pkg.path_only and "/bin" or "/lib"
             local f = io.open(pkg_path .. check_dir, "r")
             if f ~= nil then
@@ -388,7 +409,7 @@ function configure_macos(configureOptions, homebrew_prefix)
         envPrefix = envPrefix .. 'export PKG_CONFIG_PATH="' .. new_pkg .. '" && '
     end
 
-    -- Set FREETYPE2 flags to bypass pkg-config (bzip2 doesn't have .pc file)
+    -- Set FREETYPE2 flags to bypass pkg-config because bzip2 has no .pc file
     local freetype_path = homebrew_prefix .. "/opt/freetype"
     local f = io.open(freetype_path .. "/lib", "r")
     if f ~= nil then
@@ -439,17 +460,21 @@ function configure_macos(configureOptions, homebrew_prefix)
     if #ldflags > 0 then
         local existing = os.getenv("LDFLAGS") or ""
         local val = table.concat(ldflags, " ")
-        if existing ~= "" then val = val .. " " .. existing end
+        if existing ~= "" then
+            val = val .. " " .. existing
+        end
         envPrefix = envPrefix .. 'export LDFLAGS="' .. val .. '" && '
     end
     if #cppflags > 0 then
         local existing = os.getenv("CPPFLAGS") or ""
         local val = table.concat(cppflags, " ")
-        if existing ~= "" then val = val .. " " .. existing end
+        if existing ~= "" then
+            val = val .. " " .. existing
+        end
         envPrefix = envPrefix .. 'export CPPFLAGS="' .. val .. '" && '
     end
 
-    -- Add external-gd if we have the dependencies
+    -- Add external-gd if the required dependencies are available
     local has_gd_deps = true
     for _, dep in ipairs({ "freetype", "jpeg", "libpng" }) do
         local f = io.open(homebrew_prefix .. "/opt/" .. dep .. "/lib", "r")
@@ -493,9 +518,10 @@ function configure_linux(configureOptions)
     return configureOptions
 end
 
-function install_pecl_extensions(sdkPath, envPrefix)
+function install_pecl_extensions(sdkPath, envPrefix, version)
+    -- Nothing to do when no PECL extensions were requested
     if #PECL_EXTENSIONS == 0 then
-        return
+        return true
     end
 
     local phpize = sdkPath .. "/bin/phpize"
@@ -503,8 +529,12 @@ function install_pecl_extensions(sdkPath, envPrefix)
 
     local f = io.open(phpize, "r")
     if not f then
-        io.stderr:write("\27[93mWarning:\27[0m phpize not found, skipping PECL extensions.\n")
-        return
+        io.stderr:write(
+            "\27[93mWarning:\27[0m phpize not found, skipping PECL extensions.\n" ..
+            verbose_tip(version) ..
+            see("extension-builds-require-phpize-and-build-tooling")
+        )
+        return false
     end
     f:close()
 
@@ -515,6 +545,8 @@ function install_pecl_extensions(sdkPath, envPrefix)
 
     local tmpdir = "/tmp/mise-php-pecl-" .. os.time()
     os.execute("mkdir -p '" .. tmpdir .. "'")
+
+    local all_ok = true
 
     for _, ext in ipairs(extensions) do
         print("Installing PECL extension: " .. ext.name .. "...")
@@ -536,113 +568,204 @@ function install_pecl_extensions(sdkPath, envPrefix)
         if QUIET ~= "" then
             cmd = cmd .. QUIET
         end
+
         local status = os.execute(cmd)
         if status ~= 0 and status ~= true then
-            io.stderr:write("\27[93mWarning:\27[0m Failed to install " .. ext.name .. " PECL extension.\n")
+            io.stderr:write(
+                "\27[93mWarning:\27[0m Failed to install " .. ext.name .. " PECL extension.\n" ..
+                verbose_tip(version) ..
+                see("extension-builds-require-phpize-and-build-tooling")
+            )
+            all_ok = false
         else
             local iniFile = io.open(sdkPath .. "/conf.d/" .. ext.name .. ".ini", "w")
             if iniFile then
                 iniFile:write("extension=" .. ext.name .. ".so\n")
                 iniFile:close()
+            else
+                io.stderr:write(
+                    "\27[93mWarning:\27[0m Failed to write configuration for PECL extension " .. ext.name .. ".\n" ..
+                    verbose_tip(version) ..
+                    see("extension-builds-require-phpize-and-build-tooling")
+                )
+                all_ok = false
             end
         end
     end
 
     os.execute("rm -rf '" .. tmpdir .. "'")
+    return all_ok
 end
 
-function install_pie(sdkPath)
+function install_pie(sdkPath, version)
     print("Installing PIE...")
+    local ok
     if RUNTIME.osType == "windows" then
-        install_pie_for_windows(sdkPath)
+        ok = install_pie_for_windows(sdkPath, version)
     else
-        install_pie_for_linux(sdkPath)
+        ok = install_pie_for_linux(sdkPath, version)
     end
-    print("PIE installation complete!")
+
+    if ok then
+        print("PIE installation complete!")
+    else
+        io.stderr:write(
+            "\27[93mWarning:\27[0m PIE installation did not complete successfully.\n" ..
+            verbose_tip(version) ..
+            see("pie-verification-may-fail-or-time-out")
+        )
+    end
 end
 
-function install_pie_for_linux(sdkPath)
+function install_pie_for_linux(sdkPath, version)
     local php_bin = sdkPath .. "/bin/php"
     local pie_bin = sdkPath .. "/bin/pie"
     local pie_phar = sdkPath .. "/pie.phar"
 
+    -- Download PIE PHAR
     local dl_cmd = string.format(
         'curl -fsSL https://github.com/php/pie/releases/latest/download/pie.phar -o "%s"' .. QUIET,
         pie_phar
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
-        io.stderr:write("\27[93mWarning:\27[0m Failed to download PIE.\n")
-        return
+        io.stderr:write(
+            "\27[93mWarning:\27[0m Failed to download PIE.\n" ..
+            verbose_tip(version) ..
+            see("pie-verification-may-fail-or-time-out")
+        )
+        return false
     end
 
+    -- Create PIE wrapper
     local wrapper = io.open(pie_bin, "w")
     if not wrapper then
-        io.stderr:write("\27[93mWarning:\27[0m Failed to create PIE wrapper.\n")
-        return
+        io.stderr:write(
+            "\27[93mWarning:\27[0m Failed to create PIE wrapper.\n" ..
+            verbose_tip(version) ..
+            see("pie-verification-may-fail-or-time-out")
+        )
+        return false
     end
 
     wrapper:write("#!/usr/bin/env sh\n")
     wrapper:write('exec "' .. php_bin .. '" "' .. pie_phar .. '" "$@"\n')
     wrapper:close()
 
-    os.execute('chmod +x "' .. pie_bin .. '"')
-
-    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. pie_phar .. '" --version > /dev/null 2>&1')
-    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
-        io.stderr:write("\27[93mWarning:\27[0m PIE verification failed.\n")
+    -- Make PIE wrapper executable
+    status = os.execute('chmod +x "' .. pie_bin .. '"' .. QUIET)
+    if status ~= 0 and status ~= true then
+        io.stderr:write(
+            "\27[93mWarning:\27[0m Failed to make PIE wrapper executable.\n" ..
+            verbose_tip(version) ..
+            see("pie-verification-may-fail-or-time-out")
+        )
+        return false
     end
+
+    -- Verify PIE installation
+    status = os.execute('timeout 20s "' .. pie_bin .. '" --version > /dev/null 2>&1')
+    if status == 124 or status == 124 * 256 then
+        io.stderr:write(
+            "\27[93mWarning:\27[0m PIE verification timed out.\n" ..
+            manual_tip("pie --version") ..
+            see("pie-verification-may-fail-or-time-out")
+        )
+        return false
+    end
+    if status ~= 0 and status ~= true then
+        io.stderr:write(
+            "\27[93mWarning:\27[0m PIE verification failed.\n" ..
+            manual_tip("pie --version") ..
+            see("pie-verification-may-fail-or-time-out")
+        )
+        return false
+    end
+
+    return true
 end
 
-function install_pie_for_windows(sdkPath)
-    local sep = package.config:sub(1,1)
+function install_pie_for_windows(sdkPath, version)
+    local sep = package.config:sub(1, 1)
     local function join_path(...)
-        return table.concat({...}, sep)
+        return table.concat({ ... }, sep)
     end
 
     local php_bin  = join_path(sdkPath, "php.exe")
     local pie_phar = join_path(sdkPath, "pie.phar")
     local pie_bat  = join_path(sdkPath, "pie.bat")
 
+    -- Download PIE PHAR
     local dl_cmd = string.format(
         'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile \'%s\'"' .. QUIET,
         pie_phar
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
-        io.stderr:write("\27[93mWarning:\27[0m Failed to download PIE.\n")
-        return
+        io.stderr:write(
+            "\27[93mWarning:\27[0m Failed to download PIE.\n" ..
+            verbose_tip(version) ..
+            see("pie-verification-may-fail-or-time-out")
+        )
+        return false
     end
 
+    -- Create PIE wrapper
     local bat = io.open(pie_bat, "w")
     if not bat then
-        io.stderr:write("\27[93mWarning:\27[0m Failed to create PIE wrapper.\n")
-        return
+        io.stderr:write(
+            "\27[93mWarning:\27[0m Failed to create PIE wrapper.\n" ..
+            verbose_tip(version) ..
+            see("pie-verification-may-fail-or-time-out")
+        )
+        return false
     end
 
     bat:write('@echo off\r\n')
     bat:write(string.format('"%s" "%%~dp0pie.phar" %%*\r\n', php_bin))
     bat:close()
 
-    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. pie_phar .. '" --version > NUL 2>&1')
+    -- Verify PIE installation
+    local ok, why, code = os.execute('"' .. pie_bat .. '" --version > NUL 2>&1')
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
-        io.stderr:write("\27[93mWarning:\27[0m PIE verification failed.\n")
+        io.stderr:write(
+            "\27[93mWarning:\27[0m PIE verification failed.\n" ..
+            manual_tip("pie --version") ..
+            see("pie-verification-may-fail-or-time-out")
+        )
+        return false
     end
+
+    return true
 end
 
-function install_pie_extensions(sdkPath)
+function install_pie_extensions(sdkPath, version)
+    -- Nothing to do when no PIE extensions were requested
     if #PIE_EXTENSIONS == 0 then
-        return
+        return true
     end
 
+    local ok
     if RUNTIME.osType == "windows" then
-        install_pie_extensions_for_windows(sdkPath)
+        ok = install_pie_extensions_for_windows(sdkPath, version)
     else
-        install_pie_extensions_for_linux(sdkPath)
+        ok = install_pie_extensions_for_linux(sdkPath, version)
     end
+
+    if ok then
+        print("PIE extensions installation complete!")
+    else
+        io.stderr:write(
+            "\27[93mWarning:\27[0m One or more PIE extensions failed to install.\n" ..
+            verbose_tip(version) ..
+            see("extension-builds-require-phpize-and-build-tooling")
+        )
+    end
+
+    return ok
 end
 
-function install_pie_extensions_for_linux(sdkPath)
+function install_pie_extensions_for_linux(sdkPath, version)
     local php_bin = sdkPath .. "/bin/php"
     local phpize = sdkPath .. "/bin/phpize"
     local phpconfig = sdkPath .. "/bin/php-config"
@@ -650,10 +773,16 @@ function install_pie_extensions_for_linux(sdkPath)
 
     local f = io.open(pie_phar, "r")
     if not f then
-        io.stderr:write("\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n")
-        return
+        io.stderr:write(
+            "\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n" ..
+            verbose_tip(version) ..
+            see("extension-builds-require-phpize-and-build-tooling")
+        )
+        return false
     end
     f:close()
+
+    local all_ok = true
 
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
@@ -671,15 +800,22 @@ function install_pie_extensions_for_linux(sdkPath)
 
         local status = os.execute(cmd)
         if status ~= 0 and status ~= true then
-            io.stderr:write("\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n")
+            io.stderr:write(
+                "\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n" ..
+                verbose_tip(version) ..
+                see("extension-builds-require-phpize-and-build-tooling")
+            )
+            all_ok = false
         end
     end
+
+    return all_ok
 end
 
-function install_pie_extensions_for_windows(sdkPath)
-    local sep = package.config:sub(1,1)
+function install_pie_extensions_for_windows(sdkPath, version)
+    local sep = package.config:sub(1, 1)
     local function join_path(...)
-        return table.concat({...}, sep)
+        return table.concat({ ... }, sep)
     end
 
     local php_bin  = join_path(sdkPath, "php.exe")
@@ -687,10 +823,16 @@ function install_pie_extensions_for_windows(sdkPath)
 
     local f = io.open(pie_phar, "r")
     if not f then
-        io.stderr:write("\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n")
-        return
+        io.stderr:write(
+            "\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n" ..
+            verbose_tip(version) ..
+            see("extension-builds-require-phpize-and-build-tooling")
+        )
+        return false
     end
     f:close()
+
+    local all_ok = true
 
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
@@ -706,35 +848,52 @@ function install_pie_extensions_for_windows(sdkPath)
 
         local status = os.execute(cmd)
         if status ~= 0 and status ~= true then
-            io.stderr:write("\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n")
+            io.stderr:write(
+                "\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n" ..
+                verbose_tip(version) ..
+                see("extension-builds-require-phpize-and-build-tooling")
+            )
+            all_ok = false
         end
     end
+
+    return all_ok
 end
 
-function install_composer(sdkPath)
+function install_composer(sdkPath, version)
     print("Installing Composer...")
-    if RUNTIME.osType == 'windows' then
-        install_composer_for_windows(sdkPath)
+    local ok
+    if RUNTIME.osType == "windows" then
+        ok = install_composer_for_windows(sdkPath, version)
     else
-        install_composer_for_linux(sdkPath)
+        ok = install_composer_for_linux(sdkPath, version)
     end
-    print("Composer installation complete!")
+
+    if ok then
+        print("Composer installation complete!")
+    else
+        io.stderr:write(
+            "\27[93mWarning:\27[0m Composer installation did not complete successfully.\n" ..
+            verbose_tip(version) ..
+            see("composer-verification-may-prompt-when-run-as-root")
+        )
+    end
 end
 
-function install_composer_for_windows(sdkPath)
+function install_composer_for_windows(sdkPath, version)
     if not VERBOSE then
         print("\27[96mNote:\27[0m Composer installation output is hidden. Set PHP_VERBOSE=1 to see full output.")
     end
 
-    -- Install Composer
-    local sep = package.config:sub(1,1)
+    local sep = package.config:sub(1, 1)
     local function join_path(...)
-        return table.concat({...}, sep)
+        return table.concat({ ... }, sep)
     end
 
     local composer_phar = join_path(sdkPath, "composer.phar")
     local composer_bat  = join_path(sdkPath, "composer.bat")
 
+    -- Download Composer PHAR
     local dl_cmd = string.format(
         'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://getcomposer.org/composer-stable.phar -OutFile \'%s\'"' .. QUIET,
         composer_phar
@@ -743,44 +902,58 @@ function install_composer_for_windows(sdkPath)
     if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[91mError:\27[0m Failed to download Composer.\n" ..
-            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. (version or "VERSION") .. "'\27[0m to see the full output.\n"
+            verbose_tip(version) ..
+            see("debugging")
         )
-        return
+        return false
     end
 
     local php_bin = join_path(sdkPath, "php.exe")
+
+    -- Create Composer wrapper
     local bat = io.open(composer_bat, "w")
-    if bat then
-        bat:write('@echo off\r\n')
-        bat:write(string.format('"%s" "%%~dp0composer.phar" %%*\r\n', php_bin))
-        bat:close()
+    if not bat then
+        io.stderr:write(
+            "\27[93mWarning:\27[0m Failed to create Composer wrapper.\n" ..
+            verbose_tip(version) ..
+            see("debugging")
+        )
+        return false
     end
 
+    bat:write('@echo off\r\n')
+    bat:write(string.format('"%s" "%%~dp0composer.phar" %%*\r\n', php_bin))
+    bat:close()
+
     -- Verify Composer installation
-    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. composer_phar .. '" --version > NUL 2>&1')
+    local ok, why, code = os.execute('"' .. composer_bat .. '" --version > NUL 2>&1')
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         io.stderr:write(
             "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..
-            "💡 Tip: \27[93mRun 'composer --version'\27[0m manually after installation to confirm it works.\n"
+            manual_tip("composer --version") ..
+            see("composer-verification-may-prompt-when-run-as-root")
         )
+        return false
     end
+
+    return true
 end
 
-function install_composer_for_linux(sdkPath)
+function install_composer_for_linux(sdkPath, version)
     if not VERBOSE then
         print("\27[96mNote:\27[0m Composer installation output is hidden. Set PHP_VERBOSE=1 to see full output.")
     end
-    
-    -- Install Composer
-    local sep = package.config:sub(1,1)
+
+    local sep = package.config:sub(1, 1)
     local function join_path(...)
-        return table.concat({...}, sep)
+        return table.concat({ ... }, sep)
     end
 
     local php_bin        = join_path(sdkPath, "bin", "php")
     local composer_setup = join_path(sdkPath, "composer-setup.php")
     local install_dir    = join_path(sdkPath, "bin")
 
+    -- Download Composer installer
     local dl_cmd = string.format(
         'curl -fsSL https://getcomposer.org/installer -o "%s"' .. QUIET,
         composer_setup
@@ -789,31 +962,45 @@ function install_composer_for_linux(sdkPath)
     if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[91mError:\27[0m Failed to install Composer.\n" ..
-            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. (version or "VERSION") .. "'\27[0m to see the full output.\n"
+            verbose_tip(version) ..
+            see("debugging")
         )
+        return false
     end
 
+    -- Run Composer installer
     local install_cmd = string.format(
-        '%s "%s" --install-dir="%s" --filename=composer' .. QUIET,
-        php_bin, composer_setup, install_dir
+        '"%s" "%s" --install-dir="%s" --filename=composer' .. QUIET,
+        php_bin,
+        composer_setup,
+        install_dir
     )
     status = os.execute(install_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[91mError:\27[0m Failed to install Composer.\n" ..
-            "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. (version or "VERSION") .. "'\27[0m to see the full output.\n"
+            verbose_tip(version) ..
+            see("debugging")
         )
+        os.remove(composer_setup)
+        return false
     end
 
     os.remove(composer_setup)
 
     -- Verify Composer installation
     local composer_bin = install_dir .. "/composer"
-    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. composer_bin .. '" --version > /dev/null 2>&1')
+    local ok, why, code = os.execute(
+        'COMPOSER_ALLOW_SUPERUSER=1 "' .. php_bin .. '" "' .. composer_bin .. '" --version > /dev/null 2>&1'
+    )
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         io.stderr:write(
             "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..
-            "💡 Tip: \27[93mRun 'composer --version'\27[0m manually after installation to confirm it works.\n"
+            manual_tip("composer --version") ..
+            see("composer-verification-may-prompt-when-run-as-root")
         )
+        return false
     end
+
+    return true
 end

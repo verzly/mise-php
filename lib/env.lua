@@ -1,3 +1,15 @@
+local function quiet_redirect()
+    if VERBOSE then
+        return ""
+    end
+
+    if RUNTIME ~= nil and RUNTIME.osType == "windows" then
+        return " > NUL 2>&1"
+    end
+
+    return " > /dev/null 2>&1"
+end
+
 local function is_enabled(env_var)
     local v = os.getenv(env_var)
     if v == nil then return false end
@@ -31,7 +43,7 @@ local function parse_pie_extensions()
 end
 
 local VERBOSE         = is_verbose()
-local QUIET           = VERBOSE and "" or " > /dev/null 2>&1"
+local QUIET           = quiet_redirect()
 local SKIP_DEPS       = is_enabled("PHP_SKIP_DEPS")
 local PECL_EXTENSIONS = parse_pecl_extensions()
 local PIE_EXTENSIONS  = parse_pie_extensions()

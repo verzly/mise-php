@@ -495,7 +495,7 @@ end
 
 function install_pecl_extensions(sdkPath, envPrefix)
     if #PECL_EXTENSIONS == 0 then
-        return
+        return false
     end
 
     local phpize = sdkPath .. "/bin/phpize"
@@ -504,7 +504,7 @@ function install_pecl_extensions(sdkPath, envPrefix)
     local f = io.open(phpize, "r")
     if not f then
         io.stderr:write("\27[93mWarning:\27[0m phpize not found, skipping PECL extensions.\n")
-        return
+        return false
     end
     f:close()
 
@@ -553,12 +553,18 @@ end
 
 function install_pie(sdkPath)
     print("Installing PIE...")
+    local ok
     if RUNTIME.osType == "windows" then
-        install_pie_for_windows(sdkPath)
+        ok = install_pie_for_windows(sdkPath)
     else
-        install_pie_for_linux(sdkPath)
+        ok = install_pie_for_linux(sdkPath)
     end
-    print("PIE installation complete!")
+
+    if ok then
+        print("PIE installation complete!")
+    else
+        io.stderr:write("\27[93mWarning:\27[0m PIE installation did not complete successfully.\n")
+    end
 end
 
 function install_pie_for_linux(sdkPath)
@@ -573,13 +579,13 @@ function install_pie_for_linux(sdkPath)
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write("\27[93mWarning:\27[0m Failed to download PIE.\n")
-        return
+        return false
     end
 
     local wrapper = io.open(pie_bin, "w")
     if not wrapper then
         io.stderr:write("\27[93mWarning:\27[0m Failed to create PIE wrapper.\n")
-        return
+        return false
     end
 
     wrapper:write("#!/usr/bin/env sh\n")
@@ -611,13 +617,13 @@ function install_pie_for_windows(sdkPath)
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write("\27[93mWarning:\27[0m Failed to download PIE.\n")
-        return
+        return false
     end
 
     local bat = io.open(pie_bat, "w")
     if not bat then
         io.stderr:write("\27[93mWarning:\27[0m Failed to create PIE wrapper.\n")
-        return
+        return false
     end
 
     bat:write('@echo off\r\n')
@@ -632,7 +638,7 @@ end
 
 function install_pie_extensions(sdkPath)
     if #PIE_EXTENSIONS == 0 then
-        return
+        return false
     end
 
     if RUNTIME.osType == "windows" then
@@ -651,7 +657,7 @@ function install_pie_extensions_for_linux(sdkPath)
     local f = io.open(pie_phar, "r")
     if not f then
         io.stderr:write("\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n")
-        return
+        return false
     end
     f:close()
 
@@ -688,7 +694,7 @@ function install_pie_extensions_for_windows(sdkPath)
     local f = io.open(pie_phar, "r")
     if not f then
         io.stderr:write("\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n")
-        return
+        return false
     end
     f:close()
 
@@ -707,21 +713,28 @@ function install_pie_extensions_for_windows(sdkPath)
         local status = os.execute(cmd)
         if status ~= 0 and status ~= true then
             io.stderr:write("\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n")
+            return false
         end
     end
 end
 
-function install_composer(sdkPath)
+function install_composer(sdkPath, version)
     print("Installing Composer...")
-    if RUNTIME.osType == 'windows' then
-        install_composer_for_windows(sdkPath)
+    local ok
+    if RUNTIME.osType == "windows" then
+        ok = install_composer_for_windows(sdkPath, version)
     else
-        install_composer_for_linux(sdkPath)
+        ok = install_composer_for_linux(sdkPath, version)
     end
-    print("Composer installation complete!")
+
+    if ok then
+        print("Composer installation complete!")
+    else
+        io.stderr:write("\27[93mWarning:\27[0m Composer installation did not complete successfully.\n")
+    end
 end
 
-function install_composer_for_windows(sdkPath)
+function install_composer_for_windows(sdkPath, version)
     if not VERBOSE then
         print("\27[96mNote:\27[0m Composer installation output is hidden. Set PHP_VERBOSE=1 to see full output.")
     end
@@ -766,7 +779,7 @@ function install_composer_for_windows(sdkPath)
     end
 end
 
-function install_composer_for_linux(sdkPath)
+function install_composer_for_linux(sdkPath, version)
     if not VERBOSE then
         print("\27[96mNote:\27[0m Composer installation output is hidden. Set PHP_VERBOSE=1 to see full output.")
     end
@@ -809,7 +822,7 @@ function install_composer_for_linux(sdkPath)
 
     -- Verify Composer installation
     local composer_bin = install_dir .. "/composer"
-    local ok, why, code = os.execute('"' .. php_bin .. '" "' .. composer_bin .. '" --version > /dev/null 2>&1')
+    local ok, why, code = os.execute('COMPOSER_ALLOW_SUPERUSER=1 "' .. php_bin .. '" "' .. composer_bin .. '" --version > /dev/null 2>&1')
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         io.stderr:write(
             "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..

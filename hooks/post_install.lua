@@ -221,6 +221,19 @@ function install_php_for_linux(sdkPath, version)
         configureOptions = configure_linux(configureOptions)
     end
 
+    -- Older PHP source releases may contain K&R-style function definitions
+    -- that are not supported in C23, e.g. in ext/bcmath/libbcmath.
+    -- Newer Autoconf/compiler toolchains may select C23 automatically,
+    -- so pin affected older PHP builds to GNU17.
+    if major < 8 or (major == 8 and minor <= 2) then
+        local existing_cflags = os.getenv("CFLAGS") or ""
+        local cflags_val = "-std=gnu17"
+        if existing_cflags ~= "" then
+            cflags_val = cflags_val .. " " .. existing_cflags
+        end
+        envPrefix = envPrefix .. 'export CFLAGS="' .. cflags_val .. '" && '
+    end
+
     -- Allow user to append configure options
     local extraOptions = os.getenv("PHP_EXTRA_CONFIGURE_OPTIONS")
     if extraOptions ~= nil and extraOptions ~= "" then

@@ -221,11 +221,10 @@ function install_php_for_linux(sdkPath, version)
         configureOptions = configure_linux(configureOptions)
     end
 
-    -- PHP <= 8.2 may contain K&R-style function definitions (e.g. in ext/bcmath/libbcmath)
-    -- that are not supported in C23. Newer Autoconf/compiler toolchains (Autoconf 2.73+,
-    -- Apple Clang 17+/Xcode 16) may select C23 automatically, so pin affected older PHP
-    -- builds to GNU17 for compatibility.
-    -- References: php/php-src#21816, php/php-src@21664fb
+    -- Older PHP source releases may contain K&R-style function definitions
+    -- that are not supported in C23, e.g. in ext/bcmath/libbcmath.
+    -- Newer Autoconf/compiler toolchains may select C23 automatically,
+    -- so pin affected older PHP builds to GNU17.
     if major < 8 or (major == 8 and minor <= 2) then
         local existing_cflags = os.getenv("CFLAGS") or ""
         local cflags_val = "-std=gnu17"

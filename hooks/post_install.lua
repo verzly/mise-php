@@ -7,6 +7,9 @@ local PECL_EXTENSIONS = env.PECL_EXTENSIONS
 local PIE_EXTENSIONS  = env.PIE_EXTENSIONS
 
 local function verbose_tip(version)
+    if VERBOSE then
+        return "💡 Verbose mode is enabled; full output will be shown.\n"
+    end
     return "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. (version or "VERSION") .. "'\27[0m to see the full output.\n"
 end
 

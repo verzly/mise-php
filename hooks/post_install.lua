@@ -250,6 +250,12 @@ function install_php_for_linux(sdkPath, version)
     local configureCmd = string.format("cd '%s' && %s./configure %s" .. QUIET, sdkPath, envPrefix, configureOptions)
     status = os.execute(configureCmd)
     if status ~= 0 and status ~= true then
+        local saved_log = ""
+        local src_log = sdkPath .. "/config.log"
+        local dst_log = "/tmp/mise-php-config-" .. version .. ".log"
+        if os.execute("cp '" .. src_log .. "' '" .. dst_log .. "' 2>/dev/null") == 0 then
+            saved_log = "💡 Tip: \27[93mCheck the configure log for details:\27[0m " .. dst_log .. "\n"
+        end
         error(
             "\n\nFailed to configure PHP.\n\n" ..
             verbose_tip(version) ..
@@ -259,11 +265,16 @@ function install_php_for_linux(sdkPath, version)
 
     -- Build PHP
     print("Building PHP (this may take several minutes)...")
+    local makeLog = "/tmp/mise-php-make-" .. version .. ".log"
     local makeCmd = string.format(
-        "cd '%s' && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)" .. QUIET,
+        "cd '%s' && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2) > '%s' 2>&1",
         sdkPath,
-        envPrefix
+        envPrefix,
+        makeLog
     )
+    if VERBOSE then
+        print("\27[96mNote:\27[0m Capturing build output to " .. makeLog .. ", run 'tail -f " .. makeLog .. "' to watch")
+    end
     status = os.execute(makeCmd)
     if status ~= 0 and status ~= true then
         error(

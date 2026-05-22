@@ -4,8 +4,17 @@ local static_php = require("lib/static_php")
 local VERBOSE   = env.VERBOSE
 local QUIET     = env.QUIET
 local SKIP_DEPS = env.SKIP_DEPS
-local PREBUILT_STATIC = env.PREBUILT_STATIC
-local PREBUILT_STATIC_FLAVOR = env.PREBUILT_STATIC_FLAVOR
+
+
+local function prebuilt_static_enabled(ctx)
+    local options = (ctx and ctx.options) or {}
+    return env.PREBUILT_STATIC or static_php.is_enabled(options.prebuilt_static)
+end
+
+local function prebuilt_static_flavor(ctx)
+    local options = (ctx and ctx.options) or {}
+    return options.prebuilt_static_flavor or env.PREBUILT_STATIC_FLAVOR
+end
 
 --- Returns download information for a specific version
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#preinstall-hook
@@ -39,13 +48,14 @@ function PLUGIN:PreInstall(ctx)
         return get_release_for_windows(release)
     end
 
-    if PREBUILT_STATIC and static_php.is_supported_platform() then
-        print(static_php.warning(PREBUILT_STATIC_FLAVOR))
-        return static_php.release(release.version, PREBUILT_STATIC_FLAVOR)
+    if prebuilt_static_enabled(ctx) and static_php.is_supported_platform() then
+        local flavor = prebuilt_static_flavor(ctx)
+        print(static_php.warning(flavor))
+        return static_php.release(release.version, flavor)
     end
 
     version_check_for_linux(release)
-    
+
     print(
         "\27[96mNote:\27[0m " ..
         "PHP will be compiled from source for your system. " ..
@@ -58,7 +68,7 @@ function PLUGIN:PreInstall(ctx)
     else
         install_dependencies()
     end
-    
+
     return get_release_for_linux(release)
 end
 
@@ -151,7 +161,7 @@ function install_dependencies()
     if not VERBOSE then
         print("\27[96mNote:\27[0m Dependency installation output is hidden. Set PHP_VERBOSE=1 or use --verbose to see full output.")
     end
-    
+
     print("Installing dependencies...")
 
     local path = RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh'

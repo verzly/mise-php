@@ -218,6 +218,7 @@ fn check_installed_tools(args: &[String]) -> Result<(), String> {
     mise_exec(&["composer", "--version"], false)?;
 
     if php_version.at_least(8, 1) {
+        require_php_extension("iconv", "PIE requires iconv at runtime")?;
         mise_exec(&["pie", "--version"], false)?;
     } else {
         println!(
@@ -263,6 +264,23 @@ fn check_installed_tools(args: &[String]) -> Result<(), String> {
     }
 
     mise_exec(&["pecl", "version"], false)?;
+    Ok(())
+}
+
+fn require_php_extension(extension: &str, reason: &str) -> Result<(), String> {
+    let modules = mise_exec(&["php", "-m"], true)?;
+    let found = modules
+        .lines()
+        .map(str::trim)
+        .any(|line| line.eq_ignore_ascii_case(extension));
+
+    if !found {
+        return Err(format!(
+            "PHP extension {extension:?} is required: {reason}. Installed modules did not include it."
+        ));
+    }
+
+    println!("PHP extension {extension} is available");
     Ok(())
 }
 

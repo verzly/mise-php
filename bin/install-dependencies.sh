@@ -90,7 +90,7 @@ case "$DISTRO" in
     xcode-select --install 2>/dev/null || true
     brew install autoconf bison re2c pkg-config \
       libxml2 openssl@3 icu4c zlib libzip oniguruma \
-      freetype jpeg libpng webp gmp libsodium readline bzip2 \
+      freetype jpeg libpng webp gmp libsodium libiconv readline bzip2 \
       sqlite gd
     ;;
 esac

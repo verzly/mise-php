@@ -1,14 +1,13 @@
 local env = require("lib/env")
+local options = require("lib/options")
 local static_php = require("lib/static_php")
 
 local function prebuilt_static_enabled(ctx)
-    local options = (ctx and ctx.options) or {}
-    return env.PREBUILT_STATIC or static_php.is_enabled(options.prebuilt_static)
+    return env.PREBUILT_STATIC or options.enabled(options.get(ctx, "prebuilt_static"))
 end
 
 local function prebuilt_static_flavor(ctx)
-    local options = (ctx and ctx.options) or {}
-    return options.prebuilt_static_flavor or env.PREBUILT_STATIC_FLAVOR
+    return options.get(ctx, "prebuilt_static_flavor") or env.PREBUILT_STATIC_FLAVOR
 end
 
 --- Returns available PHP versions from GitHub php-src tags

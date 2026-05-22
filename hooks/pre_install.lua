@@ -1,4 +1,5 @@
 local env = require("lib/env")
+local options = require("lib/options")
 local static_php = require("lib/static_php")
 
 local VERBOSE   = env.VERBOSE
@@ -7,13 +8,11 @@ local SKIP_DEPS = env.SKIP_DEPS
 
 
 local function prebuilt_static_enabled(ctx)
-    local options = (ctx and ctx.options) or {}
-    return env.PREBUILT_STATIC or static_php.is_enabled(options.prebuilt_static)
+    return env.PREBUILT_STATIC or options.enabled(options.get(ctx, "prebuilt_static"))
 end
 
 local function prebuilt_static_flavor(ctx)
-    local options = (ctx and ctx.options) or {}
-    return options.prebuilt_static_flavor or env.PREBUILT_STATIC_FLAVOR
+    return options.get(ctx, "prebuilt_static_flavor") or env.PREBUILT_STATIC_FLAVOR
 end
 
 --- Returns download information for a specific version

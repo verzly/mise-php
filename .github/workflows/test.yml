@@ -3,10 +3,32 @@ name: Test PHP Plugin
 on:
   pull_request:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      php_version:
+        description: PHP version used by install smoke tests
+        required: true
+        default: 8.5.5
+      run_source_installs:
+        description: Run one default/source install on Linux, macOS, and Windows
+        required: true
+        type: boolean
+        default: true
+      run_static_installs:
+        description: Run one prebuilt static install on Linux, macOS, and Windows
+        required: true
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PHP_TEST_VERSION: ${{ inputs.php_version || '8.5.5' }}
 
 jobs:
   check-label:
@@ -15,18 +37,22 @@ jobs:
       should-run: ${{ steps.check.outputs.should-run }}
     steps:
       - id: check
+        shell: bash
         run: |
-          if [ "${{ github.event.label.name }}" = "needs-ci" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.label.name }}" = "needs-ci" ]; then
             echo "should-run=true" >> "$GITHUB_OUTPUT"
           else
             echo "should-run=false" >> "$GITHUB_OUTPUT"
           fi
 
-  install:
-    name: Install - ${{ matrix.os }}
+  env-options:
+    name: Env options - ${{ matrix.os }}
     needs: check-label
     if: needs.check-label.outputs.should-run == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -37,6 +63,7 @@ jobs:
 
       - name: Install mise (Linux / macOS)
         if: runner.os != 'Windows'
+        shell: bash
         run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install mise (Windows)
@@ -51,20 +78,256 @@ jobs:
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
 
-      - name: Install PHP via mise-php (Linux / macOS)
-        if: runner.os != 'Windows'
-        env:
-          PHP_VERBOSE: '1'
-        run: mise use -g php@8.5.5
+      - name: Check env._.php options without installing PHP
+        shell: bash
+        run: |
+          cat > mise.toml <<'TOML'
+          [env._.php]
+          skip_deps = true
+          verbose = true
+          prebuilt_static = true
+          prebuilt_static_flavor = "minimal"
+          configure_options = "--disable-all"
+          extra_configure_options = "--enable-option-checking=fatal"
+          pecl_extensions = "redis,xdebug"
+          pie_extensions = "amphp/ext-uv"
+          TOML
 
-      - name: Install PHP via mise-php (Windows)
+          mise trust "${{ github.workspace }}" || true
+          mise env --dotenv | tee mise-env.out
+
+          python - <<'PY'
+          from pathlib import Path
+
+          expected = {
+              "PHP_SKIP_DEPS": "1",
+              "PHP_VERBOSE": "1",
+              "PHP_PREBUILT_STATIC": "1",
+              "PHP_PREBUILT_STATIC_FLAVOR": "minimal",
+              "PHP_CONFIGURE_OPTIONS": "--disable-all",
+              "PHP_EXTRA_CONFIGURE_OPTIONS": "--enable-option-checking=fatal",
+              "PHP_PECL_EXTENSIONS": "redis,xdebug",
+              "PHP_PIE_EXTENSIONS": "amphp/ext-uv",
+          }
+
+          values = {}
+          for line in Path("mise-env.out").read_text().splitlines():
+              if not line or line.startswith("#") or "=" not in line:
+                  continue
+              key, value = line.split("=", 1)
+              values[key] = value.strip().strip('"').strip("'")
+
+          missing = []
+          for key, value in expected.items():
+              if values.get(key) != value:
+                  missing.append(f"{key}: expected {value!r}, got {values.get(key)!r}")
+
+          if missing:
+              raise SystemExit("\n".join(missing))
+
+          print("env._.php options were exported correctly")
+          PY
+
+  list-source-versions:
+    name: List source versions - ${{ matrix.os }}
+    needs: check-label
+    if: needs.check-label.outputs.should-run == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install mise (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        run: |
+          winget install jdx.mise --accept-package-agreements --accept-source-agreements
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+          $miseBin = Split-Path (Get-Command mise).Source
+          echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Check default/source version listing
+        shell: bash
+        run: |
+          mise cache clean || true
+          mise ls-remote php | tee source-versions.txt
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          expected = os.environ["PHP_TEST_VERSION"]
+          versions = [line.strip() for line in Path("source-versions.txt").read_text().splitlines() if line.strip()]
+
+          if not versions:
+              raise SystemExit("No source versions were returned")
+          if expected not in versions:
+              raise SystemExit(f"Expected PHP {expected} in source version list")
+
+          print(f"source version list contains {len(versions)} versions")
+          PY
+
+  list-static-versions:
+    name: List static versions - ${{ matrix.os }} - ${{ matrix.flavor.label }}
+    needs: check-label
+    if: needs.check-label.outputs.should-run == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        flavor:
+          - label: default
+            value: ""
+          - label: minimal
+            value: minimal
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install mise (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          winget install jdx.mise --accept-package-agreements --accept-source-agreements
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+          $miseBin = Split-Path (Get-Command mise).Source
+          echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Check prebuilt static version listing
+        shell: bash
+        env:
+          PHP_PREBUILT_STATIC: '1'
+          PHP_PREBUILT_STATIC_FLAVOR: ${{ matrix.flavor.value }}
+        run: |
+          mise cache clean || true
+          mise ls-remote php | tee static-versions.txt
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          expected = os.environ["PHP_TEST_VERSION"]
+          versions = [line.strip() for line in Path("static-versions.txt").read_text().splitlines() if line.strip()]
+
+          if not versions:
+              raise SystemExit("No static prebuilt versions were returned")
+          if expected not in versions:
+              raise SystemExit(f"Expected PHP {expected} in static prebuilt version list")
+
+          print(f"static prebuilt version list contains {len(versions)} versions")
+          PY
+
+  install-source:
+    name: Install source/default - ${{ matrix.os }}
+    needs: [check-label, env-options, list-source-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_source_installs)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install mise (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          winget install jdx.mise --accept-package-agreements --accept-source-agreements
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+          $miseBin = Split-Path (Get-Command mise).Source
+          echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Install PHP via default/source path
         env:
           PHP_VERBOSE: '1'
-        run: mise use -g php@8.5.5
+        run: mise use -g php@${{ env.PHP_TEST_VERSION }}
 
-      - name: Check versions
+      - name: Check installed tools
+        run: |
+          mise exec -- php --version
+          mise exec -- composer --version
+
+  install-static:
+    name: Install static prebuilt - ${{ matrix.os }}
+    needs: [check-label, env-options, list-static-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_static_installs)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install mise (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          winget install jdx.mise --accept-package-agreements --accept-source-agreements
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+          $miseBin = Split-Path (Get-Command mise).Source
+          echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Check static version listing before install
+        shell: bash
+        env:
+          PHP_PREBUILT_STATIC: '1'
+        run: |
+          mise cache clean || true
+          mise ls-remote php | tee static-install-versions.txt
+          grep -Fx "${PHP_TEST_VERSION}" static-install-versions.txt
+
+      - name: Install PHP via prebuilt static path
+        env:
+          PHP_VERBOSE: '1'
+          PHP_PREBUILT_STATIC: '1'
+        run: mise use -g php@${{ env.PHP_TEST_VERSION }}
+
+      - name: Check installed static tools
         run: |
           mise exec -- php --version
           mise exec -- composer --version

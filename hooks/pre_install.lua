@@ -1,8 +1,19 @@
 local env = require("lib/env")
+local options = require("lib/options")
+local static_php = require("lib/static_php")
 
 local VERBOSE   = env.VERBOSE
 local QUIET     = env.QUIET
 local SKIP_DEPS = env.SKIP_DEPS
+
+
+local function prebuilt_static_enabled(ctx)
+    return env.PREBUILT_STATIC or options.enabled(options.get(ctx, "prebuilt_static"))
+end
+
+local function prebuilt_static_flavor(ctx)
+    return options.get(ctx, "prebuilt_static_flavor") or env.PREBUILT_STATIC_FLAVOR
+end
 
 --- Returns download information for a specific version
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#preinstall-hook
@@ -10,7 +21,7 @@ local SKIP_DEPS = env.SKIP_DEPS
 --- @return table Version and download information
 function PLUGIN:PreInstall(ctx)
     local version = ctx.version
-    local releases = self:Available({})
+    local releases = self:Available(ctx or {})
 
     if not releases or #releases == 0 then
         error("⚠️ No releases available.")
@@ -32,12 +43,18 @@ function PLUGIN:PreInstall(ctx)
         error("Version not found: " .. version)
     end
 
+    if prebuilt_static_enabled(ctx) and static_php.is_supported_platform() then
+        local flavor = prebuilt_static_flavor(ctx)
+        print(static_php.warning(flavor))
+        return static_php.release(release.version, flavor)
+    end
+
     if RUNTIME.osType == "windows" then
         return get_release_for_windows(release)
     end
 
     version_check_for_linux(release)
-    
+
     print(
         "\27[96mNote:\27[0m " ..
         "PHP will be compiled from source for your system. " ..
@@ -50,7 +67,7 @@ function PLUGIN:PreInstall(ctx)
     else
         install_dependencies()
     end
-    
+
     return get_release_for_linux(release)
 end
 
@@ -143,7 +160,7 @@ function install_dependencies()
     if not VERBOSE then
         print("\27[96mNote:\27[0m Dependency installation output is hidden. Set PHP_VERBOSE=1 or use --verbose to see full output.")
     end
-    
+
     print("Installing dependencies...")
 
     local path = RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh'

@@ -1,8 +1,26 @@
+local env = require("lib/env")
+local options = require("lib/options")
+local static_php = require("lib/static_php")
+
+local function prebuilt_static_enabled(ctx)
+    return env.PREBUILT_STATIC or options.enabled(options.get(ctx, "prebuilt_static"))
+end
+
+local function prebuilt_static_flavor(ctx)
+    return options.get(ctx, "prebuilt_static_flavor") or env.PREBUILT_STATIC_FLAVOR
+end
+
 --- Returns available PHP versions from GitHub php-src tags
 --- @param ctx table Context provided by vfox
 --- @return table Available versions
 function PLUGIN:Available(ctx)
     local http = require("http")
+
+    if prebuilt_static_enabled(ctx) and static_php.is_supported_platform() then
+        local flavor = prebuilt_static_flavor(ctx)
+        print(static_php.warning(flavor))
+        return static_php.available_versions(http, flavor)
+    end
 
     local resp, err = http.get({
         url = "https://raw.githubusercontent.com/verzly/mise-php/cache/versions.txt",

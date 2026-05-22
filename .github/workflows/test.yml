@@ -3,10 +3,42 @@ name: Test PHP Plugin
 on:
   pull_request:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      php_version:
+        description: PHP version used by install smoke tests
+        required: true
+        default: 8.5.5
+      run_source_installs:
+        description: Run one default/source install on Linux, macOS, and Windows
+        required: true
+        type: boolean
+        default: true
+      run_static_installs:
+        description: Run one prebuilt static install on Linux, macOS, and Windows
+        required: true
+        type: boolean
+        default: true
+      pecl_php_version:
+        description: PHP version family used by the PECL-capable source install smoke test
+        required: true
+        default: '8.4'
+      run_tool_installs:
+        description: Run extra Composer, PECL, and PIE tooling smoke installs
+        required: true
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PHP_TEST_VERSION: ${{ inputs.php_version || '8.5.5' }}
+  PHP_PECL_TEST_VERSION: ${{ inputs.pecl_php_version || '8.4' }}
 
 jobs:
   check-label:
@@ -15,18 +47,22 @@ jobs:
       should-run: ${{ steps.check.outputs.should-run }}
     steps:
       - id: check
+        shell: bash
         run: |
-          if [ "${{ github.event.label.name }}" = "needs-ci" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.label.name }}" = "needs-ci" ]; then
             echo "should-run=true" >> "$GITHUB_OUTPUT"
           else
             echo "should-run=false" >> "$GITHUB_OUTPUT"
           fi
 
-  install:
-    name: Install - ${{ matrix.os }}
+  env-options:
+    name: Env options - ${{ matrix.os }}
     needs: check-label
     if: needs.check-label.outputs.should-run == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -35,8 +71,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
+
       - name: Install mise (Linux / macOS)
         if: runner.os != 'Windows'
+        shell: bash
         run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install mise (Windows)
@@ -51,20 +100,326 @@ jobs:
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
 
-      - name: Install PHP via mise-php (Linux / macOS)
-        if: runner.os != 'Windows'
-        env:
-          PHP_VERBOSE: '1'
-        run: mise use -g php@8.5.5
+      - name: Check env._.php options without installing PHP
+        shell: bash
+        run: |
+          cat > mise.toml <<'TOML'
+          [env._.php]
+          skip_deps = true
+          verbose = true
+          prebuilt_static = true
+          prebuilt_static_flavor = "minimal"
+          configure_options = "--disable-all"
+          extra_configure_options = "--enable-option-checking=fatal"
+          pecl_extensions = "redis,xdebug"
+          pie_extensions = "amphp/ext-uv"
+          TOML
 
-      - name: Install PHP via mise-php (Windows)
+          mise trust "${{ github.workspace }}" || true
+          mise env --dotenv | tee mise-env.out
+
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe env-options mise-env.out
+          else
+            ./ci-checks env-options mise-env.out
+          fi
+
+  list-source-versions:
+    name: List source versions - ${{ matrix.os }}
+    needs: check-label
+    if: needs.check-label.outputs.should-run == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
+
+      - name: Install mise (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install mise (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        run: |
+          winget install jdx.mise --accept-package-agreements --accept-source-agreements
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+          $miseBin = Split-Path (Get-Command mise).Source
+          echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Check default/source version listing
+        shell: bash
+        run: |
+          mise cache clean || true
+          mise ls-remote php | tee source-versions.txt
+
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe version-list source source-versions.txt "${PHP_TEST_VERSION}"
+          else
+            ./ci-checks version-list source source-versions.txt "${PHP_TEST_VERSION}"
+          fi
+
+  list-static-versions:
+    name: List static versions - ${{ matrix.os }} - ${{ matrix.flavor.label }}
+    needs: check-label
+    if: needs.check-label.outputs.should-run == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        flavor:
+          - label: default
+            value: ""
+          - label: minimal
+            value: minimal
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
+
+      - name: Install mise (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install mise (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          winget install jdx.mise --accept-package-agreements --accept-source-agreements
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+          $miseBin = Split-Path (Get-Command mise).Source
+          echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Check prebuilt static version listing
+        shell: bash
+        env:
+          PHP_PREBUILT_STATIC: '1'
+          PHP_PREBUILT_STATIC_FLAVOR: ${{ matrix.flavor.value }}
+        run: |
+          mise cache clean || true
+          mise ls-remote php | tee static-versions.txt
+
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe version-list static static-versions.txt "${PHP_TEST_VERSION}"
+          else
+            ./ci-checks version-list static static-versions.txt "${PHP_TEST_VERSION}"
+          fi
+
+  install-source:
+    name: Install source/default - ${{ matrix.os }}
+    needs: [check-label, env-options, list-source-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_source_installs)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
+
+      - name: Install mise (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install mise (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          winget install jdx.mise --accept-package-agreements --accept-source-agreements
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+          $miseBin = Split-Path (Get-Command mise).Source
+          echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Install PHP via default/source path
         env:
           PHP_VERBOSE: '1'
-        run: mise use -g php@8.5.5
+        run: mise use -g php@${{ env.PHP_TEST_VERSION }}
 
-      - name: Check versions
+      - name: Check installed PHP tools
+        env:
+          PHP_INSTALL_MODE: source
+        shell: bash
         run: |
-          mise exec -- php --version
-          mise exec -- composer --version
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe installed-tools --mode source
+          else
+            ./ci-checks installed-tools --mode source
+          fi
+
+  install-static:
+    name: Install static prebuilt - ${{ matrix.os }}
+    needs: [check-label, env-options, list-static-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_static_installs)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
+
+      - name: Install mise (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install mise (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          winget install jdx.mise --accept-package-agreements --accept-source-agreements
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+          $miseBin = Split-Path (Get-Command mise).Source
+          echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Check static version listing before install
+        shell: bash
+        env:
+          PHP_PREBUILT_STATIC: '1'
+        run: |
+          mise cache clean || true
+          mise ls-remote php | tee static-install-versions.txt
+
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe version-list static static-install-versions.txt "${PHP_TEST_VERSION}"
+          else
+            ./ci-checks version-list static static-install-versions.txt "${PHP_TEST_VERSION}"
+          fi
+
+      - name: Install PHP via prebuilt static path
+        env:
+          PHP_VERBOSE: '1'
+          PHP_PREBUILT_STATIC: '1'
+        run: mise use -g php@${{ env.PHP_TEST_VERSION }}
+
+      - name: Check installed static PHP tools
+        env:
+          PHP_INSTALL_MODE: static
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe installed-tools --mode static
+          else
+            ./ci-checks installed-tools --mode static
+          fi
+
+  install-source-pecl:
+    name: Install PECL-capable source/default - ${{ matrix.os }}
+    needs: [check-label, env-options, list-source-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        # PECL is installed through --with-pear source builds. The Windows installer path
+        # uses the official Windows PHP zip and does not provision PEAR/PECL.
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
+
+      - name: Install mise (Linux / macOS)
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Install PECL-capable PHP via source/default path
+        env:
+          PHP_VERBOSE: '1'
+        run: mise use -g php@${{ env.PHP_PECL_TEST_VERSION }}
+
+      - name: Check Composer, PECL, and PIE for PECL-capable PHP
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe installed-tools --mode source --require-pecl
+          else
+            ./ci-checks installed-tools --mode source --require-pecl
+          fi

@@ -1,10 +1,12 @@
 local env = require("lib/env")
+local static_php = require("lib/static_php")
 
 local VERBOSE         = env.VERBOSE
 local QUIET           = env.QUIET
 local SKIP_DEPS       = env.SKIP_DEPS
 local PECL_EXTENSIONS = env.PECL_EXTENSIONS
 local PIE_EXTENSIONS  = env.PIE_EXTENSIONS
+local PREBUILT_STATIC = env.PREBUILT_STATIC
 
 local function verbose_tip(version)
     if VERBOSE then
@@ -29,7 +31,9 @@ function PLUGIN:PostInstall(ctx)
     local version = sdkInfo.version
     local sdkPath = sdkInfo.path
 
-    if RUNTIME.osType == "windows" then
+    if PREBUILT_STATIC and static_php.is_supported_platform() then
+        install_prebuilt_static_php(sdkPath, version)
+    elseif RUNTIME.osType == "windows" then
         install_php_for_windows(sdkPath, version)
     else
         install_php_for_linux(sdkPath, version)
@@ -109,6 +113,113 @@ local function fail_if_windows_php_is_visible_or_hangs()
 
         error(warning)
     end
+end
+
+local function find_prebuilt_php_binary(sdkPath)
+    local candidates = {
+        sdkPath .. "/bin/php",
+        sdkPath .. "/php",
+        sdkPath .. "/buildroot/bin/php",
+    }
+
+    for _, candidate in ipairs(candidates) do
+        local f = io.open(candidate, "r")
+        if f then
+            f:close()
+            return candidate
+        end
+    end
+
+    local result_file = "/tmp/mise-php-prebuilt-php-" .. os.time() .. ".txt"
+    os.remove(result_file)
+
+    os.execute("find '" .. sdkPath .. "' -type f -name php 2>/dev/null | head -n 1 > '" .. result_file .. "'")
+
+    local f = io.open(result_file, "r")
+    if not f then
+        return nil
+    end
+
+    local candidate = f:read("*l")
+    f:close()
+    os.remove(result_file)
+
+    if candidate == nil or candidate == "" then
+        return nil
+    end
+
+    return candidate
+end
+
+function install_prebuilt_static_php(sdkPath, version)
+    print("Preparing prebuilt static PHP...")
+
+    local major, minor = version:match("^(%d+)%.(%d+)")
+    major, minor = tonumber(major) or 0, tonumber(minor) or 0
+
+    os.execute(string.format("mkdir -p '%s/bin' '%s/conf.d'", sdkPath, sdkPath))
+
+    local php_bin = sdkPath .. "/bin/php"
+    local php_exists = io.open(php_bin, "r")
+
+    if php_exists then
+        php_exists:close()
+    else
+        local candidate = find_prebuilt_php_binary(sdkPath)
+        if not candidate then
+            error(
+                "\n\nFailed to prepare prebuilt static PHP.\n\n" ..
+                "The downloaded static-php-cli archive did not contain a PHP CLI binary.\n" ..
+                "Version: \27[93m" .. version .. "\27[0m\n"
+            )
+        end
+
+        local copy_status = os.execute(string.format("cp '%s' '%s'", candidate, php_bin))
+        if copy_status ~= 0 and copy_status ~= true then
+            error(
+                "\n\nFailed to prepare prebuilt static PHP.\n\n" ..
+                "Could not copy the PHP binary into the expected bin directory.\n"
+            )
+        end
+    end
+
+    local chmod_status = os.execute('chmod +x "' .. php_bin .. '"' .. QUIET)
+    if chmod_status ~= 0 and chmod_status ~= true then
+        error(
+            "\n\nFailed to prepare prebuilt static PHP.\n\n" ..
+            "Could not make the PHP binary executable.\n"
+        )
+    end
+
+    local confFile = io.open(sdkPath .. "/conf.d/php.ini", "w")
+    if confFile then
+        confFile:write("# Add system-wide PHP configuration options here\n")
+        confFile:close()
+    end
+
+    local status = os.execute('"' .. php_bin .. '" --version > /dev/null 2>&1')
+    if status ~= 0 and status ~= true then
+        error(
+            "\n\nPrebuilt static PHP installation appears to be broken: 'php --version' failed.\n\n" ..
+            verbose_tip(version) ..
+            see("debugging")
+        )
+    end
+
+    print("Prebuilt static PHP installation complete!")
+
+    if #PECL_EXTENSIONS > 0 or #PIE_EXTENSIONS > 0 then
+        io.stderr:write(
+            "\27[93mWarning:\27[0m PECL/PIE extension requests are skipped for prebuilt static PHP installs.\n" ..
+            "Prebuilt static PHP already ships with a fixed extension set and is not a source-build toolchain.\n"
+        )
+    end
+
+    if major > 8 or (major == 8 and minor >= 1) then
+        install_pie(sdkPath, version)
+    end
+
+    install_composer(sdkPath, version)
 end
 
 function install_php_for_windows(sdkPath, version)

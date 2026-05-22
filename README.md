@@ -22,6 +22,7 @@ Install multiple PHP versions side by side, each with its own isolated runtime, 
   - [Upgrade](#up-to-date)
 - [Usage](#usage)
   - [PHP](#php)
+  - [Prebuilt static PHP](#prebuilt-static-php-linux-and-macos)
   - [Composer](#composer-for-php)
   - [PIE](#pie-for-php)
   - [PECL](#pecl-for-php)
@@ -44,9 +45,11 @@ The officially released PHP versions are provided by `verzly/mise-php` for Linux
 
 On Windows, we can work quickly using precompiled binaries.
 
+On Linux and macOS, the plugin can optionally install prebuilt static PHP CLI binaries from `static-php-cli`. This path is disabled by default because fewer PHP versions may be available, and newly released PHP versions may appear later than source builds.
+
 ### Build from source
 
-For Linux and macOS systems, precompiling for each system is time-consuming, so the `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `/bin/install-dependencies.sh`, which the system runs automatically.
+For Linux and macOS systems, source builds remain the default. The `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `/bin/install-dependencies.sh`, which the system runs automatically.
 
 ### Cleanup
 
@@ -119,6 +122,15 @@ Once the plugin is installed, you can [start managing PHP versions](#usage).
 > mise config set env._.php.extra_configure_options "--with-pdo-sqlite"
 > ```
 
+> [!TIP]
+> On Linux and macOS, you can install prebuilt static PHP instead of compiling PHP from source.
+> See [Prebuilt static PHP](#prebuilt-static-php-linux-and-macos) for details.
+>
+> ```sh
+> mise config set env._.php.prebuilt_static true
+> mise use php@latest
+> ```
+
 ### Up-to-date
 
 These are stable versions, but plugin updates may occur, which you can later install with a single command.
@@ -182,6 +194,40 @@ pecl version
 ```
 
 The list of version numbers is not gathered directly from [`php/php-src`](https://github.com/php/php-src/releases), because the GitHub API enforces rate limiting after a certain number of requests. Instead, we update our `versions.txt` file from a `cache` branch once per day, so it's possible that a release may only be installable via the `verzly/mise-php` plugin with a one-day delay, or may require a manual update.
+
+When prebuilt static PHP is enabled, version listing switches to the available `static-php-cli` binaries for your current operating system and CPU architecture.
+
+### Prebuilt static PHP (Linux and macOS)
+
+By default, Linux and macOS installs build PHP from source. If you prefer faster installs and can accept a smaller version set, enable prebuilt static PHP binaries:
+
+```sh
+# Enable globally
+mise config set env._.php.prebuilt_static true
+
+# Install from the prebuilt static PHP list
+mise install php@latest
+```
+
+```toml
+[env]
+_.php = { prebuilt_static = true }
+```
+
+Available versions are filtered to binaries that exist for your current platform. If a PHP version exists in `php/php-src` but no matching `static-php-cli` binary exists yet, it will not be listed while this option is enabled.
+
+> [!WARNING]
+> Prebuilt static PHP is intended as a faster install path. It may provide fewer PHP versions than source builds, and newly released PHP versions may become available later.
+
+> [!NOTE]
+> PECL and PIE extension requests configured via `pecl_extensions` or `pie_extensions` are skipped for prebuilt static PHP installs. Static builds ship with a fixed extension set.
+
+To switch back to source builds:
+
+```sh
+mise config set env._.php.prebuilt_static false
+mise install php@latest
+```
 
 ### Composer for PHP
 
@@ -405,6 +451,18 @@ This plugin sets the following environment variables:
 | `PATH` | Windows | `<install_dir>` |
 | `PATH` | macOS, Linux | `<install_dir>/bin`, `<install_dir>/sbin` |
 | `LD_LIBRARY_PATH` | Linux only | `<install_dir>/lib` |
+
+The following installation options can be set through `mise config set env._.php.<option> ...` or the `[env] _.php = { ... }` table in `mise.toml`:
+
+| Option | Environment variable | Default | Description |
+|---|---|---|---|
+| `prebuilt_static` | `PHP_PREBUILT_STATIC` | `false` | Use prebuilt static PHP binaries on Linux and macOS instead of source builds. |
+| `skip_deps` | `PHP_SKIP_DEPS` | `false` | Skip automatic build dependency installation for source builds. |
+| `verbose` | `PHP_VERBOSE` | `false` | Show full dependency, build, and installer output. |
+| `extra_configure_options` | `PHP_EXTRA_CONFIGURE_OPTIONS` | empty | Append extra configure options to the default source build configuration. |
+| `configure_options` | `PHP_CONFIGURE_OPTIONS` | empty | Replace configure options entirely while preserving the install prefix. |
+| `pecl_extensions` | `PHP_PECL_EXTENSIONS` | empty | Install PECL extensions after source builds where PECL is available. |
+| `pie_extensions` | `PHP_PIE_EXTENSIONS` | empty | Install PIE extension packages after source builds where PIE is available. |
 
 ### Custom configure options (macOS and Linux)
 

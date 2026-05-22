@@ -47,6 +47,7 @@ local QUIET           = quiet_redirect()
 local SKIP_DEPS       = is_enabled("PHP_SKIP_DEPS")
 local PECL_EXTENSIONS = parse_pecl_extensions()
 local PIE_EXTENSIONS  = parse_pie_extensions()
+local PREBUILT_STATIC = is_enabled("PHP_PREBUILT_STATIC")
 
 return {
     VERBOSE         = VERBOSE,
@@ -54,4 +55,5 @@ return {
     SKIP_DEPS       = SKIP_DEPS,
     PECL_EXTENSIONS = PECL_EXTENSIONS,
     PIE_EXTENSIONS  = PIE_EXTENSIONS,
+    PREBUILT_STATIC = PREBUILT_STATIC,
 }

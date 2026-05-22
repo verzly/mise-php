@@ -1,16 +1,14 @@
 local env = require("lib/env")
 local static_php = require("lib/static_php")
 
-local function option_enabled(value)
-    if value == true then return true end
-    if value == nil or value == false then return false end
-    value = tostring(value)
-    return value ~= "" and value ~= "0" and value ~= "false"
-end
-
 local function prebuilt_static_enabled(ctx)
     local options = (ctx and ctx.options) or {}
-    return env.PREBUILT_STATIC or option_enabled(options.prebuilt_static)
+    return env.PREBUILT_STATIC or static_php.is_enabled(options.prebuilt_static)
+end
+
+local function prebuilt_static_flavor(ctx)
+    local options = (ctx and ctx.options) or {}
+    return options.prebuilt_static_flavor or env.PREBUILT_STATIC_FLAVOR
 end
 
 --- Returns available PHP versions from GitHub php-src tags
@@ -20,10 +18,9 @@ function PLUGIN:Available(ctx)
     local http = require("http")
 
     if prebuilt_static_enabled(ctx) and static_php.is_supported_platform() then
-        if ctx == nil or ctx.suppress_static_php_warning ~= true then
-            print(static_php.warning())
-        end
-        return static_php.available_versions(http)
+        local flavor = prebuilt_static_flavor(ctx)
+        print(static_php.warning(flavor))
+        return static_php.available_versions(http, flavor)
     end
 
     local resp, err = http.get({

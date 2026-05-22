@@ -5,6 +5,7 @@ local VERBOSE   = env.VERBOSE
 local QUIET     = env.QUIET
 local SKIP_DEPS = env.SKIP_DEPS
 local PREBUILT_STATIC = env.PREBUILT_STATIC
+local PREBUILT_STATIC_FLAVOR = env.PREBUILT_STATIC_FLAVOR
 
 --- Returns download information for a specific version
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#preinstall-hook
@@ -12,7 +13,7 @@ local PREBUILT_STATIC = env.PREBUILT_STATIC
 --- @return table Version and download information
 function PLUGIN:PreInstall(ctx)
     local version = ctx.version
-    local releases = self:Available({ suppress_static_php_warning = true })
+    local releases = self:Available(ctx or {})
 
     if not releases or #releases == 0 then
         error("⚠️ No releases available.")
@@ -39,8 +40,8 @@ function PLUGIN:PreInstall(ctx)
     end
 
     if PREBUILT_STATIC and static_php.is_supported_platform() then
-        print(static_php.warning())
-        return static_php.release(release.version)
+        print(static_php.warning(PREBUILT_STATIC_FLAVOR))
+        return static_php.release(release.version, PREBUILT_STATIC_FLAVOR)
     end
 
     version_check_for_linux(release)

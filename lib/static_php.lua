@@ -1,10 +1,50 @@
 local M = {}
 
-M.BASE_URL = "https://dl.static-php.dev/static-php-cli/common"
-M.SAPI = "cli"
+M.BASE_URL = "https://dl.static-php.dev/static-php-cli"
+M.DEFAULT_FLAVOR = "bulk"
+M.DEFAULT_SAPI = "cli"
+
+local FLAVORS = {
+    ["bulk"] = true,
+    ["common"] = true,
+    ["gnu-bulk"] = true,
+    ["minimal"] = true,
+}
+
+local function is_blank(value)
+    return value == nil or value == "" or value == false
+end
+
+function M.is_enabled(value)
+    if value == true then
+        return true
+    end
+    if value == nil or value == false then
+        return false
+    end
+
+    value = tostring(value)
+    return value ~= "" and value ~= "0" and value ~= "false"
+end
 
 function M.is_supported_platform()
     return RUNTIME.osType == "linux" or RUNTIME.osType == "darwin"
+end
+
+function M.normalize_flavor(value)
+    if is_blank(value) then
+        return M.DEFAULT_FLAVOR
+    end
+
+    value = tostring(value)
+    if not FLAVORS[value] then
+        error(
+            "Unsupported prebuilt static PHP flavor: " .. value .. "\n" ..
+            "Supported flavors: bulk, common, gnu-bulk, minimal"
+        )
+    end
+
+    return value
 end
 
 function M.os_name()
@@ -33,7 +73,7 @@ function M.arch_name()
     return arch
 end
 
-function M.asset_name(version)
+function M.asset_name(version, flavor)
     local os_name = M.os_name()
     local arch_name = M.arch_name()
 
@@ -41,11 +81,12 @@ function M.asset_name(version)
         error("Prebuilt static PHP is only available on supported Linux and macOS architectures.")
     end
 
-    return "php-" .. version .. "-" .. M.SAPI .. "-" .. os_name .. "-" .. arch_name .. ".tar.gz"
+    return "php-" .. version .. "-" .. M.DEFAULT_SAPI .. "-" .. os_name .. "-" .. arch_name .. ".tar.gz"
 end
 
-function M.asset_url(version)
-    return M.BASE_URL .. "/" .. M.asset_name(version)
+function M.asset_url(version, flavor)
+    flavor = M.normalize_flavor(flavor)
+    return M.BASE_URL .. "/" .. flavor .. "/" .. M.asset_name(version, flavor)
 end
 
 local function version_key(version)
@@ -76,7 +117,9 @@ local function version_greater_than(a, b)
     return a_suffix > b_suffix
 end
 
-function M.available_versions(http)
+function M.available_versions(http, flavor)
+    flavor = M.normalize_flavor(flavor)
+
     local os_name = M.os_name()
     local arch_name = M.arch_name()
 
@@ -85,20 +128,19 @@ function M.available_versions(http)
     end
 
     local resp, err = http.get({
-        url = M.BASE_URL .. "/",
+        url = M.BASE_URL .. "/" .. flavor .. "/",
         headers = {
             ["User-Agent"] = "verzly-mise-php",
         },
     })
 
-    if err ~= nil or resp == nil or resp.status_code ~= 200 then
-        local status = resp and resp.status_code or "unknown"
-        error("Failed to fetch static-php-cli prebuilt binaries: " .. tostring(err) .. " (status: " .. tostring(status) .. ")")
+    if err ~= nil or resp.status_code ~= 200 then
+        error("Failed to fetch static-php-cli prebuilt binaries: " .. tostring(err))
     end
 
     local versions = {}
     local seen = {}
-    local pattern = "php%-([0-9][0-9A-Za-z%.%-]*)%-" .. M.SAPI .. "%-" .. os_name .. "%-" .. arch_name .. "%.tar%.gz"
+    local pattern = "php%-([0-9][0-9A-Za-z%.%-]*)%-" .. M.DEFAULT_SAPI .. "%-" .. os_name .. "%-" .. arch_name .. "%.tar%.gz"
 
     for version in resp.body:gmatch(pattern) do
         if not seen[version] then
@@ -117,16 +159,18 @@ function M.available_versions(http)
     return result
 end
 
-function M.release(version)
+function M.release(version, flavor)
     return {
         version = version,
-        url = M.asset_url(version),
+        url = M.asset_url(version, flavor),
     }
 end
 
-function M.warning()
+function M.warning(flavor)
+    flavor = M.normalize_flavor(flavor)
+
     return "\27[93mWarning:\27[0m " ..
-        "Using static-php-cli prebuilt PHP binaries. " ..
+        "Using static-php-cli prebuilt PHP binaries (" .. flavor .. "). " ..
         "Fewer PHP versions may be available than source builds, and new PHP versions may appear later."
 end
 

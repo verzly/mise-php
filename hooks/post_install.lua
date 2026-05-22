@@ -7,6 +7,7 @@ local SKIP_DEPS       = env.SKIP_DEPS
 local PECL_EXTENSIONS = env.PECL_EXTENSIONS
 local PIE_EXTENSIONS  = env.PIE_EXTENSIONS
 local PREBUILT_STATIC = env.PREBUILT_STATIC
+local PREBUILT_STATIC_FLAVOR = env.PREBUILT_STATIC_FLAVOR
 
 local function verbose_tip(version)
     if VERBOSE then
@@ -170,6 +171,7 @@ function install_prebuilt_static_php(sdkPath, version)
             error(
                 "\n\nFailed to prepare prebuilt static PHP.\n\n" ..
                 "The downloaded static-php-cli archive did not contain a PHP CLI binary.\n" ..
+                "Flavor: \27[93m" .. static_php.normalize_flavor(PREBUILT_STATIC_FLAVOR) .. "\27[0m\n" ..
                 "Version: \27[93m" .. version .. "\27[0m\n"
             )
         end

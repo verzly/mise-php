@@ -45,7 +45,7 @@ The officially released PHP versions are provided by `verzly/mise-php` for Linux
 
 On Windows, we can work quickly using precompiled binaries.
 
-On Linux and macOS, the plugin can optionally install prebuilt static PHP CLI binaries from `static-php-cli`. This path is disabled by default because fewer PHP versions may be available, and newly released PHP versions may appear later than source builds.
+On Linux and macOS, you can optionally use prebuilt static PHP binaries provided by static-php-cli. This is disabled by default because fewer PHP versions may be available, and newly released PHP versions may appear later than source builds.
 
 ### Build from source
 
@@ -123,7 +123,7 @@ Once the plugin is installed, you can [start managing PHP versions](#usage).
 > ```
 
 > [!TIP]
-> On Linux and macOS, you can install prebuilt static PHP instead of compiling PHP from source.
+> On Linux and macOS, you can use prebuilt static PHP binaries instead of compiling PHP from source.
 > See [Prebuilt static PHP](#prebuilt-static-php-linux-and-macos) for details.
 >
 > ```sh
@@ -195,15 +195,20 @@ pecl version
 
 The list of version numbers is not gathered directly from [`php/php-src`](https://github.com/php/php-src/releases), because the GitHub API enforces rate limiting after a certain number of requests. Instead, we update our `versions.txt` file from a `cache` branch once per day, so it's possible that a release may only be installable via the `verzly/mise-php` plugin with a one-day delay, or may require a manual update.
 
-When prebuilt static PHP is enabled, version listing switches to the available `static-php-cli` binaries for your current operating system and CPU architecture.
+When prebuilt static PHP is enabled, version listing switches to the available static-php-cli binaries for the current operating system, CPU architecture, and selected flavor.
 
 ### Prebuilt static PHP (Linux and macOS)
 
-By default, Linux and macOS installs build PHP from source. If you prefer faster installs and can accept a smaller version set, enable prebuilt static PHP binaries:
+By default, Linux and macOS installs build PHP from source. If you prefer faster installs and can accept a smaller version set, enable prebuilt static PHP binaries. When enabled, the default static-php-cli flavor is `bulk`, because it provides the broadest extension set among the portable Linux/macOS prebuilt options.
 
 ```sh
 # Enable globally
 mise config set env._.php.prebuilt_static true
+
+# Optional: choose a different static-php-cli binary flavor
+# Default: bulk
+# Supported: bulk, common, gnu-bulk, minimal
+mise config set env._.php.prebuilt_static_flavor minimal
 
 # Install from the prebuilt static PHP list
 mise install php@latest
@@ -211,10 +216,19 @@ mise install php@latest
 
 ```toml
 [env]
-_.php = { prebuilt_static = true }
+_.php = { prebuilt_static = true, prebuilt_static_flavor = "bulk" }
 ```
 
-Available versions are filtered to binaries that exist for your current platform. If a PHP version exists in `php/php-src` but no matching `static-php-cli` binary exists yet, it will not be listed while this option is enabled.
+Available versions are filtered to binaries that exist for your current platform and selected flavor. If a PHP version exists in `php/php-src` but no matching static-php-cli binary exists yet, it will not be listed while this option is enabled.
+
+Available flavors:
+
+| Flavor | Extension set | Notes |
+|---|---:|---|
+| `bulk` | 50+ | Default. Broad extension coverage for most prebuilt static PHP use cases. |
+| `common` | 30+ | Smaller binary with a common extension set. |
+| `gnu-bulk` | 50+ | Bulk-style build using shared glibc where upstream provides matching assets. |
+| `minimal` | 5 | Smallest build for minimal CLI use cases. |
 
 > [!WARNING]
 > Prebuilt static PHP is intended as a faster install path. It may provide fewer PHP versions than source builds, and newly released PHP versions may become available later.
@@ -457,6 +471,7 @@ The following installation options can be set through `mise config set env._.php
 | Option | Environment variable | Default | Description |
 |---|---|---|---|
 | `prebuilt_static` | `PHP_PREBUILT_STATIC` | `false` | Use prebuilt static PHP binaries on Linux and macOS instead of source builds. |
+| `prebuilt_static_flavor` | `PHP_PREBUILT_STATIC_FLAVOR` | `bulk` | Select the static-php-cli binary flavor: `bulk`, `common`, `gnu-bulk`, or `minimal`. |
 | `skip_deps` | `PHP_SKIP_DEPS` | `false` | Skip automatic build dependency installation for source builds. |
 | `verbose` | `PHP_VERBOSE` | `false` | Show full dependency, build, and installer output. |
 | `extra_configure_options` | `PHP_EXTRA_CONFIGURE_OPTIONS` | empty | Append extra configure options to the default source build configuration. |

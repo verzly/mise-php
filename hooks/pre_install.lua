@@ -44,14 +44,14 @@ function PLUGIN:PreInstall(ctx)
         error("Version not found: " .. version)
     end
 
-    if RUNTIME.osType == "windows" then
-        return get_release_for_windows(release)
-    end
-
     if prebuilt_static_enabled(ctx) and static_php.is_supported_platform() then
         local flavor = prebuilt_static_flavor(ctx)
         print(static_php.warning(flavor))
         return static_php.release(release.version, flavor)
+    end
+
+    if RUNTIME.osType == "windows" then
+        return get_release_for_windows(release)
     end
 
     version_check_for_linux(release)

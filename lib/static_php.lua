@@ -15,7 +15,35 @@ local FLAVORS = {
     ["common"] = true,
     ["gnu-bulk"] = true,
     ["minimal"] = true,
+    ["spc-max"] = true,
+    ["spc-min"] = true,
 }
+
+local WINDOWS_FLAVOR_ALIASES = {
+    ["bulk"] = "spc-max",
+    ["spc-max"] = "spc-max",
+    ["minimal"] = "spc-min",
+    ["spc-min"] = "spc-min",
+}
+
+local UNIX_FLAVOR_ALIASES = {
+    ["bulk"] = "bulk",
+    ["common"] = "common",
+    ["gnu-bulk"] = "gnu-bulk",
+    ["minimal"] = "minimal",
+    ["spc-max"] = "bulk",
+    ["spc-min"] = "minimal",
+}
+
+local PATH_SEP = package.config:sub(1, 1)
+
+local function join_path(...)
+    return table.concat({ ... }, PATH_SEP)
+end
+
+local function is_windows()
+    return RUNTIME.osType == "windows"
+end
 
 local function is_blank(value)
     return value == nil or value == "" or value == false
@@ -34,7 +62,7 @@ function M.is_enabled(value)
 end
 
 function M.is_supported_platform()
-    return RUNTIME.osType == "linux" or RUNTIME.osType == "darwin"
+    return RUNTIME.osType == "linux" or RUNTIME.osType == "darwin" or RUNTIME.osType == "windows"
 end
 
 function M.normalize_flavor(value)
@@ -46,11 +74,29 @@ function M.normalize_flavor(value)
     if not FLAVORS[value] then
         error(
             "Unsupported prebuilt static PHP flavor: " .. value .. "\n" ..
-            "Supported flavors: bulk, common, gnu-bulk, minimal"
+            "Supported flavors: bulk, common, gnu-bulk, minimal, spc-max, spc-min"
         )
     end
 
     return value
+end
+
+function M.resolve_flavor(value)
+    local flavor = M.normalize_flavor(value)
+
+    if is_windows() then
+        local resolved = WINDOWS_FLAVOR_ALIASES[flavor]
+        if resolved ~= nil then
+            return resolved
+        end
+
+        error(
+            "Unsupported prebuilt static PHP flavor for Windows: " .. flavor .. "\n" ..
+            "Supported Windows flavors: bulk/spc-max, minimal/spc-min"
+        )
+    end
+
+    return UNIX_FLAVOR_ALIASES[flavor]
 end
 
 function M.os_name()
@@ -62,10 +108,18 @@ function M.os_name()
         return "linux"
     end
 
+    if RUNTIME.osType == "windows" then
+        return "win"
+    end
+
     return nil
 end
 
 function M.arch_name()
+    if is_windows() then
+        return ""
+    end
+
     local arch = string.lower(RUNTIME.archType or "")
 
     if arch == "amd64" or arch == "x64" or arch == "x86_64" then
@@ -83,16 +137,33 @@ function M.asset_name(version, flavor)
     local os_name = M.os_name()
     local arch_name = M.arch_name()
 
-    if os_name == nil or arch_name == "" then
+    if os_name == nil then
+        error("Prebuilt static PHP is only available on supported Linux, macOS, and Windows platforms.")
+    end
+
+    if is_windows() then
+        return "php-" .. version .. "-" .. M.DEFAULT_SAPI .. "-win.zip"
+    end
+
+    if arch_name == "" then
         error("Prebuilt static PHP is only available on supported Linux and macOS architectures.")
     end
 
     return "php-" .. version .. "-" .. M.DEFAULT_SAPI .. "-" .. os_name .. "-" .. arch_name .. ".tar.gz"
 end
 
+function M.release_path(flavor)
+    flavor = M.resolve_flavor(flavor)
+
+    if is_windows() then
+        return "windows/" .. flavor
+    end
+
+    return flavor
+end
+
 function M.asset_url(version, flavor)
-    flavor = M.normalize_flavor(flavor)
-    return M.BASE_URL .. "/" .. flavor .. "/" .. M.asset_name(version, flavor)
+    return M.BASE_URL .. "/" .. M.release_path(flavor) .. "/" .. M.asset_name(version, flavor)
 end
 
 local function version_key(version)
@@ -124,17 +195,15 @@ local function version_greater_than(a, b)
 end
 
 function M.available_versions(http, flavor)
-    flavor = M.normalize_flavor(flavor)
-
     local os_name = M.os_name()
     local arch_name = M.arch_name()
 
-    if os_name == nil or arch_name == "" then
+    if os_name == nil or (not is_windows() and arch_name == "") then
         return {}
     end
 
     local resp, err = http.get({
-        url = M.BASE_URL .. "/" .. flavor .. "/",
+        url = M.BASE_URL .. "/" .. M.release_path(flavor) .. "/",
         headers = {
             ["User-Agent"] = "verzly-mise-php",
         },
@@ -146,7 +215,13 @@ function M.available_versions(http, flavor)
 
     local versions = {}
     local seen = {}
-    local pattern = "php%-([0-9][0-9A-Za-z%.%-]*)%-" .. M.DEFAULT_SAPI .. "%-" .. os_name .. "%-" .. arch_name .. "%.tar%.gz"
+    local pattern
+
+    if is_windows() then
+        pattern = "php%-([0-9][0-9A-Za-z%.%-]*)%-" .. M.DEFAULT_SAPI .. "%-win%.zip"
+    else
+        pattern = "php%-([0-9][0-9A-Za-z%.%-]*)%-" .. M.DEFAULT_SAPI .. "%-" .. os_name .. "%-" .. arch_name .. "%.tar%.gz"
+    end
 
     for version in resp.body:gmatch(pattern) do
         if not seen[version] then
@@ -173,19 +248,36 @@ function M.release(version, flavor)
 end
 
 function M.warning(flavor)
-    flavor = M.normalize_flavor(flavor)
+    local requested = M.normalize_flavor(flavor)
+    local resolved = M.resolve_flavor(flavor)
+    local flavor_label = requested
+
+    if requested ~= resolved then
+        flavor_label = requested .. " -> " .. resolved
+    end
 
     return "\27[93mWarning:\27[0m " ..
-        "Using static-php-cli prebuilt PHP binaries (" .. flavor .. "). " ..
+        "Using static-php-cli prebuilt PHP binaries (" .. flavor_label .. "). " ..
         "Fewer PHP versions may be available than source builds, and new PHP versions may appear later."
 end
 
 local function find_prebuilt_php_binary(sdkPath)
-    local candidates = {
-        sdkPath .. "/bin/php",
-        sdkPath .. "/php",
-        sdkPath .. "/buildroot/bin/php",
-    }
+    local binary_name = is_windows() and "php.exe" or "php"
+    local candidates
+
+    if is_windows() then
+        candidates = {
+            join_path(sdkPath, "php.exe"),
+            join_path(sdkPath, "bin", "php.exe"),
+            join_path(sdkPath, "buildroot", "bin", "php.exe"),
+        }
+    else
+        candidates = {
+            join_path(sdkPath, "bin", "php"),
+            join_path(sdkPath, "php"),
+            join_path(sdkPath, "buildroot", "bin", "php"),
+        }
+    end
 
     for _, candidate in ipairs(candidates) do
         local f = io.open(candidate, "r")
@@ -195,10 +287,20 @@ local function find_prebuilt_php_binary(sdkPath)
         end
     end
 
-    local result_file = "/tmp/mise-php-prebuilt-php-" .. os.time() .. ".txt"
+    local result_file = os.tmpname()
     os.remove(result_file)
 
-    os.execute("find '" .. sdkPath .. "' -type f -name php 2>/dev/null | head -n 1 > '" .. result_file .. "'")
+    if is_windows() then
+        local cmd = string.format(
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path \'%s\' -Recurse -File -Filter %s | Select-Object -First 1 -ExpandProperty FullName" > "%s" 2>NUL',
+            sdkPath,
+            binary_name,
+            result_file
+        )
+        os.execute(cmd)
+    else
+        os.execute("find '" .. sdkPath .. "' -type f -name php 2>/dev/null | head -n 1 > '" .. result_file .. "'")
+    end
 
     local f = io.open(result_file, "r")
     if not f then
@@ -216,6 +318,22 @@ local function find_prebuilt_php_binary(sdkPath)
     return candidate
 end
 
+local function copy_binary(source, destination)
+    if source == destination then
+        return true
+    end
+
+    local cmd
+    if is_windows() then
+        cmd = string.format('cmd /c copy /Y "%s" "%s" > NUL', source, destination)
+    else
+        cmd = string.format("cp '%s' '%s'", source, destination)
+    end
+
+    local status = os.execute(cmd)
+    return status == 0 or status == true
+end
+
 function M.install(sdkPath, version)
     local tools = require("lib/tools")
 
@@ -224,9 +342,13 @@ function M.install(sdkPath, version)
     local major, minor = version:match("^(%d+)%.(%d+)")
     major, minor = tonumber(major) or 0, tonumber(minor) or 0
 
-    os.execute(string.format("mkdir -p '%s/bin' '%s/conf.d'", sdkPath, sdkPath))
+    if is_windows() then
+        os.execute(string.format('mkdir "%s" 2>NUL', sdkPath))
+    else
+        os.execute(string.format("mkdir -p '%s/bin' '%s/conf.d'", sdkPath, sdkPath))
+    end
 
-    local php_bin = sdkPath .. "/bin/php"
+    local php_bin = is_windows() and join_path(sdkPath, "php.exe") or join_path(sdkPath, "bin", "php")
     local php_exists = io.open(php_bin, "r")
 
     if php_exists then
@@ -237,35 +359,42 @@ function M.install(sdkPath, version)
             error(
                 "\n\nFailed to prepare prebuilt static PHP.\n\n" ..
                 "The downloaded static-php-cli archive did not contain a PHP CLI binary.\n" ..
-                "Flavor: \27[93m" .. M.normalize_flavor(PREBUILT_STATIC_FLAVOR) .. "\27[0m\n" ..
+                "Flavor: \27[93m" .. M.resolve_flavor(PREBUILT_STATIC_FLAVOR) .. "\27[0m\n" ..
                 "Version: \27[93m" .. version .. "\27[0m\n"
             )
         end
 
-        local copy_status = os.execute(string.format("cp '%s' '%s'", candidate, php_bin))
-        if copy_status ~= 0 and copy_status ~= true then
+        if not copy_binary(candidate, php_bin) then
             error(
                 "\n\nFailed to prepare prebuilt static PHP.\n\n" ..
-                "Could not copy the PHP binary into the expected bin directory.\n"
+                "Could not copy the PHP binary into the expected installation directory.\n"
             )
         end
     end
 
-    local chmod_status = os.execute('chmod +x "' .. php_bin .. '"' .. QUIET)
-    if chmod_status ~= 0 and chmod_status ~= true then
-        error(
-            "\n\nFailed to prepare prebuilt static PHP.\n\n" ..
-            "Could not make the PHP binary executable.\n"
-        )
+    if not is_windows() then
+        local chmod_status = os.execute('chmod +x "' .. php_bin .. '"' .. QUIET)
+        if chmod_status ~= 0 and chmod_status ~= true then
+            error(
+                "\n\nFailed to prepare prebuilt static PHP.\n\n" ..
+                "Could not make the PHP binary executable.\n"
+            )
+        end
+
+        local confFile = io.open(join_path(sdkPath, "conf.d", "php.ini"), "w")
+        if confFile then
+            confFile:write("# Add system-wide PHP configuration options here\n")
+            confFile:close()
+        end
     end
 
-    local confFile = io.open(sdkPath .. "/conf.d/php.ini", "w")
-    if confFile then
-        confFile:write("# Add system-wide PHP configuration options here\n")
-        confFile:close()
+    local status
+    if is_windows() then
+        status = os.execute('"' .. php_bin .. '" --version > NUL 2>&1')
+    else
+        status = os.execute('"' .. php_bin .. '" --version > /dev/null 2>&1')
     end
 
-    local status = os.execute('"' .. php_bin .. '" --version > /dev/null 2>&1')
     if status ~= 0 and status ~= true then
         error(
             "\n\nPrebuilt static PHP installation appears to be broken: 'php --version' failed.\n\n" ..

@@ -19,6 +19,15 @@ on:
         required: true
         type: boolean
         default: true
+      pecl_php_version:
+        description: PHP version family used by the PECL-capable source install smoke test
+        required: true
+        default: '8.4'
+      run_tool_installs:
+        description: Run extra Composer, PECL, and PIE tooling smoke installs
+        required: true
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -29,6 +38,7 @@ permissions:
 
 env:
   PHP_TEST_VERSION: ${{ inputs.php_version || '8.5.5' }}
+  PHP_PECL_TEST_VERSION: ${{ inputs.pecl_php_version || '8.4' }}
 
 jobs:
   check-label:
@@ -60,6 +70,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
 
       - name: Install mise (Linux / macOS)
         if: runner.os != 'Windows'
@@ -96,37 +118,11 @@ jobs:
           mise trust "${{ github.workspace }}" || true
           mise env --dotenv | tee mise-env.out
 
-          python - <<'PY'
-          from pathlib import Path
-
-          expected = {
-              "PHP_SKIP_DEPS": "1",
-              "PHP_VERBOSE": "1",
-              "PHP_PREBUILT_STATIC": "1",
-              "PHP_PREBUILT_STATIC_FLAVOR": "minimal",
-              "PHP_CONFIGURE_OPTIONS": "--disable-all",
-              "PHP_EXTRA_CONFIGURE_OPTIONS": "--enable-option-checking=fatal",
-              "PHP_PECL_EXTENSIONS": "redis,xdebug",
-              "PHP_PIE_EXTENSIONS": "amphp/ext-uv",
-          }
-
-          values = {}
-          for line in Path("mise-env.out").read_text().splitlines():
-              if not line or line.startswith("#") or "=" not in line:
-                  continue
-              key, value = line.split("=", 1)
-              values[key] = value.strip().strip('"').strip("'")
-
-          missing = []
-          for key, value in expected.items():
-              if values.get(key) != value:
-                  missing.append(f"{key}: expected {value!r}, got {values.get(key)!r}")
-
-          if missing:
-              raise SystemExit("\n".join(missing))
-
-          print("env._.php options were exported correctly")
-          PY
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe env-options mise-env.out
+          else
+            ./ci-checks env-options mise-env.out
+          fi
 
   list-source-versions:
     name: List source versions - ${{ matrix.os }}
@@ -141,6 +137,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
 
       - name: Install mise (Linux / macOS)
         if: runner.os != 'Windows'
@@ -165,20 +173,11 @@ jobs:
           mise cache clean || true
           mise ls-remote php | tee source-versions.txt
 
-          python - <<'PY'
-          import os
-          from pathlib import Path
-
-          expected = os.environ["PHP_TEST_VERSION"]
-          versions = [line.strip() for line in Path("source-versions.txt").read_text().splitlines() if line.strip()]
-
-          if not versions:
-              raise SystemExit("No source versions were returned")
-          if expected not in versions:
-              raise SystemExit(f"Expected PHP {expected} in source version list")
-
-          print(f"source version list contains {len(versions)} versions")
-          PY
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe version-list source source-versions.txt "${PHP_TEST_VERSION}"
+          else
+            ./ci-checks version-list source source-versions.txt "${PHP_TEST_VERSION}"
+          fi
 
   list-static-versions:
     name: List static versions - ${{ matrix.os }} - ${{ matrix.flavor.label }}
@@ -198,6 +197,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
 
       - name: Install mise (Linux / macOS)
         if: runner.os != 'Windows'
@@ -225,20 +236,11 @@ jobs:
           mise cache clean || true
           mise ls-remote php | tee static-versions.txt
 
-          python - <<'PY'
-          import os
-          from pathlib import Path
-
-          expected = os.environ["PHP_TEST_VERSION"]
-          versions = [line.strip() for line in Path("static-versions.txt").read_text().splitlines() if line.strip()]
-
-          if not versions:
-              raise SystemExit("No static prebuilt versions were returned")
-          if expected not in versions:
-              raise SystemExit(f"Expected PHP {expected} in static prebuilt version list")
-
-          print(f"static prebuilt version list contains {len(versions)} versions")
-          PY
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe version-list static static-versions.txt "${PHP_TEST_VERSION}"
+          else
+            ./ci-checks version-list static static-versions.txt "${PHP_TEST_VERSION}"
+          fi
 
   install-source:
     name: Install source/default - ${{ matrix.os }}
@@ -253,6 +255,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
 
       - name: Install mise (Linux / macOS)
         if: runner.os != 'Windows'
@@ -276,10 +290,16 @@ jobs:
           PHP_VERBOSE: '1'
         run: mise use -g php@${{ env.PHP_TEST_VERSION }}
 
-      - name: Check installed tools
+      - name: Check installed PHP tools
+        env:
+          PHP_INSTALL_MODE: source
+        shell: bash
         run: |
-          mise exec -- php --version
-          mise exec -- composer --version
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe installed-tools --mode source
+          else
+            ./ci-checks installed-tools --mode source
+          fi
 
   install-static:
     name: Install static prebuilt - ${{ matrix.os }}
@@ -294,6 +314,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
 
       - name: Install mise (Linux / macOS)
         if: runner.os != 'Windows'
@@ -319,7 +351,12 @@ jobs:
         run: |
           mise cache clean || true
           mise ls-remote php | tee static-install-versions.txt
-          grep -Fx "${PHP_TEST_VERSION}" static-install-versions.txt
+
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe version-list static static-install-versions.txt "${PHP_TEST_VERSION}"
+          else
+            ./ci-checks version-list static static-install-versions.txt "${PHP_TEST_VERSION}"
+          fi
 
       - name: Install PHP via prebuilt static path
         env:
@@ -327,7 +364,62 @@ jobs:
           PHP_PREBUILT_STATIC: '1'
         run: mise use -g php@${{ env.PHP_TEST_VERSION }}
 
-      - name: Check installed static tools
+      - name: Check installed static PHP tools
+        env:
+          PHP_INSTALL_MODE: static
+        shell: bash
         run: |
-          mise exec -- php --version
-          mise exec -- composer --version
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe installed-tools --mode static
+          else
+            ./ci-checks installed-tools --mode static
+          fi
+
+  install-source-pecl:
+    name: Install PECL-capable source/default - ${{ matrix.os }}
+    needs: [check-label, env-options, list-source-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        # PECL is installed through --with-pear source builds. The Windows installer path
+        # uses the official Windows PHP zip and does not provision PEAR/PECL.
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+          else
+            rustc .github/scripts/ci-checks.rs -o ci-checks
+          fi
+
+      - name: Install mise (Linux / macOS)
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Install PECL-capable PHP via source/default path
+        env:
+          PHP_VERBOSE: '1'
+        run: mise use -g php@${{ env.PHP_PECL_TEST_VERSION }}
+
+      - name: Check Composer, PECL, and PIE for PECL-capable PHP
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ./ci-checks.exe installed-tools --mode source --require-pecl
+          else
+            ./ci-checks installed-tools --mode source --require-pecl
+          fi

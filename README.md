@@ -200,55 +200,41 @@ When prebuilt static PHP is enabled, version listing switches to the available s
 
 ### Source build dependencies
 
-Source builds need native system packages for the PHP version, configure options, and requested PECL or PIE extensions. The plugin installs these dependencies automatically unless dependency installation is disabled with `skip_deps`.
+Source builds need native system packages for the selected PHP version, configure options, and requested PECL or PIE extensions. By default, `mise-php` installs these dependencies automatically unless dependency installation is disabled with `skip_deps`.
 
-Disable automatic dependency installation permanently with `mise config set env._.php.skip_deps true`, or for a single install with `PHP_SKIP_DEPS=1 mise install php@<version>`. See [Skip dependency installation](#skip-dependency-installation) for more examples.
+The dependency installer detects the operating system, package manager, PHP version, configure flags, and requested extension list. It then installs the packages needed for that build path instead of using a single fixed package list for every system.
 
-The automatic dependency installer currently covers Debian and Ubuntu, Fedora, Enterprise Linux-compatible distributions, Amazon Linux 2023, Arch Linux, Alpine Linux, and macOS/Homebrew. Enterprise Linux-compatible support includes CentOS Stream, Rocky Linux, AlmaLinux, Oracle Linux, and RHEL-style systems where the required vendor repositories are available.
+Supported dependency installers include:
 
-The installer is version-aware and extension-aware. It installs the dependencies needed by the default mise-php source build, then adds extra native libraries only when the selected PHP version, custom configure flags, or requested PECL/PIE extensions require them.
+- Debian and Ubuntu through `apt`
+- Fedora through `dnf`
+- Enterprise Linux-compatible systems through `dnf`, `yum`, or `microdnf`
+- Amazon Linux 2023 through `dnf`
+- Arch Linux through `pacman`
+- Alpine Linux through `apk`
+- macOS through Homebrew
+
+Enterprise Linux-compatible systems are handled by major version, such as EL8, EL9, and EL10. This includes RHEL-style systems, CentOS Stream, Rocky Linux, AlmaLinux, and Oracle Linux where the required vendor repositories are available.
+
+Some PHP versions need additional build handling on older platform families. For example, PHP 8.3 and newer requires a sufficiently new `re2c`, so EL7 and EL8 systems may build a newer `re2c` from source only when the selected PHP version requires it. EL8-compatible systems also receive `CFLAGS=-fPIC`, `CXXFLAGS=-fPIC`, and `LDFLAGS=-pie` automatically when building PHP 8.5 or newer.
+
+Optional native libraries are installed only when they are relevant to the selected build. This includes libraries needed by custom configure flags, such as LDAP or XSL, and libraries needed by requested PECL/PIE extensions, such as ImageMagick, libyaml, libmemcached, rabbitmq-c, librdkafka, or libuv.
+
+Static PHP installations do not install source build dependencies because they use prebuilt binaries with a fixed extension set.
+
+To disable automatic dependency installation permanently:
 
 ```sh
-# Install dependencies for the default source build
-mise install php@8.4
-
-# Install dependencies needed by additional configure flags
-mise config set env._.php.extra_configure_options "--with-ldap --with-xsl"
-mise install php@8.4
-
-# Install dependencies needed by requested PECL extensions
-mise config set env._.php.pecl_extensions "redis imagick yaml"
-mise install php@8.4
-
-# Install dependencies needed by requested PIE packages
-mise config set env._.php.pie_extensions "amphp/ext-uv"
-mise install php@8.4
+mise config set env._.php.skip_deps true
 ```
 
-On Enterprise Linux-compatible systems, the installer enables the required builder repositories where possible, such as CRB or PowerTools, and installs EPEL where additional build packages are needed. EL7, EL8, EL9, and EL10 are handled separately because their repository layout and build tool versions differ. CentOS Stream 9/10 and EL-compatible 8/9/10 systems are covered by CI through representative container images. CentOS 7 is best-effort because the official repositories are archived and newer PHP versions may require newer system libraries than the base distribution provides.
+For a single install:
 
-Alpine Linux is handled separately because it uses musl libc and `apk` package names instead of the glibc-oriented package sets used by Debian, Fedora, or Enterprise Linux systems. Amazon Linux 2023 is also handled separately instead of being forced through the Enterprise Linux adapter, because its repository layout is AWS-specific even though many package names are Fedora/EL-like.
+```sh
+PHP_SKIP_DEPS=1 mise install php@<version>
+```
 
-For PHP 8.3 and newer, the installer verifies that `re2c` is new enough for PHP's lexer generation step. On EL7 and EL8, where the packaged `re2c` can be too old, the installer builds a newer `re2c` from source only when the requested PHP version requires it.
-
-On EL8-compatible systems such as Rocky Linux 8, PHP 8.5 and newer may require position-independent build flags during source builds. mise-php applies `CFLAGS=-fPIC`, `CXXFLAGS=-fPIC`, and `LDFLAGS=-pie` automatically for EL8-compatible PHP 8.5+ builds.
-
-Common dependency groups:
-
-| Trigger | Dependency group | Installed automatically when |
-|---|---|---|
-| Default source build | libxml2, OpenSSL, ICU, zlib, Oniguruma, curl, readline, SQLite, gettext | Always for source builds |
-| Default source build probes | bzip2, GMP, libsodium, libzip, PostgreSQL client libraries, GD image libraries | Always for source builds, then enabled only if the installed library is usable |
-| PHP `< 7.2` or `--with-mcrypt` | mcrypt | The PHP version or configure flags require it |
-| `--with-ldap`, `--with-xsl`, `--with-tidy`, `--with-snmp`, `--with-ffi`, `--with-imap` | Extension-specific native libraries | The configure flag is present |
-| `imagick` | ImageMagick / MagickWand | `imagick` is requested through PECL or PIE |
-| `yaml` | libyaml | `yaml` is requested through PECL or PIE |
-| `memcached` | libmemcached and SASL libraries | `memcached` is requested through PECL or PIE |
-| `amqp` | rabbitmq-c | `amqp` is requested through PECL or PIE |
-| `rdkafka` | librdkafka | `rdkafka` is requested through PECL or PIE |
-| `ext-uv` | libuv | an `ext-uv` / `uv` PIE or PECL package is requested |
-
-If you manage dependencies manually, use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for package names and version-specific notes.
+When dependency installation is disabled, install the required system packages manually before running `mise install`. Use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for package names, repository setup, and version-specific notes.
 
 ### Prebuilt static PHP
 

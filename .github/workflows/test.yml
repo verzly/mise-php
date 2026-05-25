@@ -316,7 +316,7 @@ jobs:
 
   install-source:
     name: Install source/default - ${{ matrix.target.label }}
-    needs: [check-label, env-options, list-source-versions]
+    needs: [check-label, env-options, list-source-versions, check-source-dependencies-linux]
     if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_source_installs)
     runs-on: ${{ matrix.target.runner }}
     timeout-minutes: 120
@@ -438,10 +438,10 @@ jobs:
                   apt-get install -q -y --no-install-recommends bash ca-certificates curl git tar gzip xz-utils unzip sudo findutils
                   ;;
                 fedora)
-                  dnf install -y --allowerasing --nobest --skip-unavailable bash ca-certificates curl git tar gzip xz unzip sudo findutils which
+                  dnf install -y --allowerasing --nobest bash ca-certificates curl git tar gzip xz unzip sudo findutils which
                   ;;
                 rhel)
-                  dnf install -y --allowerasing --nobest --skip-unavailable bash ca-certificates curl git tar gzip xz unzip sudo findutils which
+                  dnf install -y --allowerasing --nobest bash ca-certificates curl git tar gzip xz unzip sudo findutils which
                   ;;
                 arch)
                   pacman -Syu --noconfirm --needed bash ca-certificates curl git tar gzip xz unzip sudo which
@@ -533,7 +533,7 @@ jobs:
 
   install-source-pecl:
     name: Install PECL-capable source/default - ${{ matrix.os }}
-    needs: [check-label, env-options, list-source-versions]
+    needs: [check-label, env-options, list-source-versions, check-source-dependencies-linux]
     if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120

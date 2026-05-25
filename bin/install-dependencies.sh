@@ -74,7 +74,7 @@ fix_centos_7_repos() {
 
 pm_install() {
   if have dnf; then
-    $SUDO dnf install -y --allowerasing --nobest --skip-unavailable "$@"
+    $SUDO dnf install -y --allowerasing --nobest "$@"
   elif have yum; then
     $SUDO yum install -y "$@"
   else
@@ -229,7 +229,7 @@ case "$DISTRO" in
       libsqlite3-dev libgd-dev libpq-dev gettext
     ;;
   fedora)
-    $SUDO dnf install -y --allowerasing --nobest --skip-unavailable \
+    $SUDO dnf install -y --allowerasing --nobest \
       @development-tools \
       @c-development \
       ca-certificates curl git tar gzip xz unzip findutils which \

@@ -109,6 +109,93 @@ pm_install_any() {
   return 1
 }
 
+version_at_least() {
+  current="$1"
+  required="$2"
+
+  current_major="${current%%.*}"
+  current_rest="${current#*.}"
+  current_minor="${current_rest%%.*}"
+  current_patch="${current_rest#*.}"
+  [ "$current_patch" != "$current_rest" ] || current_patch=0
+
+  required_major="${required%%.*}"
+  required_rest="${required#*.}"
+  required_minor="${required_rest%%.*}"
+  required_patch="${required_rest#*.}"
+  [ "$required_patch" != "$required_rest" ] || required_patch=0
+
+  current_major="${current_major:-0}"
+  current_minor="${current_minor:-0}"
+  current_patch="${current_patch:-0}"
+  required_major="${required_major:-0}"
+  required_minor="${required_minor:-0}"
+  required_patch="${required_patch:-0}"
+
+  [ "$current_major" -gt "$required_major" ] && return 0
+  [ "$current_major" -lt "$required_major" ] && return 1
+  [ "$current_minor" -gt "$required_minor" ] && return 0
+  [ "$current_minor" -lt "$required_minor" ] && return 1
+  [ "$current_patch" -ge "$required_patch" ]
+}
+
+re2c_version() {
+  if ! have re2c; then
+    return 1
+  fi
+
+  re2c --version 2>/dev/null | sed -n 's/^re2c[[:space:]]*//p' | awk '{print $1}'
+}
+
+ensure_re2c() {
+  required="1.0.3"
+  current="$(re2c_version || true)"
+
+  if [ -n "$current" ] && version_at_least "$current" "$required"; then
+    return 0
+  fi
+
+  case "$DISTRO" in
+    rhel)
+      case "$(el_major)" in
+        7|8)
+          ;;
+        *)
+          echo "re2c $required or newer is required, but found ${current:-none}"
+          return 1
+          ;;
+      esac
+      ;;
+    *)
+      echo "re2c $required or newer is required, but found ${current:-none}"
+      return 1
+      ;;
+  esac
+
+  re2c_source_version="1.3"
+  tmp_dir="$(mktemp -d)"
+
+  echo "Installing re2c ${re2c_source_version} from source because ${current:-no packaged re2c} is too old for PHP 8.3+"
+
+  (
+    cd "$tmp_dir"
+    curl -fsSL "https://github.com/skvadrik/re2c/releases/download/${re2c_source_version}/re2c-${re2c_source_version}.tar.xz" -o re2c.tar.xz
+    tar -xJf re2c.tar.xz --strip-components=1
+    ./configure
+    make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+    $SUDO make install
+  )
+
+  rm -rf "$tmp_dir"
+  hash -r 2>/dev/null || true
+
+  current="$(re2c_version || true)"
+  if [ -z "$current" ] || ! version_at_least "$current" "$required"; then
+    echo "Failed to install re2c $required or newer"
+    return 1
+  fi
+}
+
 enable_rhel_repo() {
   repo="$1"
 
@@ -196,7 +283,7 @@ install_rhel_dependencies() {
     pm_install gcc gcc-c++ make patch diffutils file redhat-rpm-config
 
   pm_install \
-    autoconf bison re2c \
+    autoconf bison re2c gawk \
     libxml2-devel openssl-devel libicu-devel zlib-devel oniguruma-devel \
     libcurl-devel libpng-devel libjpeg-turbo-devel freetype-devel \
     libwebp-devel gmp-devel readline-devel bzip2-devel \
@@ -214,6 +301,8 @@ install_rhel_dependencies() {
   pm_install_optional libxcrypt-devel
   pm_install_optional libpq-devel
   pm_install_optional postgresql-devel
+
+  ensure_re2c
 }
 
 case "$DISTRO" in

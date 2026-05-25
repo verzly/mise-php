@@ -200,15 +200,45 @@ When prebuilt static PHP is enabled, version listing switches to the available s
 
 ### Source build dependencies
 
-Source builds need system packages for the PHP extensions enabled by default. The plugin installs these automatically unless dependency installation is disabled with `skip_deps`.
+Source builds need native system packages for the PHP extensions enabled by the selected configure options. The plugin installs the default source build dependency set automatically unless dependency installation is disabled with `skip_deps`.
 
 Disable automatic dependency installation permanently with `mise config set env._.php.skip_deps true`, or for a single install with `PHP_SKIP_DEPS=1 mise install php@<version>`. See [Skip dependency installation](#skip-dependency-installation) for more examples.
 
 The automatic dependency installer currently covers Debian/Ubuntu, Fedora, RHEL-compatible distributions, Arch Linux, and macOS. RHEL-compatible support includes CentOS, CentOS Stream, Rocky Linux, AlmaLinux, Oracle Linux, and RHEL-style systems where the required vendor repositories are available.
 
-On RHEL-compatible systems, the installer enables the required builder repositories where possible, such as CRB or PowerTools, and installs EPEL where additional build packages are needed. CentOS 7 is handled on a best-effort basis because the official repositories are archived and some newer PHP versions may require newer system libraries than the base distribution provides.
+The default dependency profile is intentionally conservative. It installs the compiler toolchain and libraries required by the default mise-php source build, but it does not install every optional PHP extension library by default. Optional system libraries are installed only when matching configure flags are requested through `configure_options` or `extra_configure_options`, or when the full dependency profile is explicitly enabled.
 
-If you manage dependencies manually, use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for the required package names.
+```sh
+# Install optional dependencies only for requested configure flags
+mise config set env._.php.extra_configure_options "--with-zip --with-pdo-pgsql"
+mise install php@8.4
+
+# Install a broader optional dependency set for custom builds
+mise config set env._.php.dependency_profile full
+mise install php@8.4
+
+# Equivalent one-time environment variable
+PHP_DEPS_PROFILE=full mise install php@8.4
+```
+
+On RHEL-compatible systems, the installer enables the required builder repositories where possible, such as CRB or PowerTools, and installs EPEL where additional build packages are needed. EL7 and EL8 are handled separately from EL9 and EL10 because their repository layout and build tool versions differ. CentOS 7 is best-effort because the official repositories are archived and newer PHP versions may require newer system libraries than the base distribution provides.
+
+For PHP 8.3 and newer, the installer verifies that `re2c` is new enough for PHP's lexer generation step. On EL7 and EL8, where the packaged `re2c` can be too old, the installer builds a newer `re2c` from source only when the requested PHP version requires it.
+
+Common optional dependency groups:
+
+| Configure flag | Dependency group | Installed automatically when |
+|---|---|---|
+| `--with-zip` | libzip | The flag is present, or `dependency_profile = "full"` is enabled |
+| `--with-pdo-pgsql`, `--with-pgsql` | PostgreSQL client libraries | The flag is present, or `dependency_profile = "full"` is enabled |
+| `--with-external-gd`, `--with-jpeg`, `--with-freetype`, `--with-webp` | GD image libraries | One of these flags is present, or `dependency_profile = "full"` is enabled |
+| `--with-gmp` | GMP | The flag is present, or `dependency_profile = "full"` is enabled |
+| `--with-sodium` | libsodium | The flag is present, or `dependency_profile = "full"` is enabled |
+| `--with-bz2` | bzip2 | The flag is present, or `dependency_profile = "full"` is enabled |
+| `--with-ldap`, `--with-xsl`, `--with-tidy`, `--with-snmp`, `--with-ffi` | Extension-specific native libraries | The flag is present, or `dependency_profile = "full"` is enabled |
+| `--with-imap`, `--with-mcrypt` | Legacy or fragile extension libraries | Only when explicitly requested |
+
+If you manage dependencies manually, use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for package names and version-specific notes. Extension-specific native dependencies for PECL or PIE packages may still be required by the extension itself and are intentionally not guessed automatically.
 
 ### Prebuilt static PHP
 
@@ -490,6 +520,8 @@ The following installation options can be set through `mise config set env._.php
 | `prebuilt_static` | `PHP_PREBUILT_STATIC` | `false` | Use prebuilt static PHP binaries instead of source builds on supported platforms. |
 | `prebuilt_static_flavor` | `PHP_PREBUILT_STATIC_FLAVOR` | `bulk` | Select the static-php-cli binary flavor. Defaults to the largest flavor: `bulk` on Linux/macOS and `spc-max` on Windows. |
 | `skip_deps` | `PHP_SKIP_DEPS` | `false` | Skip automatic build dependency installation for source builds. |
+| `dependency_profile` | `PHP_DEPS_PROFILE` | `default` | Select the source build dependency profile. Use `full` to install common optional extension libraries. |
+| `install_optional_deps` | `PHP_INSTALL_OPTIONAL_DEPS` | `false` | Alias for installing the broader optional dependency set. Prefer `dependency_profile = "full"` for new setups. |
 | `verbose` | `PHP_VERBOSE` | `false` | Show full dependency, build, and installer output. |
 | `extra_configure_options` | `PHP_EXTRA_CONFIGURE_OPTIONS` | empty | Append extra configure options to the default source build configuration. |
 | `configure_options` | `PHP_CONFIGURE_OPTIONS` | empty | Replace configure options entirely while preserving the install prefix. |
@@ -512,10 +544,8 @@ Static PHP flavor notes:
 > [!Note]
 > On Windows, PHP is installed from prebuilt binaries. With `prebuilt_static = true`, the plugin uses static-php-cli Windows builds; otherwise it uses binaries from [windows.php.net](https://windows.php.net). Configure options do not apply.
 
-> [!WARNING]
-> When using custom configure options, you are responsible for ensuring the required
-> build dependencies are installed on your system. The plugin only installs dependencies
-> for the default configuration automatically.
+> [!NOTE]
+> When using custom configure options, the dependency installer scans `configure_options` and `extra_configure_options` and installs known optional native libraries only for matching flags. Unknown extension-specific dependencies must still be installed manually.
 
 Add extra configure options on top of the defaults:
 

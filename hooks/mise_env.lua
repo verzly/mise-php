@@ -46,6 +46,16 @@ function PLUGIN:MiseEnv(ctx)
         set_env(env_vars, "PHP_PREBUILT_STATIC_FLAVOR", prebuilt_static_flavor)
     end
 
+
+    local dependency_profile = options.get(ctx, "dependency_profile")
+    if dependency_profile ~= nil and dependency_profile ~= "" and dependency_profile ~= false then
+        set_env(env_vars, "PHP_DEPS_PROFILE", dependency_profile)
+    end
+
+    if options.enabled(options.get(ctx, "install_optional_deps")) then
+        set_env(env_vars, "PHP_INSTALL_OPTIONAL_DEPS", 1)
+    end
+
     local pecl_extensions = options.get(ctx, "pecl_extensions")
     if pecl_extensions ~= nil and pecl_extensions ~= "" and pecl_extensions ~= false then
         set_env(env_vars, "PHP_PECL_EXTENSIONS", pecl_extensions)

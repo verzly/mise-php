@@ -65,7 +65,7 @@ function PLUGIN:PreInstall(ctx)
     if SKIP_DEPS then
         print("\27[96mNote:\27[0m Skipping dependency installation (PHP_SKIP_DEPS is set).")
     else
-        install_dependencies()
+        install_dependencies(release.version)
     end
 
     return get_release_for_linux(release)
@@ -156,7 +156,7 @@ function get_release_for_linux(release)
     }
 end
 
-function install_dependencies()
+function install_dependencies(version)
     if not VERBOSE then
         print("\27[96mNote:\27[0m Dependency installation output is hidden. Set PHP_VERBOSE=1 or use --verbose to see full output.")
     end
@@ -180,7 +180,12 @@ function install_dependencies()
         end
     end
 
-    local status = os.execute('sh "' .. path .. '"' .. QUIET)
+    local version_prefix = ''
+    if version ~= nil and version ~= '' then
+        version_prefix = 'PHP_BUILD_VERSION="' .. version .. '" '
+    end
+
+    local status = os.execute(version_prefix .. 'sh "' .. path .. '"' .. QUIET)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to install PHP build dependencies.\n\n" ..

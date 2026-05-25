@@ -222,19 +222,9 @@ Optional native libraries are installed only when they are relevant to the selec
 
 Static PHP installations do not install source build dependencies because they use prebuilt binaries with a fixed extension set.
 
-To disable automatic dependency installation permanently:
+Automatic dependency installation can be disabled permanently or for a single install. See [Skip dependency installation](#skip-dependency-installation).
 
-```sh
-mise config set env._.php.skip_deps true
-```
-
-For a single install:
-
-```sh
-PHP_SKIP_DEPS=1 mise install php@<version>
-```
-
-When dependency installation is disabled, install the required system packages manually before running `mise install`. Use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for package names, repository setup, and version-specific notes.
+Use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for package names, repository setup, and version-specific notes.
 
 ### Prebuilt static PHP
 

@@ -316,12 +316,24 @@ jobs:
       fail-fast: false
       matrix:
         distro:
-          - name: archlinux
-            image: archlinux:base-devel
-            id: arch
+          - name: ubuntu-24.04
+            image: ubuntu:24.04
+            id: debian
+          - name: debian-bookworm
+            image: debian:bookworm
+            id: debian
+          - name: fedora
+            image: fedora:latest
+            id: fedora
           - name: centos-stream-9
             image: quay.io/centos/centos:stream9
             id: rhel
+          - name: rocky-linux-9
+            image: rockylinux:9
+            id: rhel
+          - name: archlinux
+            image: archlinux:base-devel
+            id: arch
 
     steps:
       - uses: actions/checkout@v4
@@ -344,11 +356,19 @@ jobs:
               set -euxo pipefail
 
               case "$DISTRO_ID" in
-                arch)
-                  pacman -Syu --noconfirm --needed bash ca-certificates curl git tar gzip xz unzip sudo which
+                debian)
+                  export DEBIAN_FRONTEND=noninteractive
+                  apt-get update -q
+                  apt-get install -q -y --no-install-recommends bash ca-certificates curl git tar gzip xz-utils unzip sudo findutils
+                  ;;
+                fedora)
+                  dnf install -y bash ca-certificates curl git tar gzip xz unzip sudo findutils which
                   ;;
                 rhel)
                   dnf install -y bash ca-certificates curl git tar gzip xz unzip sudo findutils which
+                  ;;
+                arch)
+                  pacman -Syu --noconfirm --needed bash ca-certificates curl git tar gzip xz unzip sudo which
                   ;;
                 *)
                   echo "Unsupported distro container: $DISTRO_ID"

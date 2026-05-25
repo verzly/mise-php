@@ -202,6 +202,8 @@ When prebuilt static PHP is enabled, version listing switches to the available s
 
 Source builds need system packages for the PHP extensions enabled by default. The plugin installs these automatically unless dependency installation is disabled with `skip_deps`.
 
+Disable automatic dependency installation permanently with `mise config set env._.php.skip_deps true`, or for a single install with `PHP_SKIP_DEPS=1 mise install php@<version>`. See [Skip dependency installation](#skip-dependency-installation) for more examples.
+
 The automatic dependency installer currently covers Debian/Ubuntu, Fedora, RHEL-compatible distributions, Arch Linux, and macOS. If you manage dependencies manually, use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for the required package names.
 
 ### Prebuilt static PHP

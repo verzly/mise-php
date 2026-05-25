@@ -242,11 +242,127 @@ jobs:
             ./ci-checks version-list static static-versions.txt "${PHP_TEST_VERSION}"
           fi
 
-  install-source:
-    name: Install source/default - ${{ matrix.target.name }}
+
+  check-source-dependencies-linux:
+    name: Check source dependencies - Linux - ${{ matrix.target.name }}
+    needs: check-label
+    if: needs.check-label.outputs.should-run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: ubuntu-24.04
+            image: ubuntu:24.04
+          - name: debian-bookworm
+            image: debian:bookworm
+          - name: fedora-latest
+            image: fedora:latest
+          - name: centos-7
+            image: centos:7
+          - name: centos-stream-9
+            image: quay.io/centos/centos:stream9
+          - name: centos-stream-10
+            image: quay.io/centos/centos:stream10
+          - name: rocky-linux-8
+            image: rockylinux/rockylinux:8
+          - name: rocky-linux-9
+            image: rockylinux/rockylinux:9
+          - name: rocky-linux-10
+            image: rockylinux/rockylinux:10.1
+          - name: archlinux
+            image: archlinux:base-devel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check dependency installer in ${{ matrix.target.name }}
+        shell: bash
+        env:
+          DISTRO_IMAGE: ${{ matrix.target.image }}
+        run: |
+          docker run --rm \
+            -v "${PWD}:/workspace" \
+            -w /workspace \
+            "$DISTRO_IMAGE" \
+            sh -lc 'set -eux; sh bin/install-dependencies.sh'
+
+  install-source-windows:
+    name: Install source/default - Windows
     needs: [check-label, env-options, list-source-versions]
     if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_source_installs)
-    runs-on: ${{ matrix.target.runner }}
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: rustc .github/scripts/ci-checks.rs -o ci-checks.exe
+
+      - name: Install mise
+        shell: pwsh
+        run: |
+          winget install jdx.mise --accept-package-agreements --accept-source-agreements
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+          $miseBin = Split-Path (Get-Command mise).Source
+          echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Install PHP via default/source path
+        env:
+          PHP_VERBOSE: '1'
+        run: mise use -g php@${{ env.PHP_TEST_VERSION }}
+
+      - name: Check installed PHP tools
+        shell: bash
+        run: ./ci-checks.exe installed-tools --mode source
+
+  install-source-macos:
+    name: Install source/default - macOS
+    needs: [check-label, env-options, list-source-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_source_installs)
+    runs-on: macos-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile CI checks
+        shell: bash
+        run: rustc .github/scripts/ci-checks.rs -o ci-checks
+
+      - name: Install mise
+        shell: bash
+        run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Install PHP via default/source path
+        env:
+          PHP_VERBOSE: '1'
+        run: mise use -g php@${{ env.PHP_TEST_VERSION }}
+
+      - name: Check installed PHP tools
+        shell: bash
+        run: ./ci-checks installed-tools --mode source
+
+  install-source-linux:
+    name: Install source/default - Linux - ${{ matrix.target.name }}
+    needs: [check-label, env-options, list-source-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_source_installs)
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -254,36 +370,32 @@ jobs:
         target:
           - name: ubuntu-latest
             kind: hosted
-            runner: ubuntu-latest
-          - name: macos-latest
-            kind: hosted
-            runner: macos-latest
-          - name: windows-latest
-            kind: hosted
-            runner: windows-latest
           - name: debian-bookworm
             kind: container
-            runner: ubuntu-latest
             image: debian:bookworm
             distro: debian
           - name: fedora-latest
             kind: container
-            runner: ubuntu-latest
             image: fedora:latest
             distro: fedora
+          - name: centos-stream-9
+            kind: container
+            image: quay.io/centos/centos:stream9
+            distro: rhel
           - name: centos-stream-10
             kind: container
-            runner: ubuntu-latest
             image: quay.io/centos/centos:stream10
+            distro: rhel
+          - name: rocky-linux-9
+            kind: container
+            image: rockylinux/rockylinux:9
             distro: rhel
           - name: rocky-linux-10
             kind: container
-            runner: ubuntu-latest
             image: rockylinux/rockylinux:10.1
             distro: rhel
           - name: archlinux
             kind: container
-            runner: ubuntu-latest
             image: archlinux:base-devel
             distro: arch
 
@@ -297,26 +409,12 @@ jobs:
       - name: Compile CI checks
         if: matrix.target.kind == 'hosted'
         shell: bash
-        run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
-          else
-            rustc .github/scripts/ci-checks.rs -o ci-checks
-          fi
+        run: rustc .github/scripts/ci-checks.rs -o ci-checks
 
-      - name: Install mise (Linux / macOS)
-        if: matrix.target.kind == 'hosted' && runner.os != 'Windows'
+      - name: Install mise
+        if: matrix.target.kind == 'hosted'
         shell: bash
         run: curl https://mise.run | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install mise (Windows)
-        if: matrix.target.kind == 'hosted' && runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          winget install jdx.mise --accept-package-agreements --accept-source-agreements
-          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
-          $miseBin = Split-Path (Get-Command mise).Source
-          echo $miseBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Register plugin from PR source
         if: matrix.target.kind == 'hosted'
@@ -330,15 +428,8 @@ jobs:
 
       - name: Check installed PHP tools
         if: matrix.target.kind == 'hosted'
-        env:
-          PHP_INSTALL_MODE: source
         shell: bash
-        run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ./ci-checks.exe installed-tools --mode source
-          else
-            ./ci-checks installed-tools --mode source
-          fi
+        run: ./ci-checks installed-tools --mode source
 
       - name: Install PHP via source/default path in ${{ matrix.target.name }}
         if: matrix.target.kind == 'container'

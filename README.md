@@ -204,7 +204,11 @@ Source builds need system packages for the PHP extensions enabled by default. Th
 
 Disable automatic dependency installation permanently with `mise config set env._.php.skip_deps true`, or for a single install with `PHP_SKIP_DEPS=1 mise install php@<version>`. See [Skip dependency installation](#skip-dependency-installation) for more examples.
 
-The automatic dependency installer currently covers Debian/Ubuntu, Fedora, RHEL-compatible distributions, Arch Linux, and macOS. If you manage dependencies manually, use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for the required package names.
+The automatic dependency installer currently covers Debian/Ubuntu, Fedora, RHEL-compatible distributions, Arch Linux, and macOS. RHEL-compatible support includes CentOS, CentOS Stream, Rocky Linux, AlmaLinux, Oracle Linux, and RHEL-style systems where the required vendor repositories are available.
+
+On RHEL-compatible systems, the installer enables the required builder repositories where possible, such as CRB or PowerTools, and installs EPEL where additional build packages are needed. CentOS 7 is handled on a best-effort basis because the official repositories are archived and some newer PHP versions may require newer system libraries than the base distribution provides.
+
+If you manage dependencies manually, use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for the required package names.
 
 ### Prebuilt static PHP
 

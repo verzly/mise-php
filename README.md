@@ -200,31 +200,13 @@ When prebuilt static PHP is enabled, version listing switches to the available s
 
 ### Source build dependencies
 
-Source builds need native system packages for the selected PHP version, configure options, and requested PECL or PIE extensions. By default, `mise-php` installs these dependencies automatically unless dependency installation is disabled with `skip_deps`.
+Source builds need native system packages for the selected PHP version, configure options, and requested PECL/PIE extensions. By default, `mise-php` detects the current platform and installs the matching dependency set automatically.
 
-The dependency installer detects the operating system, package manager, PHP version, configure flags, and requested extension list. It then installs the packages needed for that build path instead of using a single fixed package list for every system.
+Supported installers cover Debian and Ubuntu, Fedora, Enterprise Linux-compatible systems, Amazon Linux 2023, Arch Linux, Alpine Linux, and macOS through Homebrew. Enterprise Linux-compatible systems are handled by major version, such as EL8, EL9, and EL10, so RHEL-style systems, CentOS Stream, Rocky Linux, AlmaLinux, and Oracle Linux can receive version-specific repository, dependency, and build-flag handling.
 
-Supported dependency installers include:
+Some PHP/platform combinations need extra handling, such as a newer `re2c` for PHP 8.3+ on older Enterprise Linux releases or PIC/PIE build flags for PHP 8.5+ on EL8-compatible systems. Static PHP installs skip this step because they use prebuilt binaries with a fixed extension set.
 
-- Debian and Ubuntu through `apt`
-- Fedora through `dnf`
-- Enterprise Linux-compatible systems through `dnf`, `yum`, or `microdnf`
-- Amazon Linux 2023 through `dnf`
-- Arch Linux through `pacman`
-- Alpine Linux through `apk`
-- macOS through Homebrew
-
-Enterprise Linux-compatible systems are handled by major version, such as EL8, EL9, and EL10. This includes RHEL-style systems, CentOS Stream, Rocky Linux, AlmaLinux, and Oracle Linux where the required vendor repositories are available.
-
-Some PHP versions need additional build handling on older platform families. For example, PHP 8.3 and newer requires a sufficiently new `re2c`, so EL7 and EL8 systems may build a newer `re2c` from source only when the selected PHP version requires it. EL8-compatible systems also receive `CFLAGS=-fPIC`, `CXXFLAGS=-fPIC`, and `LDFLAGS=-pie` automatically when building PHP 8.5 or newer.
-
-Optional native libraries are installed only when they are relevant to the selected build. This includes libraries needed by custom configure flags, such as LDAP or XSL, and libraries needed by requested PECL/PIE extensions, such as ImageMagick, libyaml, libmemcached, rabbitmq-c, librdkafka, or libuv.
-
-Static PHP installations do not install source build dependencies because they use prebuilt binaries with a fixed extension set.
-
-Automatic dependency installation can be disabled permanently or for a single install. See [Skip dependency installation](#skip-dependency-installation).
-
-Use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for package names, repository setup, and version-specific notes.
+For permanent or one-time disabling, see [Skip dependency installation](#skip-dependency-installation). For package names, repository setup, and version-specific notes, see [`bin/install-dependencies.sh`](bin/install-dependencies.sh).
 
 ### Prebuilt static PHP
 

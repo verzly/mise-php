@@ -11,6 +11,48 @@ local function shell_quote(value)
     return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
 end
 
+local function sanitize_log_part(value)
+    return tostring(value):gsub("[^%w%._%-]", "-")
+end
+
+local function utc_timestamp()
+    return os.date("!%Y%m%dT%H%M%SZ")
+end
+
+local function create_log_id(version)
+    -- Use one timestamp for the whole source build session so configure,
+    -- config.log, and make logs can be visually grouped together.
+    return sanitize_log_part(version) .. "-" .. utc_timestamp()
+end
+
+local function log_path(log_id, phase)
+    return "/tmp/mise-php-" .. log_id .. "-" .. phase .. ".log"
+end
+
+local function write_log_header(path, label, command, cwd)
+    local file = io.open(path, "w")
+    if not file then
+        return false
+    end
+
+    file:write("# mise-php " .. label .. " log\n")
+    file:write("# Started at: " .. utc_timestamp() .. "\n")
+    if cwd and cwd ~= "" then
+        file:write("# Working directory: " .. cwd .. "\n")
+    end
+    if command and command ~= "" then
+        file:write("# Command: " .. command .. "\n")
+    end
+    file:write("\n")
+    file:close()
+
+    return true
+end
+
+local function append_file(src, dst)
+    return os.execute("cat " .. shell_quote(src) .. " >> " .. shell_quote(dst) .. " 2>/dev/null")
+end
+
 local function read_lines(path)
     local file = io.open(path, "r")
     if not file then
@@ -225,12 +267,17 @@ local function print_file_tip(path, label)
     return "💡 Tip: \27[93mCheck the " .. label .. " log for details:\27[0m " .. path .. "\n"
 end
 
-local function run_make(sdkPath, envPrefix, version)
-    local makeLog = "/tmp/mise-php-make-" .. version .. ".log"
+local function run_make(sdkPath, envPrefix, log_id)
+    local makeLog = log_path(log_id, "make")
+    local makeCommand = "make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+
+    write_log_header(makeLog, "build", envPrefix .. makeCommand, sdkPath)
+
     local status = os.execute(string.format(
-        "cd %s && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2) > %s 2>&1",
+        "cd %s && %s%s >> %s 2>&1",
         shell_quote(sdkPath),
         envPrefix,
+        makeCommand,
         shell_quote(makeLog)
     ))
 
@@ -330,6 +377,11 @@ function source_php.install(sdkPath, version)
     -- Build environment and configure options
     local envPrefix = ""
     local configureOptions = "--prefix='" .. sdkPath .. "'"
+    local log_id = create_log_id(version)
+
+    if VERBOSE then
+        print("Build log id: " .. log_id)
+    end
 
     if not VERBOSE then
         print("\27[96mNote:\27[0m Build output is written to temporary log files. Set PHP_VERBOSE=1 to show commands, failure summaries, and log paths.")
@@ -411,11 +463,19 @@ function source_php.install(sdkPath, version)
 
     -- Run buildconf
     print("Running buildconf...")
-    local buildconfCmd = string.format("cd '%s' && ./buildconf --force" .. QUIET, sdkPath)
+    local buildconfLog = log_path(log_id, "buildconf")
+    write_log_header(buildconfLog, "buildconf", "./buildconf --force", sdkPath)
+
+    local buildconfCmd = string.format(
+        "cd %s && ./buildconf --force >> %s 2>&1",
+        shell_quote(sdkPath),
+        shell_quote(buildconfLog)
+    )
     local status = os.execute(buildconfCmd)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to run buildconf.\n\n" ..
+            print_file_tip(buildconfLog, "buildconf") ..
             messages.verbose_tip(version) ..
             messages.see("debugging")
         )
@@ -427,9 +487,11 @@ function source_php.install(sdkPath, version)
         print("Configure command: " .. envPrefix .. "./configure " .. configureOptions)
     end
 
-    local configureOutputLog = "/tmp/mise-php-configure-output-" .. version .. ".log"
+    local configureOutputLog = log_path(log_id, "configure-output")
+    write_log_header(configureOutputLog, "configure output", envPrefix .. "./configure " .. configureOptions, sdkPath)
+
     local configureCmd = string.format(
-        "cd %s && %s./configure %s > %s 2>&1",
+        "cd %s && %s./configure %s >> %s 2>&1",
         shell_quote(sdkPath),
         envPrefix,
         configureOptions,
@@ -438,15 +500,18 @@ function source_php.install(sdkPath, version)
     status = os.execute(configureCmd)
     if status ~= 0 and status ~= true then
         local src_log = sdkPath .. "/config.log"
-        local dst_log = "/tmp/mise-php-config-" .. version .. ".log"
+        local dst_log = log_path(log_id, "config")
         local saved_log = print_file_tip(configureOutputLog, "configure output")
 
-        if os.execute("cp '" .. src_log .. "' '" .. dst_log .. "' 2>/dev/null") == 0 then
+        write_log_header(dst_log, "configure config.log", envPrefix .. "./configure " .. configureOptions, sdkPath)
+        local append_status = append_file(src_log, dst_log)
+        if append_status == 0 or append_status == true then
             if VERBOSE then
                 print_configure_failure_excerpt(dst_log)
             end
             saved_log = saved_log .. print_file_tip(dst_log, "configure config.log")
         elseif VERBOSE then
+            os.remove(dst_log)
             print_configure_failure_excerpt(configureOutputLog)
         end
 
@@ -461,7 +526,7 @@ function source_php.install(sdkPath, version)
     -- Build PHP
     print("Building PHP (this may take several minutes)...")
     local makeLog
-    status, makeLog = run_make(sdkPath, envPrefix, version)
+    status, makeLog = run_make(sdkPath, envPrefix, log_id)
     if status ~= 0 and status ~= true then
         if makeLog and makeLog ~= "" and VERBOSE then
             print_make_failure_excerpt(makeLog)

@@ -650,7 +650,7 @@ Useful when dependencies are already present or managed externally
 
 By default, dependency and build output is captured to temporary log files to keep installation output readable. Set `PHP_VERBOSE=1` to show commands, concise failure summaries, and the temporary log file paths.
 
-`configure` and `make` output is still written to files. When a failure occurs, mise-php prints the relevant error context directly in the terminal and includes the full log path for deeper debugging.
+`buildconf`, `configure`, and `make` output is still written to timestamped files under `/tmp`. Files from the same source build share the same log id, for example `mise-php-8.5.5-20260525T075628Z-configure-output.log` and `mise-php-8.5.5-20260525T075628Z-make.log`. When a failure occurs, mise-php prints the relevant error context directly in the terminal and includes the full log path for deeper debugging.
 
 ```sh
 # One-time use (Linux / macOS / Bash)

@@ -526,7 +526,7 @@ The following installation options can be set through `mise config set env._.php
 | `prebuilt_static` | `PHP_PREBUILT_STATIC` | `false` | Use prebuilt static PHP binaries instead of source builds on supported platforms. |
 | `prebuilt_static_flavor` | `PHP_PREBUILT_STATIC_FLAVOR` | `bulk` | Select the static-php-cli binary flavor. Defaults to the largest flavor: `bulk` on Linux/macOS and `spc-max` on Windows. |
 | `skip_deps` | `PHP_SKIP_DEPS` | `false` | Skip automatic build dependency installation for source builds. |
-| `verbose` | `PHP_VERBOSE` | `false` | Show full dependency, build, and installer output. |
+| `verbose` | `PHP_VERBOSE` | `false` | Show commands, failure summaries, and temporary log file paths for debugging. |
 | `extra_configure_options` | `PHP_EXTRA_CONFIGURE_OPTIONS` | empty | Append extra configure options to the default source build configuration. |
 | `configure_options` | `PHP_CONFIGURE_OPTIONS` | empty | Replace configure options entirely while preserving the install prefix. |
 | `pecl_extensions` | `PHP_PECL_EXTENSIONS` | empty | Install PECL extensions after source builds where PECL is available. |
@@ -614,7 +614,7 @@ The following options are additionally detected based on available libraries:
 | `--with-png` | if `brew install libpng` | |
 | `--with-bz2` | if `brew install bzip2` | |
 | `--with-iconv` | if `brew install libiconv` | |
-| `--with-external-gd` | if freetype + jpeg + libpng installed | if `libpng` via pkg-config |
+| `--with-external-gd` | if freetype + jpeg + libpng installed | if `gdlib >= 2.1.0` via pkg-config |
 | `--with-pdo-pgsql` | if `brew install libpq` | if `pg_config` in PATH |
 | `--with-zip` | if `brew install libzip` | if `libzip` via pkg-config |
 
@@ -648,8 +648,9 @@ Useful when dependencies are already present or managed externally
 
 ### PHP_VERBOSE=1 - mise-php debug output
 
-By default, build output is hidden. Set `PHP_VERBOSE=1` to see the full output of
-dependency installation, `buildconf`, `configure`, `make`, and Composer installation.
+By default, dependency and build output is captured to temporary log files to keep installation output readable. Set `PHP_VERBOSE=1` to show commands, concise failure summaries, and the temporary log file paths.
+
+`configure` and `make` output is still written to files. When a failure occurs, mise-php prints the relevant error context directly in the terminal and includes the full log path for deeper debugging.
 
 ```sh
 # One-time use (Linux / macOS / Bash)
@@ -660,12 +661,12 @@ $env:PHP_VERBOSE=1; mise install php@8.4.3
 
 # Enable permanently
 mise config set env._.php.verbose true
-# Subsequent installs will show full build output automatically
+# Subsequent installs will show commands, failure summaries, and log paths automatically
 mise install php@8.4.3
 
 # Disable
 mise config set env._.php.verbose false
-# Build output will be hidden again
+# Build output will be captured quietly again
 mise install php@8.4.3
 ```
 

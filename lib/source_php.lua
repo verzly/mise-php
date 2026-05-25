@@ -11,29 +11,6 @@ local function shell_quote(value)
     return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
 end
 
-local function print_log_file(path, title)
-    local file = io.open(path, "r")
-    if not file then
-        return false
-    end
-
-    local content = file:read("*a") or ""
-    file:close()
-
-    if content == "" then
-        return false
-    end
-
-    io.stderr:write("\n----- " .. title .. " -----\n")
-    io.stderr:write(content)
-    if not content:match("\n$") then
-        io.stderr:write("\n")
-    end
-    io.stderr:write("----- end " .. title .. " -----\n")
-
-    return true
-end
-
 local function read_lines(path)
     local file = io.open(path, "r")
     if not file then
@@ -165,25 +142,90 @@ local function print_configure_failure_excerpt(path)
     return true
 end
 
+local function line_is_make_failure(line)
+    return line:match("[Ee]rror:") ~= nil
+        or line:match("fatal error:") ~= nil
+        or line:match("undefined reference") ~= nil
+        or line:match("ld returned 1 exit status") ~= nil
+        or line:match("collect2: error") ~= nil
+        or line:match("No such file or directory") ~= nil
+        or line:match("recipe for target") ~= nil
+        or line:match("%*%*%*") ~= nil
+        or line:match("Stop%.") ~= nil
+end
+
+local function extract_make_failure_excerpt(path)
+    local lines = read_lines(path)
+    if not lines or #lines == 0 then
+        return nil
+    end
+
+    local failure_index = nil
+    for i = #lines, 1, -1 do
+        if line_is_make_failure(lines[i]) then
+            failure_index = i
+            break
+        end
+    end
+
+    if not failure_index then
+        -- Fall back to the last part of the build log. Build systems sometimes
+        -- fail through wrapper scripts without a clean, machine-readable error
+        -- marker, and the tail is still more useful than dumping the full log.
+        failure_index = #lines
+    end
+
+    local start_index = math.max(1, failure_index - 35)
+    local end_index = math.min(#lines, failure_index + 15)
+    local excerpt = {}
+
+    for i = start_index, end_index do
+        table.insert(excerpt, lines[i])
+        if #excerpt >= 80 then
+            break
+        end
+    end
+
+    while #excerpt > 0 and excerpt[1] == "" do
+        table.remove(excerpt, 1)
+    end
+
+    while #excerpt > 0 and excerpt[#excerpt] == "" do
+        table.remove(excerpt, #excerpt)
+    end
+
+    if #excerpt == 0 then
+        return nil
+    end
+
+    return table.concat(excerpt, "\n")
+end
+
+local function print_make_failure_excerpt(path)
+    local excerpt = extract_make_failure_excerpt(path)
+    if not excerpt or excerpt == "" then
+        return false
+    end
+
+    io.stderr:write("\n----- PHP build failure -----\n")
+    io.stderr:write(excerpt)
+    if not excerpt:match("\n$") then
+        io.stderr:write("\n")
+    end
+    io.stderr:write("----- end PHP build failure -----\n")
+
+    return true
+end
+
 local function print_file_tip(path, label)
     if VERBOSE then
-        return ""
+        return "💡 Debug log: \27[93m" .. path .. "\27[0m (" .. label .. ")\n"
     end
 
     return "💡 Tip: \27[93mCheck the " .. label .. " log for details:\27[0m " .. path .. "\n"
 end
 
 local function run_make(sdkPath, envPrefix, version)
-    if VERBOSE then
-        local status = os.execute(string.format(
-            "cd %s && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)",
-            shell_quote(sdkPath),
-            envPrefix
-        ))
-
-        return status, nil
-    end
-
     local makeLog = "/tmp/mise-php-make-" .. version .. ".log"
     local status = os.execute(string.format(
         "cd %s && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2) > %s 2>&1",
@@ -290,7 +332,7 @@ function source_php.install(sdkPath, version)
     local configureOptions = "--prefix='" .. sdkPath .. "'"
 
     if not VERBOSE then
-        print("\27[96mNote:\27[0m Build output is hidden. Set PHP_VERBOSE=1 to see full output.")
+        print("\27[96mNote:\27[0m Build output is written to temporary log files. Set PHP_VERBOSE=1 to show commands, failure summaries, and log paths.")
     end
 
     -- Common configure options
@@ -385,18 +427,29 @@ function source_php.install(sdkPath, version)
         print("Configure command: " .. envPrefix .. "./configure " .. configureOptions)
     end
 
-    local configureCmd = string.format("cd '%s' && %s./configure %s" .. QUIET, sdkPath, envPrefix, configureOptions)
+    local configureOutputLog = "/tmp/mise-php-configure-output-" .. version .. ".log"
+    local configureCmd = string.format(
+        "cd %s && %s./configure %s > %s 2>&1",
+        shell_quote(sdkPath),
+        envPrefix,
+        configureOptions,
+        shell_quote(configureOutputLog)
+    )
     status = os.execute(configureCmd)
     if status ~= 0 and status ~= true then
         local src_log = sdkPath .. "/config.log"
         local dst_log = "/tmp/mise-php-config-" .. version .. ".log"
-        local saved_log = ""
+        local saved_log = print_file_tip(configureOutputLog, "configure output")
+
         if os.execute("cp '" .. src_log .. "' '" .. dst_log .. "' 2>/dev/null") == 0 then
             if VERBOSE then
                 print_configure_failure_excerpt(dst_log)
             end
-            saved_log = print_file_tip(dst_log, "configure")
+            saved_log = saved_log .. print_file_tip(dst_log, "configure config.log")
+        elseif VERBOSE then
+            print_configure_failure_excerpt(configureOutputLog)
         end
+
         error(
             "\n\nFailed to configure PHP.\n\n" ..
             saved_log ..
@@ -411,7 +464,7 @@ function source_php.install(sdkPath, version)
     status, makeLog = run_make(sdkPath, envPrefix, version)
     if status ~= 0 and status ~= true then
         if makeLog and makeLog ~= "" and VERBOSE then
-            print_log_file(makeLog, "PHP build log")
+            print_make_failure_excerpt(makeLog)
         end
         error(
             "\n\nFailed to build PHP.\n\n" ..

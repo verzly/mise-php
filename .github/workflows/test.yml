@@ -231,53 +231,95 @@ jobs:
           - label: Windows
             kind: hosted
             runner: windows-latest
-          - label: macOS
+          - label: macOS latest
             kind: hosted
             runner: macos-latest
-          - label: Linux / Ubuntu
+          - label: macOS 14
+            kind: hosted
+            runner: macos-14
+          - label: Linux / Ubuntu hosted
             kind: hosted
             runner: ubuntu-latest
+          - label: Linux / Ubuntu 22.04
+            kind: container
+            runner: ubuntu-latest
+            image: ubuntu:22.04
+          - label: Linux / Ubuntu 24.04
+            kind: container
+            runner: ubuntu-latest
+            image: ubuntu:24.04
+          - label: Linux / Ubuntu 26.04
+            kind: container
+            runner: ubuntu-latest
+            image: ubuntu:26.04
           - label: Linux / Debian Bookworm
             kind: container
             runner: ubuntu-latest
             image: debian:bookworm
-            distro: debian
-          - label: Linux / Fedora
+          - label: Linux / Debian Trixie
+            kind: container
+            runner: ubuntu-latest
+            image: debian:trixie
+          - label: Linux / Fedora latest
             kind: container
             runner: ubuntu-latest
             image: fedora:latest
-            distro: fedora
           - label: Linux / CentOS Stream 9
             kind: container
             runner: ubuntu-latest
             image: quay.io/centos/centos:stream9
-            distro: rhel
           - label: Linux / CentOS Stream 10
             kind: container
             runner: ubuntu-latest
             image: quay.io/centos/centos:stream10
-            distro: rhel
           - label: Linux / Rocky Linux 8
             kind: container
             runner: ubuntu-latest
             image: rockylinux/rockylinux:8
-            distro: rhel
           - label: Linux / Rocky Linux 9
             kind: container
             runner: ubuntu-latest
             image: rockylinux/rockylinux:9
-            distro: rhel
           - label: Linux / Rocky Linux 10
             kind: container
             runner: ubuntu-latest
             image: rockylinux/rockylinux:10.1
-            distro: rhel
+          - label: Linux / AlmaLinux 8
+            kind: container
+            runner: ubuntu-latest
+            image: almalinux:8
+          - label: Linux / AlmaLinux 9
+            kind: container
+            runner: ubuntu-latest
+            image: almalinux:9
+          - label: Linux / AlmaLinux 10
+            kind: container
+            runner: ubuntu-latest
+            image: almalinux:10
+          - label: Linux / Oracle Linux 8
+            kind: container
+            runner: ubuntu-latest
+            image: oraclelinux:8
+          - label: Linux / Oracle Linux 9
+            kind: container
+            runner: ubuntu-latest
+            image: oraclelinux:9
+          - label: Linux / Oracle Linux 10
+            kind: container
+            runner: ubuntu-latest
+            image: oraclelinux:10
+          - label: Linux / Amazon Linux 2023
+            kind: container
+            runner: ubuntu-latest
+            image: amazonlinux:2023
           - label: Linux / Arch Linux
             kind: container
             runner: ubuntu-latest
             image: archlinux:base-devel
-            distro: arch
-
+          - label: Linux / Alpine latest
+            kind: container
+            runner: ubuntu-latest
+            image: alpine:latest
     steps:
       - uses: actions/checkout@v4
 
@@ -326,40 +368,36 @@ jobs:
         if: matrix.target.kind == 'container'
         shell: bash
         env:
-          DISTRO_ID: ${{ matrix.target.distro }}
           DISTRO_IMAGE: ${{ matrix.target.image }}
           PHP_VERBOSE: '1'
         run: |
           docker run --rm \
             -v "${PWD}:/workspace" \
             -w /workspace \
-            -e DISTRO_ID \
             -e PHP_TEST_VERSION \
             -e PHP_VERBOSE \
             "$DISTRO_IMAGE" \
-            bash -lc '
-              set -euxo pipefail
+            sh -lc '
+              set -eux
 
-              case "$DISTRO_ID" in
-                debian)
-                  export DEBIAN_FRONTEND=noninteractive
-                  apt-get update -q
-                  apt-get install -q -y --no-install-recommends bash ca-certificates curl git tar gzip xz-utils unzip sudo findutils
-                  ;;
-                fedora)
-                  dnf install -y --allowerasing --nobest bash ca-certificates curl git tar gzip xz unzip sudo findutils which
-                  ;;
-                rhel)
-                  dnf install -y --allowerasing --nobest bash ca-certificates curl git tar gzip xz unzip sudo findutils which
-                  ;;
-                arch)
-                  pacman -Syu --noconfirm --needed bash ca-certificates curl git tar gzip xz unzip sudo which
-                  ;;
-                *)
-                  echo "Unsupported distro container: $DISTRO_ID"
-                  exit 1
-                  ;;
-              esac
+              if command -v apt-get >/dev/null 2>&1; then
+                export DEBIAN_FRONTEND=noninteractive
+                apt-get update -q
+                apt-get install -q -y --no-install-recommends bash ca-certificates curl git tar gzip xz-utils unzip sudo findutils
+              elif command -v dnf >/dev/null 2>&1; then
+                dnf install -y --allowerasing --nobest bash ca-certificates curl git tar gzip xz unzip sudo findutils which
+              elif command -v microdnf >/dev/null 2>&1; then
+                microdnf install -y bash ca-certificates curl git tar gzip xz unzip sudo findutils which
+              elif command -v yum >/dev/null 2>&1; then
+                yum install -y bash ca-certificates curl git tar gzip xz unzip sudo findutils which
+              elif command -v apk >/dev/null 2>&1; then
+                apk add --no-cache bash ca-certificates curl git tar gzip xz unzip sudo findutils which gcompat libstdc++
+              elif command -v pacman >/dev/null 2>&1; then
+                pacman -Syu --noconfirm --needed bash ca-certificates curl git tar gzip xz unzip sudo which
+              else
+                echo "Unsupported container package manager"
+                exit 1
+              fi
 
               curl https://mise.run | sh
               export PATH="$HOME/.local/bin:$HOME/.local/share/mise/bin:$HOME/.local/share/mise/shims:$PATH"

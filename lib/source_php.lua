@@ -52,7 +52,7 @@ local function read_os_release()
     return values
 end
 
-local function is_rhel_compatible_major(expected_major)
+local function is_el_compatible_major(expected_major)
     if RUNTIME.osType ~= "linux" then
         return false
     end
@@ -457,7 +457,7 @@ local configure_macos
 local configure_linux
 
 local function apply_platform_build_flags(envPrefix, version)
-    if is_rhel_compatible_major(8) and php_version_at_least(version, 8, 5) then
+    if is_el_compatible_major(8) and php_version_at_least(version, 8, 5) then
         -- EL8-compatible distributions can fail to link PHP 8.5+ executables
         -- with their default toolchain and linker behavior. The first failure
         -- appears around mbstring GNU IFUNC symbols and asks for a PIE build.
@@ -472,7 +472,7 @@ local function apply_platform_build_flags(envPrefix, version)
         local ldflags = append_env_flag(os.getenv("LDFLAGS") or "", "-pie")
 
         if VERBOSE then
-            print("Applying RHEL-compatible 8 PIC/PIE build flags for PHP 8.5+")
+            print("Applying EL8-compatible PIC/PIE build flags for PHP 8.5+")
             print("CFLAGS += -fPIC")
             print("CXXFLAGS += -fPIC")
             print("LDFLAGS += -pie")

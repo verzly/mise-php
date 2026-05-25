@@ -219,6 +219,8 @@ fi
 
 if [ "$(uname -s)" = "Darwin" ]; then
   DISTRO=darwin
+elif [ -f /etc/alpine-release ]; then
+  DISTRO=alpine
 elif [ -f /etc/debian_version ]; then
   DISTRO=debian
 elif [ -f /etc/arch-release ]; then
@@ -227,6 +229,9 @@ elif [ -f /etc/os-release ]; then
   case "${ID:-}" in
     fedora)
       DISTRO=fedora
+      ;;
+    amzn|amazonlinux)
+      DISTRO=amazonlinux
       ;;
     rhel|centos|rocky|almalinux|ol|olinux)
       DISTRO=rhel
@@ -275,6 +280,10 @@ dnf_install() {
   $SUDO dnf install -y --allowerasing --nobest "$@"
 }
 
+microdnf_install() {
+  $SUDO microdnf install -y "$@"
+}
+
 yum_install() {
   $SUDO yum install -y "$@"
 }
@@ -282,6 +291,8 @@ yum_install() {
 rhel_install() {
   if have dnf; then
     dnf_install "$@"
+  elif have microdnf; then
+    microdnf_install "$@"
   elif have yum; then
     yum_install "$@"
   else
@@ -296,8 +307,7 @@ rhel_group_install() {
   elif have yum; then
     $SUDO yum groupinstall -y "$@"
   else
-    echo "No supported RHEL package manager found"
-    exit 1
+    return 1
   fi
 }
 
@@ -322,6 +332,10 @@ brew_install() {
 
 pacman_install() {
   $SUDO pacman -Sy --noconfirm --needed "$@"
+}
+
+apk_install() {
+  $SUDO apk add --no-cache "$@"
 }
 
 fix_centos_7_repos() {
@@ -373,6 +387,17 @@ enable_codeready_builder() {
       ;;
     9|10)
       enable_rhel_repo crb
+      ;;
+  esac
+
+  # Oracle Linux exposes the CodeReady Builder equivalent under Oracle-specific
+  # repository IDs instead of the community crb/PowerTools names. Enable these
+  # best-effort so Oracle Linux 8/9/10 can use the same EL-compatible package
+  # groups without special-casing every dependency.
+  case "${ID:-}" in
+    ol|olinux)
+      enable_rhel_repo "ol${major}_codeready_builder"
+      enable_rhel_repo "ol${major}_developer_EPEL"
       ;;
   esac
 
@@ -642,6 +667,76 @@ install_arch_dependencies() {
   if install_group_note uv; then pacman_install libuv; fi
 }
 
+
+install_amazonlinux_dependencies() {
+  # Amazon Linux 2023 is not an Enterprise Linux rebuild, but its development
+  # packages and dnf behavior are close enough to Fedora/EL that keeping a
+  # dedicated adapter is clearer than forcing it through the EL repository setup.
+  dnf_install \
+    ca-certificates curl git tar gzip xz unzip findutils which sudo \
+    gcc gcc-c++ make patch diffutils file \
+    autoconf bison re2c pkgconf-pkg-config gawk \
+    libxml2-devel openssl-devel libicu-devel zlib-devel oniguruma-devel \
+    libcurl-devel readline-devel sqlite-devel gettext-devel libxcrypt-devel
+
+  if install_group_note bz2; then dnf_install bzip2-devel; fi
+  if install_group_note gmp; then dnf_install gmp-devel; fi
+  if install_group_note sodium; then dnf_install libsodium-devel; fi
+  if install_group_note zip; then dnf_install libzip-devel; fi
+  if install_group_note pgsql; then dnf_install libpq-devel || dnf_install postgresql-devel; fi
+  if install_group_note gd; then dnf_install gd-devel libpng-devel libjpeg-turbo-devel freetype-devel libwebp-devel; fi
+  if install_group_note ffi; then dnf_install libffi-devel; fi
+  if install_group_note ldap; then dnf_install openldap-devel; fi
+  if install_group_note xsl; then dnf_install libxslt-devel; fi
+  if install_group_note tidy; then dnf_install libtidy-devel || warn "libtidy-devel is unavailable on this Amazon Linux release"; fi
+  if install_group_note snmp; then dnf_install net-snmp-devel; fi
+  if install_group_note imap; then dnf_install libc-client-devel krb5-devel || warn "IMAP development packages are unavailable on this Amazon Linux release"; fi
+  if install_group_note mcrypt; then dnf_install libmcrypt-devel || warn "libmcrypt-devel is unavailable on this Amazon Linux release"; fi
+
+  if install_group_note imagick; then dnf_install ImageMagick-devel; fi
+  if install_group_note yaml; then dnf_install libyaml-devel; fi
+  if install_group_note memcached; then dnf_install libmemcached-devel cyrus-sasl-devel; fi
+  if install_group_note amqp; then dnf_install librabbitmq-devel; fi
+  if install_group_note rdkafka; then dnf_install librdkafka-devel; fi
+  if install_group_note uv; then dnf_install libuv-devel; fi
+
+  ensure_re2c_for_php_version
+}
+
+install_alpine_dependencies() {
+  # Alpine is musl-based, so it is intentionally handled as its own family
+  # rather than as a generic Linux target. Build packages use the *-dev naming
+  # convention and build-base provides gcc, g++, make, libc headers, and friends.
+  apk_install \
+    ca-certificates curl git tar gzip xz unzip bash findutils file which \
+    build-base linux-headers autoconf bison re2c pkgconf gawk \
+    libxml2-dev openssl-dev icu-dev zlib-dev oniguruma-dev \
+    curl-dev readline-dev sqlite-dev gettext-dev
+
+  if install_group_note bz2; then apk_install bzip2-dev; fi
+  if install_group_note gmp; then apk_install gmp-dev; fi
+  if install_group_note sodium; then apk_install libsodium-dev; fi
+  if install_group_note zip; then apk_install libzip-dev; fi
+  if install_group_note pgsql; then apk_install postgresql-dev; fi
+  if install_group_note gd; then apk_install gd-dev libpng-dev libjpeg-turbo-dev freetype-dev libwebp-dev; fi
+  if install_group_note ffi; then apk_install libffi-dev; fi
+  if install_group_note ldap; then apk_install openldap-dev; fi
+  if install_group_note xsl; then apk_install libxslt-dev; fi
+  if install_group_note tidy; then apk_install tidyhtml-dev || warn "tidyhtml-dev is unavailable on this Alpine release"; fi
+  if install_group_note snmp; then apk_install net-snmp-dev; fi
+  if install_group_note imap; then apk_install imap-dev || warn "IMAP development packages are unavailable on this Alpine release"; fi
+  if install_group_note mcrypt; then apk_install libmcrypt-dev || warn "libmcrypt-dev is unavailable on this Alpine release"; fi
+
+  if install_group_note imagick; then apk_install imagemagick-dev; fi
+  if install_group_note yaml; then apk_install yaml-dev; fi
+  if install_group_note memcached; then apk_install libmemcached-dev cyrus-sasl-dev; fi
+  if install_group_note amqp; then apk_install rabbitmq-c-dev; fi
+  if install_group_note rdkafka; then apk_install librdkafka-dev; fi
+  if install_group_note uv; then apk_install libuv-dev; fi
+
+  ensure_re2c_for_php_version
+}
+
 install_macos_dependencies() {
   xcode-select --install 2>/dev/null || true
 
@@ -689,8 +784,14 @@ case "$DISTRO" in
   fedora)
     install_fedora_dependencies
     ;;
+  amazonlinux)
+    install_amazonlinux_dependencies
+    ;;
   rhel)
     install_rhel_dependencies
+    ;;
+  alpine)
+    install_alpine_dependencies
     ;;
   arch)
     install_arch_dependencies

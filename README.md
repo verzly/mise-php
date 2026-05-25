@@ -204,7 +204,7 @@ Source builds need native system packages for the PHP version, configure options
 
 Disable automatic dependency installation permanently with `mise config set env._.php.skip_deps true`, or for a single install with `PHP_SKIP_DEPS=1 mise install php@<version>`. See [Skip dependency installation](#skip-dependency-installation) for more examples.
 
-The automatic dependency installer currently covers Debian/Ubuntu, Fedora, RHEL-compatible distributions, Arch Linux, and macOS. RHEL-compatible support includes CentOS, CentOS Stream, Rocky Linux, AlmaLinux, Oracle Linux, and RHEL-style systems where the required vendor repositories are available.
+The automatic dependency installer currently covers Debian and Ubuntu, Fedora, Enterprise Linux-compatible distributions, Amazon Linux 2023, Arch Linux, Alpine Linux, and macOS/Homebrew. Enterprise Linux-compatible support includes CentOS Stream, Rocky Linux, AlmaLinux, Oracle Linux, and RHEL-style systems where the required vendor repositories are available.
 
 The installer is version-aware and extension-aware. It installs the dependencies needed by the default mise-php source build, then adds extra native libraries only when the selected PHP version, custom configure flags, or requested PECL/PIE extensions require them.
 
@@ -225,7 +225,9 @@ mise config set env._.php.pie_extensions "amphp/ext-uv"
 mise install php@8.4
 ```
 
-On RHEL-compatible systems, the installer enables the required builder repositories where possible, such as CRB or PowerTools, and installs EPEL where additional build packages are needed. EL7, EL8, EL9, and EL10 are handled separately because their repository layout and build tool versions differ. CentOS 7 is best-effort because the official repositories are archived and newer PHP versions may require newer system libraries than the base distribution provides.
+On Enterprise Linux-compatible systems, the installer enables the required builder repositories where possible, such as CRB or PowerTools, and installs EPEL where additional build packages are needed. EL7, EL8, EL9, and EL10 are handled separately because their repository layout and build tool versions differ. CentOS Stream 9/10 and EL-compatible 8/9/10 systems are covered by CI through representative container images. CentOS 7 is best-effort because the official repositories are archived and newer PHP versions may require newer system libraries than the base distribution provides.
+
+Alpine Linux is handled separately because it uses musl libc and `apk` package names instead of the glibc-oriented package sets used by Debian, Fedora, or Enterprise Linux systems. Amazon Linux 2023 is also handled separately instead of being forced through the Enterprise Linux adapter, because its repository layout is AWS-specific even though many package names are Fedora/EL-like.
 
 For PHP 8.3 and newer, the installer verifies that `re2c` is new enough for PHP's lexer generation step. On EL7 and EL8, where the packaged `re2c` can be too old, the installer builds a newer `re2c` from source only when the requested PHP version requires it.
 

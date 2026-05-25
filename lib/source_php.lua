@@ -11,6 +11,88 @@ local function shell_quote(value)
     return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
 end
 
+
+local function append_env_flag(existing, flag)
+    existing = existing or ""
+    if existing:find(flag, 1, true) then
+        return existing
+    end
+
+    if existing == "" then
+        return flag
+    end
+
+    return existing .. " " .. flag
+end
+
+local function export_env_var(envPrefix, name, value)
+    if not value or value == "" then
+        return envPrefix
+    end
+
+    return envPrefix .. "export " .. name .. "=" .. shell_quote(value) .. " && "
+end
+
+local function read_os_release()
+    local file = io.open("/etc/os-release", "r")
+    if not file then
+        return {}
+    end
+
+    local values = {}
+    for line in file:lines() do
+        local key, value = line:match("^([A-Z_]+)=(.*)$")
+        if key and value then
+            value = value:gsub('^"', ""):gsub('"$', "")
+            values[key] = value
+        end
+    end
+    file:close()
+
+    return values
+end
+
+local function is_rhel_compatible_major(expected_major)
+    if RUNTIME.osType ~= "linux" then
+        return false
+    end
+
+    local os_release = read_os_release()
+    local id = os_release.ID or ""
+    local id_like = os_release.ID_LIKE or ""
+    local version_id = os_release.VERSION_ID or ""
+    local major = tonumber(version_id:match("^(%d+)"))
+
+    if major ~= expected_major then
+        return false
+    end
+
+    return id == "rhel"
+        or id == "centos"
+        or id == "rocky"
+        or id == "almalinux"
+        or id == "ol"
+        or id == "olinux"
+        or id_like:find("rhel", 1, true) ~= nil
+        or id_like:find("fedora", 1, true) ~= nil
+end
+
+local function php_version_at_least(version, major, minor)
+    local current_major, current_minor = version:match("^(%d+)%.(%d+)")
+    current_major = tonumber(current_major)
+    current_minor = tonumber(current_minor)
+
+    if not current_major or not current_minor then
+        return false
+    end
+
+    if current_major > major then
+        return true
+    end
+
+    return current_major == major and current_minor >= minor
+end
+
 local function sanitize_log_part(value)
     return tostring(value):gsub("[^%w%._%-]", "-")
 end
@@ -196,6 +278,17 @@ local function line_is_make_failure(line)
         or line:match("Stop%.") ~= nil
 end
 
+local function shorten_log_line(line)
+    local max_length = 1400
+    if #line <= max_length then
+        return line
+    end
+
+    local head_length = 900
+    local tail_length = 400
+    return line:sub(1, head_length) .. " ... [truncated] ... " .. line:sub(#line - tail_length + 1)
+end
+
 local function extract_make_failure_excerpt(path)
     local lines = read_lines(path)
     if not lines or #lines == 0 then
@@ -222,7 +315,7 @@ local function extract_make_failure_excerpt(path)
     local excerpt = {}
 
     for i = start_index, end_index do
-        table.insert(excerpt, lines[i])
+        table.insert(excerpt, shorten_log_line(lines[i]))
         if #excerpt >= 80 then
             break
         end
@@ -363,6 +456,31 @@ end
 local configure_macos
 local configure_linux
 
+local function apply_platform_build_flags(envPrefix, version)
+    if is_rhel_compatible_major(8) and php_version_at_least(version, 8, 5) then
+        -- EL8-compatible distributions can fail to link PHP 8.5+ executables
+        -- because mbstring uses GNU IFUNC symbols and the platform linker
+        -- requires position-independent executables for those symbols.
+        --
+        -- Keep this narrowly scoped to EL8 + PHP 8.5+ rather than changing all
+        -- Linux builds. Newer EL releases do not need it, and older PHP releases
+        -- have not shown the same linker requirement in CI.
+        local cflags = append_env_flag(os.getenv("CFLAGS") or "", "-fPIE")
+        local ldflags = append_env_flag(os.getenv("LDFLAGS") or "", "-pie")
+
+        if VERBOSE then
+            print("Applying RHEL-compatible 8 PIE build flags for PHP 8.5+")
+            print("CFLAGS += -fPIE")
+            print("LDFLAGS += -pie")
+        end
+
+        envPrefix = export_env_var(envPrefix, "CFLAGS", cflags)
+        envPrefix = export_env_var(envPrefix, "LDFLAGS", ldflags)
+    end
+
+    return envPrefix
+end
+
 function source_php.install(sdkPath, version)
     fail_if_windows_php_is_visible_or_hangs()
 
@@ -446,8 +564,10 @@ function source_php.install(sdkPath, version)
         if existing_cflags ~= "" then
             cflags_val = cflags_val .. " " .. existing_cflags
         end
-        envPrefix = envPrefix .. 'export CFLAGS="' .. cflags_val .. '" && '
+        envPrefix = export_env_var(envPrefix, "CFLAGS", cflags_val)
     end
+
+    envPrefix = apply_platform_build_flags(envPrefix, version)
 
     -- Allow user to append configure options
     local extraOptions = os.getenv("PHP_EXTRA_CONFIGURE_OPTIONS")

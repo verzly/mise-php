@@ -229,6 +229,8 @@ On RHEL-compatible systems, the installer enables the required builder repositor
 
 For PHP 8.3 and newer, the installer verifies that `re2c` is new enough for PHP's lexer generation step. On EL7 and EL8, where the packaged `re2c` can be too old, the installer builds a newer `re2c` from source only when the requested PHP version requires it.
 
+On EL8-compatible systems such as Rocky Linux 8, PHP 8.5 and newer may require position-independent executable flags during source builds. mise-php applies `CFLAGS=-fPIE` and `LDFLAGS=-pie` automatically for EL8-compatible PHP 8.5+ builds.
+
 Common dependency groups:
 
 | Trigger | Dependency group | Installed automatically when |

@@ -51,7 +51,7 @@ case "$DISTRO" in
       libsqlite3-dev libgd-dev libpq-dev gettext
     ;;
   fedora)
-    $SUDO dnf install -y --skip-unavailable \
+    $SUDO dnf install -y --allowerasing --skip-unavailable \
       @development-tools \
       @c-development \
       ca-certificates curl git tar gzip xz unzip findutils which \
@@ -63,7 +63,7 @@ case "$DISTRO" in
       sqlite-devel gd-devel libpq-devel gettext-devel
     ;;
   rhel)
-    $SUDO dnf install -y dnf-plugins-core ca-certificates curl git tar gzip xz unzip findutils which
+    $SUDO dnf install -y --allowerasing dnf-plugins-core ca-certificates curl git tar gzip xz unzip findutils which
     $SUDO dnf config-manager --set-enabled crb 2>/dev/null || \
       $SUDO dnf config-manager --set-enabled powertools 2>/dev/null || true
 
@@ -73,12 +73,12 @@ case "$DISTRO" in
         ;;
       *)
         # RHEL/Rocky/Alma/CentOS Stream 8 and 9 need EPEL for some PHP build dependencies
-        $SUDO dnf install -y epel-release || true
-        $SUDO dnf install -y epel-next-release || true
+        $SUDO dnf install -y --allowerasing epel-release || true
+        $SUDO dnf install -y --allowerasing epel-next-release || true
         ;;
     esac
 
-    $SUDO dnf install -y @"Development Tools" \
+    $SUDO dnf install -y --allowerasing @"Development Tools" \
       autoconf bison re2c pkgconf-pkg-config \
       libxml2-devel openssl-devel libicu-devel zlib-devel libzip-devel oniguruma-devel \
       libcurl-devel libpng-devel libjpeg-turbo-devel freetype-devel \

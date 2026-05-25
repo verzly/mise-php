@@ -14,6 +14,11 @@ on:
         required: true
         type: boolean
         default: true
+      run_linux_distro_source_installs:
+        description: Run source install smoke tests in Linux distro containers
+        required: true
+        type: boolean
+        default: true
       run_static_installs:
         description: Run one prebuilt static install on Linux, macOS, and Windows
         required: true
@@ -300,6 +305,69 @@ jobs:
           else
             ./ci-checks installed-tools --mode source
           fi
+
+  install-source-linux-distros:
+    name: Install source/default - ${{ matrix.distro.name }}
+    needs: [check-label, env-options, list-source-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || (inputs.run_source_installs && inputs.run_linux_distro_source_installs))
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        distro:
+          - name: archlinux
+            image: archlinux:base-devel
+            id: arch
+          - name: centos-stream-9
+            image: quay.io/centos/centos:stream9
+            id: rhel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PHP via source/default path in ${{ matrix.distro.name }}
+        shell: bash
+        env:
+          DISTRO_ID: ${{ matrix.distro.id }}
+          DISTRO_IMAGE: ${{ matrix.distro.image }}
+          PHP_VERBOSE: '1'
+        run: |
+          docker run --rm \
+            -v "${PWD}:/workspace" \
+            -w /workspace \
+            -e DISTRO_ID \
+            -e PHP_TEST_VERSION \
+            -e PHP_VERBOSE \
+            "$DISTRO_IMAGE" \
+            bash -lc '
+              set -euxo pipefail
+
+              case "$DISTRO_ID" in
+                arch)
+                  pacman -Syu --noconfirm --needed bash ca-certificates curl git tar gzip xz unzip sudo which
+                  ;;
+                rhel)
+                  dnf install -y bash ca-certificates curl git tar gzip xz unzip sudo findutils which
+                  ;;
+                *)
+                  echo "Unsupported distro container: $DISTRO_ID"
+                  exit 1
+                  ;;
+              esac
+
+              curl https://mise.run | sh
+              export PATH="$HOME/.local/bin:$PATH"
+              mise --version
+              mise plugin link php /workspace
+              mise cache clean || true
+              mise use -g "php@$PHP_TEST_VERSION"
+              mise exec -- php --version
+              mise exec -- php -r "echo PHP_VERSION;"
+              mise exec -- composer --version
+              mise exec -- php -m | grep -i "^iconv$"
+              mise exec -- pie --version
+            '
 
   install-static:
     name: Install static prebuilt - ${{ matrix.os }}

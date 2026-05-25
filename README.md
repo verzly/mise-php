@@ -22,6 +22,7 @@ Install multiple PHP versions side by side, each with its own isolated runtime, 
   - [Upgrade](#up-to-date)
 - [Usage](#usage)
   - [PHP](#php)
+  - [Source build dependencies](#source-build-dependencies)
   - [Prebuilt static PHP](#prebuilt-static-php)
   - [Composer](#composer-for-php)
   - [PIE](#pie-for-php)
@@ -196,6 +197,12 @@ pecl version
 The list of version numbers is not gathered directly from [`php/php-src`](https://github.com/php/php-src/releases), because the GitHub API enforces rate limiting after a certain number of requests. Instead, we update our `versions.txt` file from a `cache` branch once per day, so it's possible that a release may only be installable via the `verzly/mise-php` plugin with a one-day delay, or may require a manual update.
 
 When prebuilt static PHP is enabled, version listing switches to the available static-php-cli binaries for the current operating system, CPU architecture, and selected flavor.
+
+### Source build dependencies
+
+Source builds need system packages for the PHP extensions enabled by default. The plugin installs these automatically unless dependency installation is disabled with `skip_deps`.
+
+The automatic dependency installer currently covers Debian/Ubuntu, Fedora, RHEL-compatible distributions, Arch Linux, and macOS. If you manage dependencies manually, use [`bin/install-dependencies.sh`](bin/install-dependencies.sh) as the source of truth for the required package names.
 
 ### Prebuilt static PHP
 

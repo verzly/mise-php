@@ -459,22 +459,27 @@ local configure_linux
 local function apply_platform_build_flags(envPrefix, version)
     if is_rhel_compatible_major(8) and php_version_at_least(version, 8, 5) then
         -- EL8-compatible distributions can fail to link PHP 8.5+ executables
-        -- because mbstring uses GNU IFUNC symbols and the platform linker
-        -- requires position-independent executables for those symbols.
+        -- with their default toolchain and linker behavior. The first failure
+        -- appears around mbstring GNU IFUNC symbols and asks for a PIE build.
+        -- Once PIE linking is enabled, the intl extension can still fail because
+        -- its C++ objects are not position-independent unless CXXFLAGS is set.
         --
-        -- Keep this narrowly scoped to EL8 + PHP 8.5+ rather than changing all
-        -- Linux builds. Newer EL releases do not need it, and older PHP releases
-        -- have not shown the same linker requirement in CI.
-        local cflags = append_env_flag(os.getenv("CFLAGS") or "", "-fPIE")
+        -- Use PIC for both C and C++ objects, and keep PIE linking enabled. This
+        -- is intentionally scoped to EL8 + PHP 8.5+ so newer EL releases and
+        -- older PHP versions are not affected by stronger build flags.
+        local cflags = append_env_flag(os.getenv("CFLAGS") or "", "-fPIC")
+        local cxxflags = append_env_flag(os.getenv("CXXFLAGS") or "", "-fPIC")
         local ldflags = append_env_flag(os.getenv("LDFLAGS") or "", "-pie")
 
         if VERBOSE then
-            print("Applying RHEL-compatible 8 PIE build flags for PHP 8.5+")
-            print("CFLAGS += -fPIE")
+            print("Applying RHEL-compatible 8 PIC/PIE build flags for PHP 8.5+")
+            print("CFLAGS += -fPIC")
+            print("CXXFLAGS += -fPIC")
             print("LDFLAGS += -pie")
         end
 
         envPrefix = export_env_var(envPrefix, "CFLAGS", cflags)
+        envPrefix = export_env_var(envPrefix, "CXXFLAGS", cxxflags)
         envPrefix = export_env_var(envPrefix, "LDFLAGS", ldflags)
     end
 

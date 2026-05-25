@@ -34,6 +34,137 @@ local function print_log_file(path, title)
     return true
 end
 
+local function read_lines(path)
+    local file = io.open(path, "r")
+    if not file then
+        return nil
+    end
+
+    local lines = {}
+    for line in file:lines() do
+        table.insert(lines, line)
+    end
+    file:close()
+
+    return lines
+end
+
+local function strip_configure_failed_program_blocks(lines)
+    local cleaned = {}
+    local skipping_program = false
+
+    for _, line in ipairs(lines) do
+        if line:find("configure: failed program was:", 1, true) then
+            skipping_program = true
+        elseif skipping_program and line:match("^|") then
+            -- Autoconf prints the full temporary C program after many failed
+            -- probes. That block is very noisy and rarely helps users fix the
+            -- actual dependency problem, so keep it out of the concise summary.
+        else
+            skipping_program = false
+            table.insert(cleaned, line)
+        end
+    end
+
+    return cleaned
+end
+
+local function line_is_configure_failure(line)
+    return line:match("configure:%d+: error:") ~= nil
+        or line:match("^configure: error:") ~= nil
+        or line:match("undefined reference") ~= nil
+        or line:match("ld returned 1 exit status") ~= nil
+        or line:match("collect2: error") ~= nil
+        or line:match("fatal error:") ~= nil
+        or line:match("Package requirements .* were not met") ~= nil
+        or line:match("No package .* found") ~= nil
+        or line:match("Package .* was not found") ~= nil
+        or line:match("command not found") ~= nil
+        or line:match("cannot find") ~= nil
+        or line:match("too old") ~= nil
+end
+
+local function find_excerpt_start(lines, failure_index)
+    local min_index = math.max(1, failure_index - 35)
+
+    for i = failure_index, min_index, -1 do
+        if lines[i]:match("^configure:%d+: checking ") then
+            return i
+        end
+    end
+
+    return math.max(1, failure_index - 8)
+end
+
+local function extract_configure_failure_excerpt(path)
+    local lines = read_lines(path)
+    if not lines or #lines == 0 then
+        return nil
+    end
+
+    lines = strip_configure_failed_program_blocks(lines)
+
+    local failure_index = nil
+    for i = #lines, 1, -1 do
+        if line_is_configure_failure(lines[i]) then
+            failure_index = i
+            break
+        end
+    end
+
+    if not failure_index then
+        return nil
+    end
+
+    local start_index = find_excerpt_start(lines, failure_index)
+    local end_index = math.min(#lines, failure_index + 25)
+    local excerpt = {}
+
+    for i = start_index, end_index do
+        local line = lines[i]
+
+        if line:match("^##") or line:match("^configure: exit ") then
+            break
+        end
+
+        table.insert(excerpt, line)
+
+        if #excerpt >= 80 then
+            break
+        end
+    end
+
+    while #excerpt > 0 and excerpt[1] == "" do
+        table.remove(excerpt, 1)
+    end
+
+    while #excerpt > 0 and excerpt[#excerpt] == "" do
+        table.remove(excerpt, #excerpt)
+    end
+
+    if #excerpt == 0 then
+        return nil
+    end
+
+    return table.concat(excerpt, "\n")
+end
+
+local function print_configure_failure_excerpt(path)
+    local excerpt = extract_configure_failure_excerpt(path)
+    if not excerpt or excerpt == "" then
+        return false
+    end
+
+    io.stderr:write("\n----- PHP configure failure -----\n")
+    io.stderr:write(excerpt)
+    if not excerpt:match("\n$") then
+        io.stderr:write("\n")
+    end
+    io.stderr:write("----- end PHP configure failure -----\n")
+
+    return true
+end
+
 local function print_file_tip(path, label)
     if VERBOSE then
         return ""
@@ -262,7 +393,7 @@ function source_php.install(sdkPath, version)
         local saved_log = ""
         if os.execute("cp '" .. src_log .. "' '" .. dst_log .. "' 2>/dev/null") == 0 then
             if VERBOSE then
-                print_log_file(dst_log, "PHP configure log")
+                print_configure_failure_excerpt(dst_log)
             end
             saved_log = print_file_tip(dst_log, "configure")
         end
@@ -511,24 +642,41 @@ end
 
 --- Configure options for Linux
 function configure_linux(configureOptions)
-    -- On Linux, most libraries are in standard paths
+    -- On Linux, most libraries are in standard paths.
     configureOptions = configureOptions .. " --with-curl --with-readline --with-gettext"
 
-    -- Check for external GD support. Older distributions may provide libpng
-    -- but only an outdated gdlib, so require gdlib explicitly before enabling it.
+    local bz2_check = os.execute("printf '#include <bzlib.h>\nint main(void){return 0;}\n' | cc -x c - -lbz2 >/dev/null 2>&1")
+    if bz2_check == 0 or bz2_check == true then
+        configureOptions = configureOptions .. " --with-bz2"
+    end
+
+    local gmp_check = os.execute("pkg-config --exists gmp 2>/dev/null")
+    if gmp_check == 0 or gmp_check == true then
+        configureOptions = configureOptions .. " --with-gmp"
+    end
+
+    local sodium_check = os.execute("pkg-config --exists libsodium 2>/dev/null")
+    if sodium_check == 0 or sodium_check == true then
+        configureOptions = configureOptions .. " --with-sodium"
+    end
+
+    -- Check for external GD support. Older enterprise distributions may provide
+    -- libpng or gd-devel but only an outdated gdlib, so require gdlib explicitly.
     local gd_check = os.execute("pkg-config --exists 'gdlib >= 2.1.0' 2>/dev/null")
     if gd_check == 0 or gd_check == true then
         configureOptions = configureOptions .. " --with-external-gd"
     end
 
-    -- Check for PostgreSQL
+    -- Check for PostgreSQL.
     local pgsql_check = os.execute("pg_config --version 2>/dev/null")
     if pgsql_check == 0 or pgsql_check == true then
         configureOptions = configureOptions .. " --with-pdo-pgsql"
     end
 
-    -- Check for libzip
-    local zip_check = os.execute("pkg-config --exists libzip 2>/dev/null")
+    -- Avoid enabling libzip from very old enterprise repositories. The PHP
+    -- configure script performs its own final check, but this avoids predictable
+    -- failures on systems that expose an old libzip through pkg-config.
+    local zip_check = os.execute("pkg-config --exists 'libzip >= 0.11' 2>/dev/null")
     if zip_check == 0 or zip_check == true then
         configureOptions = configureOptions .. " --with-zip"
     end

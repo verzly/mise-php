@@ -94,8 +94,6 @@ fn check_env_options(args: &[String]) -> Result<(), String> {
         ("PHP_PREBUILT_STATIC_FLAVOR", "minimal"),
         ("PHP_CONFIGURE_OPTIONS", "--disable-all"),
         ("PHP_EXTRA_CONFIGURE_OPTIONS", "--enable-option-checking=fatal"),
-        ("PHP_DEPS_PROFILE", "full"),
-        ("PHP_INSTALL_OPTIONAL_DEPS", "1"),
         ("PHP_PECL_EXTENSIONS", "redis,xdebug"),
         ("PHP_PIE_EXTENSIONS", "amphp/ext-uv"),
     ]);

@@ -1,39 +1,44 @@
 #!/bin/sh
 set -eu
 
-# Install system packages required to build PHP from source for mise-php.
+# Install native system dependencies required by mise-php source builds.
 #
-# Design goals:
-# - Keep the default installation conservative. We install the native libraries
-#   required by the default configure options used by this plugin, but avoid
-#   enabling every possible PHP extension dependency on the user's machine.
-# - Install optional libraries only when the user explicitly asks for them via
-#   PHP configure options, or when PHP_DEPS_PROFILE=full is used.
-# - Keep Enterprise Linux support version-aware. RHEL-compatible distributions
-#   differ significantly between 7, 8, 9, and 10, especially around repository
-#   names, EPEL/CRB/PowerTools, and toolchain versions.
-# - Prefer distribution packages. Source builds are used only as a compatibility
-#   fallback for build tools that are too old for modern PHP, such as re2c on
-#   some EL7/EL8 systems.
+# This script intentionally keeps the dependency logic close to the source build
+# logic used by lib/source_php.lua. The goal is not to install every package that
+# could ever be used by PHP. The goal is to install the packages needed for:
 #
-# Environment variables understood by this script:
+# 1. The default mise-php source build configuration
+# 2. The requested PHP version
+# 3. User-provided configure flags
+# 4. Requested PECL or PIE extension packages with known native dependencies
+#
+# Important design rules:
+#
+# - Default source builds should work on common developer and CI systems without
+#   making the user discover low-level package names manually.
+# - Distribution packages are preferred whenever they are new enough.
+# - Source-built build tools are used only as a compatibility fallback for older
+#   enterprise distributions, for example re2c on EL7/EL8 when building PHP 8.3+.
+# - Optional native libraries are installed only when mise-php enables the matching
+#   PHP feature by default, the user asks for a configure flag, or a requested
+#   PECL/PIE extension is known to require that library.
+# - RHEL-compatible systems are handled by major version because EL7, EL8, EL9,
+#   and EL10 differ in repository layout, package versions, and EPEL/CRB handling.
+#
+# Environment variables read by this script:
 #
 #   PHP_BUILD_VERSION
-#     The PHP version being built. The plugin passes this automatically. It is
-#     used for version-specific build tool decisions, for example re2c >= 1.0.3
-#     for PHP 8.3 and newer.
+#     PHP version being built. The plugin passes this automatically. Used for
+#     version-specific decisions such as PHP 8.3+ requiring re2c >= 1.0.3.
 #
 #   PHP_CONFIGURE_OPTIONS / PHP_EXTRA_CONFIGURE_OPTIONS
-#     User-provided configure options. The script scans these values and installs
-#     optional native libraries only when matching extension flags are present.
+#     User-provided configure flags. These are scanned so native dependencies are
+#     installed only when the user asks for the matching PHP feature.
 #
-#   PHP_DEPS_PROFILE=default|full
-#     default: install only the default source-build dependency set plus optional
-#              dependencies explicitly requested by configure flags.
-#     full:    install a broader set of common optional PHP extension libraries.
-#
-#   PHP_INSTALL_OPTIONAL_DEPS=1
-#     Backwards-compatible alias for PHP_DEPS_PROFILE=full.
+#   PHP_PECL_EXTENSIONS / PHP_PIE_EXTENSIONS
+#     Requested extension packages. These are scanned for known packages that need
+#     extra native libraries, such as imagick, yaml, memcached, amqp, rdkafka, or
+#     ext-uv.
 
 log() {
   printf '%s\n' "$*"
@@ -45,13 +50,6 @@ warn() {
 
 have() {
   command -v "$1" >/dev/null 2>&1
-}
-
-truthy() {
-  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
-    1|true|yes|on) return 0 ;;
-    *) return 1 ;;
-  esac
 }
 
 numeric_component() {
@@ -97,8 +95,19 @@ php_version_at_least() {
   version_at_least "$PHP_BUILD_VERSION" "$1"
 }
 
+php_version_before() {
+  [ -n "${PHP_BUILD_VERSION:-}" ] || return 1
+  ! version_at_least "$PHP_BUILD_VERSION" "$1"
+}
+
 requested_configure_options() {
   printf '%s %s' "${PHP_CONFIGURE_OPTIONS:-}" "${PHP_EXTRA_CONFIGURE_OPTIONS:-}"
+}
+
+requested_extensions() {
+  printf '%s %s' "${PHP_PECL_EXTENSIONS:-}" "${PHP_PIE_EXTENSIONS:-}" |
+    tr ',;' '  ' |
+    tr '[:upper:]' '[:lower:]'
 }
 
 configure_requests() {
@@ -113,74 +122,31 @@ configure_requests() {
   return 1
 }
 
-want_full_profile() {
-  case "${PHP_DEPS_PROFILE:-default}" in
-    full) return 0 ;;
-  esac
+extension_uses_group() {
+  group="$1"
+  extensions="$(requested_extensions)"
 
-  truthy "${PHP_INSTALL_OPTIONAL_DEPS:-}"
+  for ext in $extensions; do
+    case "$group:$ext" in
+      amqp:*amqp*) return 0 ;;
+      imagick:*imagick*|imagick:*imagemagick*) return 0 ;;
+      memcached:*memcached*) return 0 ;;
+      rdkafka:*rdkafka*|rdkafka:*kafka*) return 0 ;;
+      uv:*ext-uv*|uv:*uv) return 0 ;;
+      yaml:*yaml*) return 0 ;;
+    esac
+  done
+
+  return 1
 }
 
-want_optional_group() {
-  group="$1"
-
-  # Some legacy or fragile extensions should never be pulled in by the broad
-  # profile automatically. Install them only when the user explicitly requests
-  # their configure flags.
-  case "$group" in
-    imap)
-      configure_requests --with-imap --with-imap-ssl
-      return $?
-      ;;
-    mcrypt)
-      configure_requests --with-mcrypt
-      return $?
-      ;;
-  esac
-
-  if want_full_profile; then
-    return 0
-  fi
-
-  case "$group" in
-    gd)
-      configure_requests --with-external-gd --with-gd --with-jpeg --with-freetype --with-webp --with-xpm
-      ;;
-    zip)
-      configure_requests --with-zip
-      ;;
-    pgsql)
-      configure_requests --with-pdo-pgsql --with-pgsql
-      ;;
-    gmp)
-      configure_requests --with-gmp
-      ;;
-    sodium)
-      configure_requests --with-sodium
-      ;;
-    bz2)
-      configure_requests --with-bz2
-      ;;
-    ffi)
-      configure_requests --with-ffi
-      ;;
-    ldap)
-      configure_requests --with-ldap
-      ;;
-    xsl)
-      configure_requests --with-xsl
-      ;;
-    tidy)
-      configure_requests --with-tidy
-      ;;
-    snmp)
-      configure_requests --with-snmp
-      ;;
-    imap)
-      configure_requests --with-imap --with-imap-ssl
-      ;;
-    mcrypt)
-      configure_requests --with-mcrypt
+# Native groups enabled by the default mise-php source build when the matching
+# library is available. These are installed by default because lib/source_php.lua
+# either enables the feature explicitly or probes for it before adding the flag.
+source_build_uses_group_by_default() {
+  case "$1" in
+    bz2|gd|gmp|pgsql|sodium|zip)
+      return 0
       ;;
     *)
       return 1
@@ -188,10 +154,59 @@ want_optional_group() {
   esac
 }
 
-install_optional_group_note() {
+# Native groups required by PHP version behavior.
+# mcrypt was removed from PHP core in PHP 7.2, so it is only relevant for older
+# PHP versions or explicit custom configure flags.
+php_version_uses_group() {
   group="$1"
-  if want_optional_group "$group"; then
-    log "Installing optional dependency group: $group"
+
+  case "$group" in
+    mcrypt)
+      php_version_before 7.2
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+configure_uses_group() {
+  group="$1"
+
+  case "$group" in
+    bz2) configure_requests --with-bz2 ;;
+    ffi) configure_requests --with-ffi ;;
+    gd) configure_requests --enable-gd --with-gd --with-external-gd --with-jpeg --with-freetype --with-webp --with-xpm ;;
+    gmp) configure_requests --with-gmp ;;
+    imap) configure_requests --with-imap --with-imap-ssl ;;
+    ldap) configure_requests --with-ldap ;;
+    mcrypt) configure_requests --with-mcrypt ;;
+    pgsql) configure_requests --with-pdo-pgsql --with-pgsql ;;
+    snmp) configure_requests --with-snmp ;;
+    sodium) configure_requests --with-sodium ;;
+    tidy) configure_requests --with-tidy ;;
+    xsl) configure_requests --with-xsl ;;
+    zip) configure_requests --with-zip ;;
+    *) return 1 ;;
+  esac
+}
+
+
+want_group() {
+  group="$1"
+
+  source_build_uses_group_by_default "$group" && return 0
+  php_version_uses_group "$group" && return 0
+  configure_uses_group "$group" && return 0
+  extension_uses_group "$group" && return 0
+
+  return 1
+}
+
+install_group_note() {
+  group="$1"
+  if want_group "$group"; then
+    log "Installing native dependency group: $group"
     return 0
   fi
 
@@ -310,9 +325,10 @@ pacman_install() {
 }
 
 fix_centos_7_repos() {
-  # CentOS Linux 7 is EOL. Official mirrors may not resolve anymore, but many
-  # users still run old development or production systems. For classic CentOS 7
-  # only, rewrite the stock repository files to the final 7.9.2009 vault.
+  # CentOS Linux 7 is EOL. Classic CentOS 7 images can still appear in developer
+  # or production environments, but their normal mirrorlist URLs may no longer be
+  # reliable. Only for classic CentOS 7, rewrite stock repo files to the final
+  # 7.9.2009 vault location before installing dependencies.
   if [ "${ID:-}" = "centos" ] && [ "$(el_major)" = "7" ]; then
     for repo in /etc/yum.repos.d/CentOS-*.repo; do
       [ -f "$repo" ] || continue
@@ -342,8 +358,8 @@ enable_codeready_builder() {
   major="$(el_major)"
   arch="$(linux_arch)"
 
-  # RHEL uses subscription-manager repository IDs. Rebuilds and CentOS Stream
-  # usually expose the same content as crb or PowerTools instead.
+  # RHEL uses subscription-manager repository IDs. Community rebuilds and CentOS
+  # Stream usually expose equivalent content as crb or PowerTools.
   if have subscription-manager; then
     $SUDO subscription-manager repos --enable "codeready-builder-for-rhel-${major}-${arch}-rpms" >/dev/null 2>&1 || true
     $SUDO subscription-manager repos --enable "codeready-builder-for-rhel-${major}-$(uname -m)-rpms" >/dev/null 2>&1 || true
@@ -400,7 +416,7 @@ install_epel() {
 enable_rhel_repositories() {
   fix_centos_7_repos
 
-  # config-manager is required to enable CRB/PowerTools programmatically.
+  # config-manager is required for CRB/PowerTools repository toggles.
   if have dnf; then
     rhel_install_optional dnf-plugins-core
   elif have yum; then
@@ -440,9 +456,8 @@ build_re2c_from_source() {
 }
 
 ensure_re2c_for_php_version() {
-  # PHP 8.3+ requires re2c 1.0.3 or newer when building from generated source.
-  # EL7/EL8 can ship older re2c packages, so upgrade only for PHP versions that
-  # actually require it. Newer distros should provide a sufficient package.
+  # PHP 8.3+ requires re2c 1.0.3 or newer. EL7/EL8 can ship older versions, so
+  # install a newer re2c from source only when the requested PHP version needs it.
   php_version_at_least 8.3 || return 0
 
   required="1.0.3"
@@ -478,26 +493,32 @@ install_debian_dependencies() {
   export DEBIAN_FRONTEND=noninteractive
   $SUDO apt-get update -q
 
-  # Default build profile used by mise-php source builds.
   apt_install \
     ca-certificates curl git tar gzip xz-utils unzip \
-    build-essential autoconf bison re2c pkg-config \
+    build-essential autoconf bison re2c pkg-config gawk \
     libxml2-dev libssl-dev libicu-dev zlib1g-dev libonig-dev \
     libcurl4-openssl-dev libreadline-dev libsqlite3-dev gettext
 
-  if install_optional_group_note bz2; then apt_install libbz2-dev; fi
-  if install_optional_group_note gmp; then apt_install libgmp-dev; fi
-  if install_optional_group_note sodium; then apt_install libsodium-dev; fi
-  if install_optional_group_note zip; then apt_install libzip-dev; fi
-  if install_optional_group_note pgsql; then apt_install libpq-dev; fi
-  if install_optional_group_note gd; then apt_install libgd-dev libpng-dev libjpeg-dev libfreetype6-dev libwebp-dev; fi
-  if install_optional_group_note ffi; then apt_install libffi-dev; fi
-  if install_optional_group_note ldap; then apt_install libldap2-dev; fi
-  if install_optional_group_note xsl; then apt_install libxslt1-dev; fi
-  if install_optional_group_note tidy; then apt_install libtidy-dev; fi
-  if install_optional_group_note snmp; then apt_install libsnmp-dev; fi
-  if install_optional_group_note imap; then apt_install libc-client-dev libkrb5-dev; fi
-  if install_optional_group_note mcrypt; then apt_install libmcrypt-dev || warn "libmcrypt-dev is unavailable on this Debian/Ubuntu release"; fi
+  if install_group_note bz2; then apt_install libbz2-dev; fi
+  if install_group_note gmp; then apt_install libgmp-dev; fi
+  if install_group_note sodium; then apt_install libsodium-dev; fi
+  if install_group_note zip; then apt_install libzip-dev; fi
+  if install_group_note pgsql; then apt_install libpq-dev; fi
+  if install_group_note gd; then apt_install libgd-dev libpng-dev libjpeg-dev libfreetype6-dev libwebp-dev; fi
+  if install_group_note ffi; then apt_install libffi-dev; fi
+  if install_group_note ldap; then apt_install libldap2-dev; fi
+  if install_group_note xsl; then apt_install libxslt1-dev; fi
+  if install_group_note tidy; then apt_install libtidy-dev; fi
+  if install_group_note snmp; then apt_install libsnmp-dev; fi
+  if install_group_note imap; then apt_install libc-client-dev libkrb5-dev; fi
+  if install_group_note mcrypt; then apt_install libmcrypt-dev || warn "libmcrypt-dev is unavailable on this Debian/Ubuntu release"; fi
+
+  if install_group_note imagick; then apt_install libmagickwand-dev; fi
+  if install_group_note yaml; then apt_install libyaml-dev; fi
+  if install_group_note memcached; then apt_install libmemcached-dev libsasl2-dev; fi
+  if install_group_note amqp; then apt_install librabbitmq-dev; fi
+  if install_group_note rdkafka; then apt_install librdkafka-dev; fi
+  if install_group_note uv; then apt_install libuv1-dev; fi
 }
 
 install_fedora_dependencies() {
@@ -509,19 +530,26 @@ install_fedora_dependencies() {
     libxml2-devel openssl-devel libicu-devel zlib-devel oniguruma-devel \
     libcurl-devel readline-devel sqlite-devel gettext-devel libxcrypt-devel
 
-  if install_optional_group_note bz2; then dnf_install bzip2-devel; fi
-  if install_optional_group_note gmp; then dnf_install gmp-devel; fi
-  if install_optional_group_note sodium; then dnf_install libsodium-devel; fi
-  if install_optional_group_note zip; then dnf_install libzip-devel; fi
-  if install_optional_group_note pgsql; then dnf_install libpq-devel; fi
-  if install_optional_group_note gd; then dnf_install gd-devel libpng-devel libjpeg-turbo-devel freetype-devel libwebp-devel; fi
-  if install_optional_group_note ffi; then dnf_install libffi-devel; fi
-  if install_optional_group_note ldap; then dnf_install openldap-devel; fi
-  if install_optional_group_note xsl; then dnf_install libxslt-devel; fi
-  if install_optional_group_note tidy; then dnf_install libtidy-devel; fi
-  if install_optional_group_note snmp; then dnf_install net-snmp-devel; fi
-  if install_optional_group_note imap; then dnf_install libc-client-devel krb5-devel; fi
-  if install_optional_group_note mcrypt; then dnf_install libmcrypt-devel || warn "libmcrypt-devel is unavailable on this Fedora release"; fi
+  if install_group_note bz2; then dnf_install bzip2-devel; fi
+  if install_group_note gmp; then dnf_install gmp-devel; fi
+  if install_group_note sodium; then dnf_install libsodium-devel; fi
+  if install_group_note zip; then dnf_install libzip-devel; fi
+  if install_group_note pgsql; then dnf_install libpq-devel; fi
+  if install_group_note gd; then dnf_install gd-devel libpng-devel libjpeg-turbo-devel freetype-devel libwebp-devel; fi
+  if install_group_note ffi; then dnf_install libffi-devel; fi
+  if install_group_note ldap; then dnf_install openldap-devel; fi
+  if install_group_note xsl; then dnf_install libxslt-devel; fi
+  if install_group_note tidy; then dnf_install libtidy-devel; fi
+  if install_group_note snmp; then dnf_install net-snmp-devel; fi
+  if install_group_note imap; then dnf_install libc-client-devel krb5-devel; fi
+  if install_group_note mcrypt; then dnf_install libmcrypt-devel || warn "libmcrypt-devel is unavailable on this Fedora release"; fi
+
+  if install_group_note imagick; then dnf_install ImageMagick-devel; fi
+  if install_group_note yaml; then dnf_install libyaml-devel; fi
+  if install_group_note memcached; then dnf_install libmemcached-devel cyrus-sasl-devel; fi
+  if install_group_note amqp; then dnf_install librabbitmq-devel; fi
+  if install_group_note rdkafka; then dnf_install librdkafka-devel; fi
+  if install_group_note uv; then dnf_install libuv-devel; fi
 }
 
 install_rhel_dependencies() {
@@ -541,19 +569,19 @@ install_rhel_dependencies() {
   rhel_install_any pkgconf-pkg-config pkgconfig
   rhel_install_optional libxcrypt-devel
 
-  if install_optional_group_note bz2; then rhel_install bzip2-devel; fi
-  if install_optional_group_note gmp; then rhel_install gmp-devel; fi
-  if install_optional_group_note sodium; then rhel_install_optional libsodium-devel; fi
-  if install_optional_group_note pgsql; then rhel_install_any libpq-devel postgresql-devel; fi
-  if install_optional_group_note ffi; then rhel_install_optional libffi-devel; fi
-  if install_optional_group_note ldap; then rhel_install_optional openldap-devel; fi
-  if install_optional_group_note xsl; then rhel_install_optional libxslt-devel; fi
-  if install_optional_group_note tidy; then rhel_install_optional libtidy-devel; fi
-  if install_optional_group_note snmp; then rhel_install_optional net-snmp-devel; fi
-  if install_optional_group_note imap; then rhel_install_optional libc-client-devel krb5-devel; fi
-  if install_optional_group_note mcrypt; then rhel_install_optional libmcrypt-devel; fi
+  if install_group_note bz2; then rhel_install bzip2-devel; fi
+  if install_group_note gmp; then rhel_install gmp-devel; fi
+  if install_group_note sodium; then rhel_install_optional libsodium-devel; fi
+  if install_group_note pgsql; then rhel_install_any libpq-devel postgresql-devel; fi
+  if install_group_note ffi; then rhel_install_optional libffi-devel; fi
+  if install_group_note ldap; then rhel_install_optional openldap-devel; fi
+  if install_group_note xsl; then rhel_install_optional libxslt-devel; fi
+  if install_group_note tidy; then rhel_install_optional libtidy-devel; fi
+  if install_group_note snmp; then rhel_install_optional net-snmp-devel; fi
+  if install_group_note imap; then rhel_install_optional libc-client-devel krb5-devel; fi
+  if install_group_note mcrypt; then rhel_install_optional libmcrypt-devel; fi
 
-  if install_optional_group_note zip; then
+  if install_group_note zip; then
     case "$major" in
       7)
         warn "Skipping libzip-devel on EL7 because the packaged libzip is commonly too old for modern PHP"
@@ -564,7 +592,7 @@ install_rhel_dependencies() {
     esac
   fi
 
-  if install_optional_group_note gd; then
+  if install_group_note gd; then
     case "$major" in
       7)
         warn "Skipping gd-devel on EL7 because gd 2.0.x is too old for PHP's external GD check"
@@ -574,6 +602,13 @@ install_rhel_dependencies() {
         ;;
     esac
   fi
+
+  if install_group_note imagick; then rhel_install ImageMagick-devel; fi
+  if install_group_note yaml; then rhel_install libyaml-devel; fi
+  if install_group_note memcached; then rhel_install libmemcached-devel cyrus-sasl-devel; fi
+  if install_group_note amqp; then rhel_install librabbitmq-devel; fi
+  if install_group_note rdkafka; then rhel_install librdkafka-devel; fi
+  if install_group_note uv; then rhel_install libuv-devel; fi
 
   ensure_re2c_for_php_version
 }
@@ -585,51 +620,66 @@ install_arch_dependencies() {
     libxml2 openssl icu zlib oniguruma \
     readline sqlite gettext libxcrypt
 
-  if install_optional_group_note bz2; then pacman_install bzip2; fi
-  if install_optional_group_note gmp; then pacman_install gmp; fi
-  if install_optional_group_note sodium; then pacman_install libsodium; fi
-  if install_optional_group_note zip; then pacman_install libzip; fi
-  if install_optional_group_note pgsql; then pacman_install postgresql-libs; fi
-  if install_optional_group_note gd; then pacman_install gd libpng libjpeg-turbo freetype2 libwebp; fi
-  if install_optional_group_note ffi; then pacman_install libffi; fi
-  if install_optional_group_note ldap; then pacman_install libldap; fi
-  if install_optional_group_note xsl; then pacman_install libxslt; fi
-  if install_optional_group_note tidy; then pacman_install tidy; fi
-  if install_optional_group_note snmp; then pacman_install net-snmp; fi
-  if install_optional_group_note imap; then pacman_install uw-imap krb5; fi
-  if install_optional_group_note mcrypt; then pacman_install libmcrypt; fi
+  if install_group_note bz2; then pacman_install bzip2; fi
+  if install_group_note gmp; then pacman_install gmp; fi
+  if install_group_note sodium; then pacman_install libsodium; fi
+  if install_group_note zip; then pacman_install libzip; fi
+  if install_group_note pgsql; then pacman_install postgresql-libs; fi
+  if install_group_note gd; then pacman_install gd libpng libjpeg-turbo freetype2 libwebp; fi
+  if install_group_note ffi; then pacman_install libffi; fi
+  if install_group_note ldap; then pacman_install libldap; fi
+  if install_group_note xsl; then pacman_install libxslt; fi
+  if install_group_note tidy; then pacman_install tidy; fi
+  if install_group_note snmp; then pacman_install net-snmp; fi
+  if install_group_note imap; then pacman_install uw-imap krb5; fi
+  if install_group_note mcrypt; then pacman_install libmcrypt; fi
+
+  if install_group_note imagick; then pacman_install imagemagick; fi
+  if install_group_note yaml; then pacman_install libyaml; fi
+  if install_group_note memcached; then pacman_install libmemcached libsasl; fi
+  if install_group_note amqp; then pacman_install rabbitmq-c; fi
+  if install_group_note rdkafka; then pacman_install librdkafka; fi
+  if install_group_note uv; then pacman_install libuv; fi
 }
 
 install_macos_dependencies() {
   xcode-select --install 2>/dev/null || true
 
-  # Homebrew packages used by the default source build profile. Some are keg-only
-  # and are picked up later through PKG_CONFIG_PATH in lib/source_php.lua.
   brew_install \
     autoconf bison re2c pkg-config \
     libxml2 openssl@3 icu4c zlib oniguruma curl readline sqlite gettext \
     libiconv krb5 libedit
 
-  if install_optional_group_note bz2; then brew_install bzip2; fi
-  if install_optional_group_note gmp; then brew_install gmp; fi
-  if install_optional_group_note sodium; then brew_install libsodium; fi
-  if install_optional_group_note zip; then brew_install libzip; fi
-  if install_optional_group_note pgsql; then brew_install libpq; fi
-  if install_optional_group_note gd; then brew_install gd freetype jpeg libpng webp; fi
-  if install_optional_group_note ffi; then brew_install libffi; fi
-  if install_optional_group_note ldap; then brew_install openldap; fi
-  if install_optional_group_note xsl; then brew_install libxslt; fi
-  if install_optional_group_note tidy; then brew_install tidy-html5; fi
-  if install_optional_group_note snmp; then brew_install net-snmp; fi
-  if install_optional_group_note imap; then brew_install imap-uw krb5; fi
-  if install_optional_group_note mcrypt; then brew_install mcrypt || warn "mcrypt is unavailable or deprecated in Homebrew"; fi
+  if install_group_note bz2; then brew_install bzip2; fi
+  if install_group_note gmp; then brew_install gmp; fi
+  if install_group_note sodium; then brew_install libsodium; fi
+  if install_group_note zip; then brew_install libzip; fi
+  if install_group_note pgsql; then brew_install libpq; fi
+  if install_group_note gd; then brew_install gd freetype jpeg libpng webp; fi
+  if install_group_note ffi; then brew_install libffi; fi
+  if install_group_note ldap; then brew_install openldap; fi
+  if install_group_note xsl; then brew_install libxslt; fi
+  if install_group_note tidy; then brew_install tidy-html5; fi
+  if install_group_note snmp; then brew_install net-snmp; fi
+  if install_group_note imap; then brew_install imap-uw krb5; fi
+  if install_group_note mcrypt; then brew_install mcrypt || warn "mcrypt is unavailable or deprecated in Homebrew"; fi
+
+  if install_group_note imagick; then brew_install imagemagick; fi
+  if install_group_note yaml; then brew_install libyaml; fi
+  if install_group_note memcached; then brew_install libmemcached; fi
+  if install_group_note amqp; then brew_install rabbitmq-c; fi
+  if install_group_note rdkafka; then brew_install librdkafka; fi
+  if install_group_note uv; then brew_install libuv; fi
 }
 
 log "Installing PHP source build dependencies"
 log "Detected dependency target: $DISTRO${VERSION_ID:+ $VERSION_ID}"
-log "Dependency profile: ${PHP_DEPS_PROFILE:-default}"
 if [ -n "${PHP_BUILD_VERSION:-}" ]; then
   log "PHP build version: $PHP_BUILD_VERSION"
+fi
+if [ -n "${PHP_PECL_EXTENSIONS:-}${PHP_PIE_EXTENSIONS:-}" ]; then
+  log "Requested PECL extensions: ${PHP_PECL_EXTENSIONS:-none}"
+  log "Requested PIE extensions: ${PHP_PIE_EXTENSIONS:-none}"
 fi
 
 case "$DISTRO" in

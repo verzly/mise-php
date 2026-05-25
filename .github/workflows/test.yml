@@ -103,8 +103,6 @@ jobs:
           prebuilt_static_flavor = "minimal"
           configure_options = "--disable-all"
           extra_configure_options = "--enable-option-checking=fatal"
-          dependency_profile = "full"
-          install_optional_deps = true
           pecl_extensions = "redis,xdebug"
           pie_extensions = "amphp/ext-uv"
           TOML

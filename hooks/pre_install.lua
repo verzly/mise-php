@@ -53,7 +53,7 @@ function PLUGIN:PreInstall(ctx)
         return get_release_for_windows(release)
     end
 
-    version_check_for_linux(release)
+    version_check_before_dependencies(release)
 
     print(
         "\27[96mNote:\27[0m " ..
@@ -68,11 +68,16 @@ function PLUGIN:PreInstall(ctx)
         install_dependencies(release.version)
     end
 
+    version_check_after_dependencies(release)
+
     return get_release_for_linux(release)
 end
 
-function version_check_for_linux(release)
+function version_check_before_dependencies(release)
     openssl_check_for_linux(release)  --- PHP < 8.1 with OpenSSL 3 (BAD)
+end
+
+function version_check_after_dependencies(release)
     mcrypt_check_for_linux(release)   --- PHP < 7.2 requires libmcrypt
 end
 

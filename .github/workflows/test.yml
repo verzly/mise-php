@@ -218,105 +218,9 @@ jobs:
             ./ci-checks version-list static static-versions.txt "${PHP_TEST_VERSION}"
           fi
 
-  check-source-dependencies-linux:
-    name: Check source dependencies - Linux - ${{ matrix.target.name }}
-    needs: check-label
-    if: needs.check-label.outputs.should-run == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - name: ubuntu-24.04
-            image: ubuntu:24.04
-            php_version: 8.5.5
-          - name: debian-bookworm
-            image: debian:bookworm
-            php_version: 8.5.5
-          - name: fedora-latest
-            image: fedora:latest
-            php_version: 8.5.5
-          - name: centos-7
-            image: centos:7
-            php_version: 7.4.33
-          - name: centos-stream-9
-            image: quay.io/centos/centos:stream9
-            php_version: 8.5.5
-          - name: centos-stream-10
-            image: quay.io/centos/centos:stream10
-            php_version: 8.5.5
-          - name: rocky-linux-8
-            image: rockylinux/rockylinux:8
-            php_version: 8.5.5
-          - name: rocky-linux-9
-            image: rockylinux/rockylinux:9
-            php_version: 8.5.5
-          - name: rocky-linux-10
-            image: rockylinux/rockylinux:10.1
-            php_version: 8.5.5
-          - name: archlinux
-            image: archlinux:base-devel
-            php_version: 8.5.5
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check dependency installer and PHP configure in ${{ matrix.target.name }}
-        shell: bash
-        env:
-          DISTRO_IMAGE: ${{ matrix.target.image }}
-          PHP_DEPENDENCY_CHECK_VERSION: ${{ matrix.target.php_version }}
-        run: |
-          docker run --rm \
-            -v "${PWD}:/workspace" \
-            -w /workspace \
-            -e PHP_DEPENDENCY_CHECK_VERSION \
-            "$DISTRO_IMAGE" \
-            sh -lc '
-              set -eux
-
-              sh bin/install-dependencies.sh
-
-              tmp_dir="$(mktemp -d)"
-              cd "$tmp_dir"
-              curl -fsSL "https://github.com/php/php-src/archive/php-${PHP_DEPENDENCY_CHECK_VERSION}.tar.gz" -o php-src.tar.gz
-              tar -xzf php-src.tar.gz --strip-components=1
-
-              ./buildconf --force
-
-              configure_options="--prefix=$tmp_dir/install"
-              configure_options="$configure_options --enable-bcmath --enable-calendar --enable-dba --enable-exif --enable-fpm --enable-ftp --enable-gd --enable-intl --enable-mbregex --enable-mbstring --enable-mysqlnd --enable-pcntl --enable-shmop --enable-soap --enable-sockets --enable-sysvmsg --enable-sysvsem --enable-sysvshm"
-              configure_options="$configure_options --sysconfdir=$tmp_dir/install --with-config-file-path=$tmp_dir/install --with-config-file-scan-dir=$tmp_dir/install/conf.d"
-              configure_options="$configure_options --with-curl --with-mhash --with-openssl --with-mysqli=mysqlnd --with-pdo-mysql=mysqlnd --with-zlib --with-readline --with-gettext --without-pcre-jit --without-snmp"
-
-              case "$PHP_DEPENDENCY_CHECK_VERSION" in
-                8.[5-9]*|9.*)
-                  configure_options="$configure_options --without-pear"
-                  ;;
-                *)
-                  configure_options="$configure_options --with-pear"
-                  ;;
-              esac
-
-              if pkg-config --exists libpng 2>/dev/null; then
-                configure_options="$configure_options --with-external-gd"
-              fi
-
-              if pg_config --version >/dev/null 2>&1; then
-                configure_options="$configure_options --with-pdo-pgsql"
-              fi
-
-              if pkg-config --exists libzip 2>/dev/null; then
-                configure_options="$configure_options --with-zip"
-              fi
-
-              ./configure $configure_options
-            '
-
   install-source:
     name: Install source/default - ${{ matrix.target.label }}
-    needs: [check-label, env-options, list-source-versions, check-source-dependencies-linux]
+    needs: [check-label, env-options, list-source-versions]
     if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_source_installs)
     runs-on: ${{ matrix.target.runner }}
     timeout-minutes: 120
@@ -352,6 +256,11 @@ jobs:
             kind: container
             runner: ubuntu-latest
             image: quay.io/centos/centos:stream10
+            distro: rhel
+          - label: Linux / Rocky Linux 8
+            kind: container
+            runner: ubuntu-latest
+            image: rockylinux/rockylinux:8
             distro: rhel
           - label: Linux / Rocky Linux 9
             kind: container
@@ -533,7 +442,7 @@ jobs:
 
   install-source-pecl:
     name: Install PECL-capable source/default - ${{ matrix.os }}
-    needs: [check-label, env-options, list-source-versions, check-source-dependencies-linux]
+    needs: [check-label, env-options, list-source-versions]
     if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120

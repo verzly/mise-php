@@ -7,6 +7,63 @@ local source_php = {}
 local VERBOSE = env.VERBOSE
 local QUIET = env.QUIET
 
+local function shell_quote(value)
+    return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
+end
+
+local function print_log_file(path, title)
+    local file = io.open(path, "r")
+    if not file then
+        return false
+    end
+
+    local content = file:read("*a") or ""
+    file:close()
+
+    if content == "" then
+        return false
+    end
+
+    io.stderr:write("\n----- " .. title .. " -----\n")
+    io.stderr:write(content)
+    if not content:match("\n$") then
+        io.stderr:write("\n")
+    end
+    io.stderr:write("----- end " .. title .. " -----\n")
+
+    return true
+end
+
+local function print_file_tip(path, label)
+    if VERBOSE then
+        return ""
+    end
+
+    return "💡 Tip: \27[93mCheck the " .. label .. " log for details:\27[0m " .. path .. "\n"
+end
+
+local function run_make(sdkPath, envPrefix, version)
+    if VERBOSE then
+        local status = os.execute(string.format(
+            "cd %s && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)",
+            shell_quote(sdkPath),
+            envPrefix
+        ))
+
+        return status, nil
+    end
+
+    local makeLog = "/tmp/mise-php-make-" .. version .. ".log"
+    local status = os.execute(string.format(
+        "cd %s && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2) > %s 2>&1",
+        shell_quote(sdkPath),
+        envPrefix,
+        shell_quote(makeLog)
+    ))
+
+    return status, makeLog
+end
+
 local function is_wsl()
     local f = io.open("/proc/version", "r")
     if not f then
@@ -193,17 +250,25 @@ function source_php.install(sdkPath, version)
 
     -- Run configure
     print("Configuring PHP with options...")
+    if VERBOSE then
+        print("Configure command: " .. envPrefix .. "./configure " .. configureOptions)
+    end
+
     local configureCmd = string.format("cd '%s' && %s./configure %s" .. QUIET, sdkPath, envPrefix, configureOptions)
     status = os.execute(configureCmd)
     if status ~= 0 and status ~= true then
-        local saved_log = ""
         local src_log = sdkPath .. "/config.log"
         local dst_log = "/tmp/mise-php-config-" .. version .. ".log"
+        local saved_log = ""
         if os.execute("cp '" .. src_log .. "' '" .. dst_log .. "' 2>/dev/null") == 0 then
-            saved_log = "💡 Tip: \27[93mCheck the configure log for details:\27[0m " .. dst_log .. "\n"
+            if VERBOSE then
+                print_log_file(dst_log, "PHP configure log")
+            end
+            saved_log = print_file_tip(dst_log, "configure")
         end
         error(
             "\n\nFailed to configure PHP.\n\n" ..
+            saved_log ..
             messages.verbose_tip(version) ..
             messages.see("debugging")
         )
@@ -211,20 +276,15 @@ function source_php.install(sdkPath, version)
 
     -- Build PHP
     print("Building PHP (this may take several minutes)...")
-    local makeLog = "/tmp/mise-php-make-" .. version .. ".log"
-    local makeCmd = string.format(
-        "cd '%s' && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2) > '%s' 2>&1",
-        sdkPath,
-        envPrefix,
-        makeLog
-    )
-    if VERBOSE then
-        print("\27[96mNote:\27[0m Capturing build output to " .. makeLog .. ", run 'tail -f " .. makeLog .. "' to watch")
-    end
-    status = os.execute(makeCmd)
+    local makeLog
+    status, makeLog = run_make(sdkPath, envPrefix, version)
     if status ~= 0 and status ~= true then
+        if makeLog and makeLog ~= "" and VERBOSE then
+            print_log_file(makeLog, "PHP build log")
+        end
         error(
             "\n\nFailed to build PHP.\n\n" ..
+            (makeLog and print_file_tip(makeLog, "build") or "") ..
             messages.verbose_tip(version) ..
             messages.see("debugging")
         )
@@ -454,8 +514,9 @@ function configure_linux(configureOptions)
     -- On Linux, most libraries are in standard paths
     configureOptions = configureOptions .. " --with-curl --with-readline --with-gettext"
 
-    -- Check for GD dependencies
-    local gd_check = os.execute("pkg-config --exists libpng 2>/dev/null")
+    -- Check for external GD support. Older distributions may provide libpng
+    -- but only an outdated gdlib, so require gdlib explicitly before enabling it.
+    local gd_check = os.execute("pkg-config --exists 'gdlib >= 2.1.0' 2>/dev/null")
     if gd_check == 0 or gd_check == true then
         configureOptions = configureOptions .. " --with-external-gd"
     end

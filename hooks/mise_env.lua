@@ -46,7 +46,6 @@ function PLUGIN:MiseEnv(ctx)
         set_env(env_vars, "PHP_PREBUILT_STATIC_FLAVOR", prebuilt_static_flavor)
     end
 
-
     local pecl_extensions = options.get(ctx, "pecl_extensions")
     if pecl_extensions ~= nil and pecl_extensions ~= "" and pecl_extensions ~= false then
         set_env(env_vars, "PHP_PECL_EXTENSIONS", pecl_extensions)

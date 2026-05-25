@@ -74,7 +74,7 @@ fix_centos_7_repos() {
 
 pm_install() {
   if have dnf; then
-    $SUDO dnf install -y --allowerasing "$@"
+    $SUDO dnf install -y --allowerasing --nobest --skip-unavailable "$@"
   elif have yum; then
     $SUDO yum install -y "$@"
   else
@@ -85,7 +85,7 @@ pm_install() {
 
 pm_group_install() {
   if have dnf; then
-    $SUDO dnf group install -y --allowerasing "$@"
+    $SUDO dnf group install -y --allowerasing --nobest "$@"
   elif have yum; then
     $SUDO yum groupinstall -y "$@"
   else
@@ -203,7 +203,13 @@ install_rhel_dependencies() {
     sqlite-devel gd-devel gettext-devel
 
   pm_install_any pkgconf-pkg-config pkgconfig
-  pm_install_optional libzip-devel
+
+  # CentOS/RHEL 7 commonly ships a libzip version that is too old for modern PHP.
+  # Do not install it automatically there; PHP can still be configured without zip support.
+  if [ "$(el_major)" != "7" ]; then
+    pm_install_optional libzip-devel
+  fi
+
   pm_install_optional libsodium-devel
   pm_install_optional libxcrypt-devel
   pm_install_optional libpq-devel
@@ -223,7 +229,7 @@ case "$DISTRO" in
       libsqlite3-dev libgd-dev libpq-dev gettext
     ;;
   fedora)
-    $SUDO dnf install -y --allowerasing --skip-unavailable \
+    $SUDO dnf install -y --allowerasing --nobest --skip-unavailable \
       @development-tools \
       @c-development \
       ca-certificates curl git tar gzip xz unzip findutils which \

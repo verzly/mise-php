@@ -53,7 +53,7 @@ function PLUGIN:PreInstall(ctx)
         return get_release_for_windows(release)
     end
 
-    version_check_for_linux(release)
+    version_check_before_dependencies(release)
 
     print(
         "\27[96mNote:\27[0m " ..
@@ -65,14 +65,19 @@ function PLUGIN:PreInstall(ctx)
     if SKIP_DEPS then
         print("\27[96mNote:\27[0m Skipping dependency installation (PHP_SKIP_DEPS is set).")
     else
-        install_dependencies()
+        install_dependencies(release.version)
     end
+
+    version_check_after_dependencies(release)
 
     return get_release_for_linux(release)
 end
 
-function version_check_for_linux(release)
+function version_check_before_dependencies(release)
     openssl_check_for_linux(release)  --- PHP < 8.1 with OpenSSL 3 (BAD)
+end
+
+function version_check_after_dependencies(release)
     mcrypt_check_for_linux(release)   --- PHP < 7.2 requires libmcrypt
 end
 
@@ -156,7 +161,7 @@ function get_release_for_linux(release)
     }
 end
 
-function install_dependencies()
+function install_dependencies(version)
     if not VERBOSE then
         print("\27[96mNote:\27[0m Dependency installation output is hidden. Set PHP_VERBOSE=1 or use --verbose to see full output.")
     end
@@ -180,7 +185,12 @@ function install_dependencies()
         end
     end
 
-    local status = os.execute('sh "' .. path .. '"' .. QUIET)
+    local version_prefix = ''
+    if version ~= nil and version ~= '' then
+        version_prefix = 'PHP_BUILD_VERSION="' .. version .. '" '
+    end
+
+    local status = os.execute(version_prefix .. 'sh "' .. path .. '"' .. QUIET)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to install PHP build dependencies.\n\n" ..

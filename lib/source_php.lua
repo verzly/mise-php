@@ -7,6 +7,376 @@ local source_php = {}
 local VERBOSE = env.VERBOSE
 local QUIET = env.QUIET
 
+local function shell_quote(value)
+    return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
+end
+
+
+local function append_env_flag(existing, flag)
+    existing = existing or ""
+    if existing:find(flag, 1, true) then
+        return existing
+    end
+
+    if existing == "" then
+        return flag
+    end
+
+    return existing .. " " .. flag
+end
+
+local function export_env_var(envPrefix, name, value)
+    if not value or value == "" then
+        return envPrefix
+    end
+
+    return envPrefix .. "export " .. name .. "=" .. shell_quote(value) .. " && "
+end
+
+local function read_os_release()
+    local file = io.open("/etc/os-release", "r")
+    if not file then
+        return {}
+    end
+
+    local values = {}
+    for line in file:lines() do
+        local key, value = line:match("^([A-Z_]+)=(.*)$")
+        if key and value then
+            value = value:gsub('^"', ""):gsub('"$', "")
+            values[key] = value
+        end
+    end
+    file:close()
+
+    return values
+end
+
+local function is_el_compatible_major(expected_major)
+    if RUNTIME.osType ~= "linux" then
+        return false
+    end
+
+    local os_release = read_os_release()
+    local id = os_release.ID or ""
+    local id_like = os_release.ID_LIKE or ""
+    local version_id = os_release.VERSION_ID or ""
+    local major = tonumber(version_id:match("^(%d+)"))
+
+    if major ~= expected_major then
+        return false
+    end
+
+    return id == "rhel"
+        or id == "centos"
+        or id == "rocky"
+        or id == "almalinux"
+        or id == "ol"
+        or id == "olinux"
+        or id_like:find("rhel", 1, true) ~= nil
+        or id_like:find("fedora", 1, true) ~= nil
+end
+
+local function php_version_at_least(version, major, minor)
+    local current_major, current_minor = version:match("^(%d+)%.(%d+)")
+    current_major = tonumber(current_major)
+    current_minor = tonumber(current_minor)
+
+    if not current_major or not current_minor then
+        return false
+    end
+
+    if current_major > major then
+        return true
+    end
+
+    return current_major == major and current_minor >= minor
+end
+
+local function sanitize_log_part(value)
+    return tostring(value):gsub("[^%w%._%-]", "-")
+end
+
+local function utc_timestamp()
+    return os.date("!%Y%m%dT%H%M%SZ")
+end
+
+local function create_log_id(version)
+    -- Use one timestamp for the whole source build session so configure,
+    -- config.log, and make logs can be visually grouped together.
+    return sanitize_log_part(version) .. "-" .. utc_timestamp()
+end
+
+local function log_path(log_id, phase)
+    return "/tmp/mise-php-" .. log_id .. "-" .. phase .. ".log"
+end
+
+local function write_log_header(path, label, command, cwd)
+    local file = io.open(path, "w")
+    if not file then
+        return false
+    end
+
+    file:write("# mise-php " .. label .. " log\n")
+    file:write("# Started at: " .. utc_timestamp() .. "\n")
+    if cwd and cwd ~= "" then
+        file:write("# Working directory: " .. cwd .. "\n")
+    end
+    if command and command ~= "" then
+        file:write("# Command: " .. command .. "\n")
+    end
+    file:write("\n")
+    file:close()
+
+    return true
+end
+
+local function append_file(src, dst)
+    return os.execute("cat " .. shell_quote(src) .. " >> " .. shell_quote(dst) .. " 2>/dev/null")
+end
+
+local function read_lines(path)
+    local file = io.open(path, "r")
+    if not file then
+        return nil
+    end
+
+    local lines = {}
+    for line in file:lines() do
+        table.insert(lines, line)
+    end
+    file:close()
+
+    return lines
+end
+
+local function strip_configure_failed_program_blocks(lines)
+    local cleaned = {}
+    local skipping_program = false
+
+    for _, line in ipairs(lines) do
+        if line:find("configure: failed program was:", 1, true) then
+            skipping_program = true
+        elseif skipping_program and line:match("^|") then
+            -- Autoconf prints the full temporary C program after many failed
+            -- probes. That block is very noisy and rarely helps users fix the
+            -- actual dependency problem, so keep it out of the concise summary.
+        else
+            skipping_program = false
+            table.insert(cleaned, line)
+        end
+    end
+
+    return cleaned
+end
+
+local function line_is_configure_failure(line)
+    return line:match("configure:%d+: error:") ~= nil
+        or line:match("^configure: error:") ~= nil
+        or line:match("undefined reference") ~= nil
+        or line:match("ld returned 1 exit status") ~= nil
+        or line:match("collect2: error") ~= nil
+        or line:match("fatal error:") ~= nil
+        or line:match("Package requirements .* were not met") ~= nil
+        or line:match("No package .* found") ~= nil
+        or line:match("Package .* was not found") ~= nil
+        or line:match("command not found") ~= nil
+        or line:match("cannot find") ~= nil
+        or line:match("too old") ~= nil
+end
+
+local function find_excerpt_start(lines, failure_index)
+    local min_index = math.max(1, failure_index - 35)
+
+    for i = failure_index, min_index, -1 do
+        if lines[i]:match("^configure:%d+: checking ") then
+            return i
+        end
+    end
+
+    return math.max(1, failure_index - 8)
+end
+
+local function extract_configure_failure_excerpt(path)
+    local lines = read_lines(path)
+    if not lines or #lines == 0 then
+        return nil
+    end
+
+    lines = strip_configure_failed_program_blocks(lines)
+
+    local failure_index = nil
+    for i = #lines, 1, -1 do
+        if line_is_configure_failure(lines[i]) then
+            failure_index = i
+            break
+        end
+    end
+
+    if not failure_index then
+        return nil
+    end
+
+    local start_index = find_excerpt_start(lines, failure_index)
+    local end_index = math.min(#lines, failure_index + 25)
+    local excerpt = {}
+
+    for i = start_index, end_index do
+        local line = lines[i]
+
+        if line:match("^##") or line:match("^configure: exit ") then
+            break
+        end
+
+        table.insert(excerpt, line)
+
+        if #excerpt >= 80 then
+            break
+        end
+    end
+
+    while #excerpt > 0 and excerpt[1] == "" do
+        table.remove(excerpt, 1)
+    end
+
+    while #excerpt > 0 and excerpt[#excerpt] == "" do
+        table.remove(excerpt, #excerpt)
+    end
+
+    if #excerpt == 0 then
+        return nil
+    end
+
+    return table.concat(excerpt, "\n")
+end
+
+local function print_configure_failure_excerpt(path)
+    local excerpt = extract_configure_failure_excerpt(path)
+    if not excerpt or excerpt == "" then
+        return false
+    end
+
+    io.stderr:write("\n----- PHP configure failure -----\n")
+    io.stderr:write(excerpt)
+    if not excerpt:match("\n$") then
+        io.stderr:write("\n")
+    end
+    io.stderr:write("----- end PHP configure failure -----\n")
+
+    return true
+end
+
+local function line_is_make_failure(line)
+    return line:match("[Ee]rror:") ~= nil
+        or line:match("fatal error:") ~= nil
+        or line:match("undefined reference") ~= nil
+        or line:match("ld returned 1 exit status") ~= nil
+        or line:match("collect2: error") ~= nil
+        or line:match("No such file or directory") ~= nil
+        or line:match("recipe for target") ~= nil
+        or line:match("%*%*%*") ~= nil
+        or line:match("Stop%.") ~= nil
+end
+
+local function shorten_log_line(line)
+    local max_length = 1400
+    if #line <= max_length then
+        return line
+    end
+
+    local head_length = 900
+    local tail_length = 400
+    return line:sub(1, head_length) .. " ... [truncated] ... " .. line:sub(#line - tail_length + 1)
+end
+
+local function extract_make_failure_excerpt(path)
+    local lines = read_lines(path)
+    if not lines or #lines == 0 then
+        return nil
+    end
+
+    local failure_index = nil
+    for i = #lines, 1, -1 do
+        if line_is_make_failure(lines[i]) then
+            failure_index = i
+            break
+        end
+    end
+
+    if not failure_index then
+        -- Fall back to the last part of the build log. Build systems sometimes
+        -- fail through wrapper scripts without a clean, machine-readable error
+        -- marker, and the tail is still more useful than dumping the full log.
+        failure_index = #lines
+    end
+
+    local start_index = math.max(1, failure_index - 35)
+    local end_index = math.min(#lines, failure_index + 15)
+    local excerpt = {}
+
+    for i = start_index, end_index do
+        table.insert(excerpt, shorten_log_line(lines[i]))
+        if #excerpt >= 80 then
+            break
+        end
+    end
+
+    while #excerpt > 0 and excerpt[1] == "" do
+        table.remove(excerpt, 1)
+    end
+
+    while #excerpt > 0 and excerpt[#excerpt] == "" do
+        table.remove(excerpt, #excerpt)
+    end
+
+    if #excerpt == 0 then
+        return nil
+    end
+
+    return table.concat(excerpt, "\n")
+end
+
+local function print_make_failure_excerpt(path)
+    local excerpt = extract_make_failure_excerpt(path)
+    if not excerpt or excerpt == "" then
+        return false
+    end
+
+    io.stderr:write("\n----- PHP build failure -----\n")
+    io.stderr:write(excerpt)
+    if not excerpt:match("\n$") then
+        io.stderr:write("\n")
+    end
+    io.stderr:write("----- end PHP build failure -----\n")
+
+    return true
+end
+
+local function print_file_tip(path, label)
+    if VERBOSE then
+        return "💡 Debug log: \27[93m" .. path .. "\27[0m (" .. label .. ")\n"
+    end
+
+    return "💡 Tip: \27[93mCheck the " .. label .. " log for details:\27[0m " .. path .. "\n"
+end
+
+local function run_make(sdkPath, envPrefix, log_id)
+    local makeLog = log_path(log_id, "make")
+    local makeCommand = "make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+
+    write_log_header(makeLog, "build", envPrefix .. makeCommand, sdkPath)
+
+    local status = os.execute(string.format(
+        "cd %s && %s%s >> %s 2>&1",
+        shell_quote(sdkPath),
+        envPrefix,
+        makeCommand,
+        shell_quote(makeLog)
+    ))
+
+    return status, makeLog
+end
+
 local function is_wsl()
     local f = io.open("/proc/version", "r")
     if not f then
@@ -86,6 +456,36 @@ end
 local configure_macos
 local configure_linux
 
+local function apply_platform_build_flags(envPrefix, version)
+    if is_el_compatible_major(8) and php_version_at_least(version, 8, 5) then
+        -- EL8-compatible distributions can fail to link PHP 8.5+ executables
+        -- with their default toolchain and linker behavior. The first failure
+        -- appears around mbstring GNU IFUNC symbols and asks for a PIE build.
+        -- Once PIE linking is enabled, the intl extension can still fail because
+        -- its C++ objects are not position-independent unless CXXFLAGS is set.
+        --
+        -- Use PIC for both C and C++ objects, and keep PIE linking enabled. This
+        -- is intentionally scoped to EL8 + PHP 8.5+ so newer EL releases and
+        -- older PHP versions are not affected by stronger build flags.
+        local cflags = append_env_flag(os.getenv("CFLAGS") or "", "-fPIC")
+        local cxxflags = append_env_flag(os.getenv("CXXFLAGS") or "", "-fPIC")
+        local ldflags = append_env_flag(os.getenv("LDFLAGS") or "", "-pie")
+
+        if VERBOSE then
+            print("Applying EL8-compatible PIC/PIE build flags for PHP 8.5+")
+            print("CFLAGS += -fPIC")
+            print("CXXFLAGS += -fPIC")
+            print("LDFLAGS += -pie")
+        end
+
+        envPrefix = export_env_var(envPrefix, "CFLAGS", cflags)
+        envPrefix = export_env_var(envPrefix, "CXXFLAGS", cxxflags)
+        envPrefix = export_env_var(envPrefix, "LDFLAGS", ldflags)
+    end
+
+    return envPrefix
+end
+
 function source_php.install(sdkPath, version)
     fail_if_windows_php_is_visible_or_hangs()
 
@@ -100,9 +500,14 @@ function source_php.install(sdkPath, version)
     -- Build environment and configure options
     local envPrefix = ""
     local configureOptions = "--prefix='" .. sdkPath .. "'"
+    local log_id = create_log_id(version)
+
+    if VERBOSE then
+        print("Build log id: " .. log_id)
+    end
 
     if not VERBOSE then
-        print("\27[96mNote:\27[0m Build output is hidden. Set PHP_VERBOSE=1 to see full output.")
+        print("\27[96mNote:\27[0m Build output is written to temporary log files. Set PHP_VERBOSE=1 to show commands, failure summaries, and log paths.")
     end
 
     -- Common configure options
@@ -164,8 +569,10 @@ function source_php.install(sdkPath, version)
         if existing_cflags ~= "" then
             cflags_val = cflags_val .. " " .. existing_cflags
         end
-        envPrefix = envPrefix .. 'export CFLAGS="' .. cflags_val .. '" && '
+        envPrefix = export_env_var(envPrefix, "CFLAGS", cflags_val)
     end
+
+    envPrefix = apply_platform_build_flags(envPrefix, version)
 
     -- Allow user to append configure options
     local extraOptions = os.getenv("PHP_EXTRA_CONFIGURE_OPTIONS")
@@ -181,11 +588,19 @@ function source_php.install(sdkPath, version)
 
     -- Run buildconf
     print("Running buildconf...")
-    local buildconfCmd = string.format("cd '%s' && ./buildconf --force" .. QUIET, sdkPath)
+    local buildconfLog = log_path(log_id, "buildconf")
+    write_log_header(buildconfLog, "buildconf", "./buildconf --force", sdkPath)
+
+    local buildconfCmd = string.format(
+        "cd %s && ./buildconf --force >> %s 2>&1",
+        shell_quote(sdkPath),
+        shell_quote(buildconfLog)
+    )
     local status = os.execute(buildconfCmd)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to run buildconf.\n\n" ..
+            print_file_tip(buildconfLog, "buildconf") ..
             messages.verbose_tip(version) ..
             messages.see("debugging")
         )
@@ -193,17 +608,41 @@ function source_php.install(sdkPath, version)
 
     -- Run configure
     print("Configuring PHP with options...")
-    local configureCmd = string.format("cd '%s' && %s./configure %s" .. QUIET, sdkPath, envPrefix, configureOptions)
+    if VERBOSE then
+        print("Configure command: " .. envPrefix .. "./configure " .. configureOptions)
+    end
+
+    local configureOutputLog = log_path(log_id, "configure-output")
+    write_log_header(configureOutputLog, "configure output", envPrefix .. "./configure " .. configureOptions, sdkPath)
+
+    local configureCmd = string.format(
+        "cd %s && %s./configure %s >> %s 2>&1",
+        shell_quote(sdkPath),
+        envPrefix,
+        configureOptions,
+        shell_quote(configureOutputLog)
+    )
     status = os.execute(configureCmd)
     if status ~= 0 and status ~= true then
-        local saved_log = ""
         local src_log = sdkPath .. "/config.log"
-        local dst_log = "/tmp/mise-php-config-" .. version .. ".log"
-        if os.execute("cp '" .. src_log .. "' '" .. dst_log .. "' 2>/dev/null") == 0 then
-            saved_log = "💡 Tip: \27[93mCheck the configure log for details:\27[0m " .. dst_log .. "\n"
+        local dst_log = log_path(log_id, "config")
+        local saved_log = print_file_tip(configureOutputLog, "configure output")
+
+        write_log_header(dst_log, "configure config.log", envPrefix .. "./configure " .. configureOptions, sdkPath)
+        local append_status = append_file(src_log, dst_log)
+        if append_status == 0 or append_status == true then
+            if VERBOSE then
+                print_configure_failure_excerpt(dst_log)
+            end
+            saved_log = saved_log .. print_file_tip(dst_log, "configure config.log")
+        elseif VERBOSE then
+            os.remove(dst_log)
+            print_configure_failure_excerpt(configureOutputLog)
         end
+
         error(
             "\n\nFailed to configure PHP.\n\n" ..
+            saved_log ..
             messages.verbose_tip(version) ..
             messages.see("debugging")
         )
@@ -211,20 +650,15 @@ function source_php.install(sdkPath, version)
 
     -- Build PHP
     print("Building PHP (this may take several minutes)...")
-    local makeLog = "/tmp/mise-php-make-" .. version .. ".log"
-    local makeCmd = string.format(
-        "cd '%s' && %smake -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2) > '%s' 2>&1",
-        sdkPath,
-        envPrefix,
-        makeLog
-    )
-    if VERBOSE then
-        print("\27[96mNote:\27[0m Capturing build output to " .. makeLog .. ", run 'tail -f " .. makeLog .. "' to watch")
-    end
-    status = os.execute(makeCmd)
+    local makeLog
+    status, makeLog = run_make(sdkPath, envPrefix, log_id)
     if status ~= 0 and status ~= true then
+        if makeLog and makeLog ~= "" and VERBOSE then
+            print_make_failure_excerpt(makeLog)
+        end
         error(
             "\n\nFailed to build PHP.\n\n" ..
+            (makeLog and print_file_tip(makeLog, "build") or "") ..
             messages.verbose_tip(version) ..
             messages.see("debugging")
         )
@@ -451,23 +885,41 @@ end
 
 --- Configure options for Linux
 function configure_linux(configureOptions)
-    -- On Linux, most libraries are in standard paths
+    -- On Linux, most libraries are in standard paths.
     configureOptions = configureOptions .. " --with-curl --with-readline --with-gettext"
 
-    -- Check for GD dependencies
-    local gd_check = os.execute("pkg-config --exists libpng 2>/dev/null")
+    local bz2_check = os.execute("printf '#include <bzlib.h>\nint main(void){return 0;}\n' | cc -x c - -lbz2 >/dev/null 2>&1")
+    if bz2_check == 0 or bz2_check == true then
+        configureOptions = configureOptions .. " --with-bz2"
+    end
+
+    local gmp_check = os.execute("pkg-config --exists gmp 2>/dev/null")
+    if gmp_check == 0 or gmp_check == true then
+        configureOptions = configureOptions .. " --with-gmp"
+    end
+
+    local sodium_check = os.execute("pkg-config --exists libsodium 2>/dev/null")
+    if sodium_check == 0 or sodium_check == true then
+        configureOptions = configureOptions .. " --with-sodium"
+    end
+
+    -- Check for external GD support. Older enterprise distributions may provide
+    -- libpng or gd-devel but only an outdated gdlib, so require gdlib explicitly.
+    local gd_check = os.execute("pkg-config --exists 'gdlib >= 2.1.0' 2>/dev/null")
     if gd_check == 0 or gd_check == true then
         configureOptions = configureOptions .. " --with-external-gd"
     end
 
-    -- Check for PostgreSQL
+    -- Check for PostgreSQL.
     local pgsql_check = os.execute("pg_config --version 2>/dev/null")
     if pgsql_check == 0 or pgsql_check == true then
         configureOptions = configureOptions .. " --with-pdo-pgsql"
     end
 
-    -- Check for libzip
-    local zip_check = os.execute("pkg-config --exists libzip 2>/dev/null")
+    -- Avoid enabling libzip from very old enterprise repositories. The PHP
+    -- configure script performs its own final check, but this avoids predictable
+    -- failures on systems that expose an old libzip through pkg-config.
+    local zip_check = os.execute("pkg-config --exists 'libzip >= 0.11' 2>/dev/null")
     if zip_check == 0 or zip_check == true then
         configureOptions = configureOptions .. " --with-zip"
     end

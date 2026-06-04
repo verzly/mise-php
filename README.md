@@ -22,6 +22,7 @@ Install multiple PHP versions side by side, each with its own isolated runtime, 
   - [Upgrade](#up-to-date)
 - [Usage](#usage)
   - [PHP](#php)
+  - [Source build dependencies](#source-build-dependencies)
   - [Prebuilt static PHP](#prebuilt-static-php)
   - [Composer](#composer-for-php)
   - [PIE](#pie-for-php)
@@ -196,6 +197,16 @@ pecl version
 The list of version numbers is not gathered directly from [`php/php-src`](https://github.com/php/php-src/releases), because the GitHub API enforces rate limiting after a certain number of requests. Instead, we update our `versions.txt` file from a `cache` branch once per day, so it's possible that a release may only be installable via the `verzly/mise-php` plugin with a one-day delay, or may require a manual update.
 
 When prebuilt static PHP is enabled, version listing switches to the available static-php-cli binaries for the current operating system, CPU architecture, and selected flavor.
+
+### Source build dependencies
+
+Source builds need native system packages for the selected PHP version, configure options, and requested PECL/PIE extensions. By default, `mise-php` detects the current platform and installs the matching dependency set automatically.
+
+Supported installers cover Debian and Ubuntu, Fedora, Enterprise Linux-compatible systems, Amazon Linux 2023, Arch Linux, Alpine Linux, and macOS through Homebrew. Enterprise Linux-compatible systems are handled by major version, such as EL8, EL9, and EL10, so RHEL-style systems, CentOS Stream, Rocky Linux, AlmaLinux, and Oracle Linux can receive version-specific repository, dependency, and build-flag handling.
+
+Some PHP/platform combinations need extra handling, such as a newer `re2c` for PHP 8.3+ on older Enterprise Linux releases or PIC/PIE build flags for PHP 8.5+ on EL8-compatible systems. Static PHP installs skip this step because they use prebuilt binaries with a fixed extension set.
+
+For permanent or one-time disabling, see [Skip dependency installation](#skip-dependency-installation). For package names, repository setup, and version-specific notes, see [`bin/install-dependencies.sh`](bin/install-dependencies.sh).
 
 ### Prebuilt static PHP
 
@@ -477,7 +488,7 @@ The following installation options can be set through `mise config set env._.php
 | `prebuilt_static` | `PHP_PREBUILT_STATIC` | `false` | Use prebuilt static PHP binaries instead of source builds on supported platforms. |
 | `prebuilt_static_flavor` | `PHP_PREBUILT_STATIC_FLAVOR` | `bulk` | Select the static-php-cli binary flavor. Defaults to the largest flavor: `bulk` on Linux/macOS and `spc-max` on Windows. |
 | `skip_deps` | `PHP_SKIP_DEPS` | `false` | Skip automatic build dependency installation for source builds. |
-| `verbose` | `PHP_VERBOSE` | `false` | Show full dependency, build, and installer output. |
+| `verbose` | `PHP_VERBOSE` | `false` | Show commands, failure summaries, and temporary log file paths for debugging. |
 | `extra_configure_options` | `PHP_EXTRA_CONFIGURE_OPTIONS` | empty | Append extra configure options to the default source build configuration. |
 | `configure_options` | `PHP_CONFIGURE_OPTIONS` | empty | Replace configure options entirely while preserving the install prefix. |
 | `pecl_extensions` | `PHP_PECL_EXTENSIONS` | empty | Install PECL extensions after source builds where PECL is available. |
@@ -499,10 +510,8 @@ Static PHP flavor notes:
 > [!Note]
 > On Windows, PHP is installed from prebuilt binaries. With `prebuilt_static = true`, the plugin uses static-php-cli Windows builds; otherwise it uses binaries from [windows.php.net](https://windows.php.net). Configure options do not apply.
 
-> [!WARNING]
-> When using custom configure options, you are responsible for ensuring the required
-> build dependencies are installed on your system. The plugin only installs dependencies
-> for the default configuration automatically.
+> [!NOTE]
+> When using custom configure options, the dependency installer scans `configure_options` and `extra_configure_options` and installs known optional native libraries only for matching flags. Unknown extension-specific dependencies must still be installed manually.
 
 Add extra configure options on top of the defaults:
 
@@ -567,7 +576,7 @@ The following options are additionally detected based on available libraries:
 | `--with-png` | if `brew install libpng` | |
 | `--with-bz2` | if `brew install bzip2` | |
 | `--with-iconv` | if `brew install libiconv` | |
-| `--with-external-gd` | if freetype + jpeg + libpng installed | if `libpng` via pkg-config |
+| `--with-external-gd` | if freetype + jpeg + libpng installed | if `gdlib >= 2.1.0` via pkg-config |
 | `--with-pdo-pgsql` | if `brew install libpq` | if `pg_config` in PATH |
 | `--with-zip` | if `brew install libzip` | if `libzip` via pkg-config |
 
@@ -601,8 +610,9 @@ Useful when dependencies are already present or managed externally
 
 ### PHP_VERBOSE=1 - mise-php debug output
 
-By default, build output is hidden. Set `PHP_VERBOSE=1` to see the full output of
-dependency installation, `buildconf`, `configure`, `make`, and Composer installation.
+By default, dependency and build output is captured to temporary log files to keep installation output readable. Set `PHP_VERBOSE=1` to show commands, concise failure summaries, and the temporary log file paths.
+
+`buildconf`, `configure`, and `make` output is still written to timestamped files under `/tmp`. Files from the same source build share the same log id, for example `mise-php-8.5.5-20260525T075628Z-configure-output.log` and `mise-php-8.5.5-20260525T075628Z-make.log`. When a failure occurs, mise-php prints the relevant error context directly in the terminal and includes the full log path for deeper debugging.
 
 ```sh
 # One-time use (Linux / macOS / Bash)
@@ -613,12 +623,12 @@ $env:PHP_VERBOSE=1; mise install php@8.4.3
 
 # Enable permanently
 mise config set env._.php.verbose true
-# Subsequent installs will show full build output automatically
+# Subsequent installs will show commands, failure summaries, and log paths automatically
 mise install php@8.4.3
 
 # Disable
 mise config set env._.php.verbose false
-# Build output will be hidden again
+# Build output will be captured quietly again
 mise install php@8.4.3
 ```
 

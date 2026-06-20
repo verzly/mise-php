@@ -143,6 +143,7 @@ Function Get-PhpExtras {
 $tempFile = [IO.Path]::ChangeExtension([IO.Path]::GetTempFileName(), '.zip')
 
 try {
+    Set-Location -LiteralPath $env:TEMP
     if (-not (Test-Path $CustomPath)) { New-Item -ItemType Directory -Path $CustomPath | Out-Null }
 
     $Semver = $Version

@@ -34,7 +34,7 @@ function install_php_for_windows(sdkPath, version)
 
     local scriptPath = assert(RUNTIME.pluginDirPath .. "\\bin\\install-windows-php.ps1")
     local installCmd = string.format(
-        'cmd /c cd /d "%%TEMP%%" && powershell -NoProfile -ExecutionPolicy Bypass -File "%s" -Version %s -Arch x64 -CustomPath "%s"',
+        [[powershell -NoProfile -ExecutionPolicy Bypass -File %s -Version %s -Arch x64 -CustomPath %s]],
         scriptPath,
         version,
         sdkPath

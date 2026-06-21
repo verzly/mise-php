@@ -34,7 +34,7 @@ function install_php_for_windows(sdkPath, version)
 
     local scriptPath = assert(RUNTIME.pluginDirPath .. "\\bin\\install-windows-php.ps1")
     local installCmd = string.format(
-        [[powershell -NoProfile -ExecutionPolicy Bypass -File %s -Version %s -Arch x64 -CustomPath %s]],
+        [[powershell -NoProfile -ExecutionPolicy Bypass -File "%s" -Version %s -Arch x64 -CustomPath "%s"]],
         scriptPath,
         version,
         sdkPath
@@ -50,7 +50,26 @@ function install_php_for_windows(sdkPath, version)
 
     -- Verify PHP installation
     local php_bin = sdkPath .. "\\php.exe"
-    local ok, why, code = os.execute('"' .. php_bin .. '" --version > NUL 2>&1')
+    local verify_bat = sdkPath .. "\\mise-php-verify.bat"
+
+    local ok = tools.write_file(verify_bat, string.format(
+        [[@echo off
+"%s" --version
+]],
+        php_bin
+    ))
+
+    if not ok then
+        error(
+            "\n\nFailed to create temporary PHP verification script.\n\n" ..
+            messages.verbose_tip(version) ..
+            messages.see("debugging")
+        )
+    end
+
+    local ok, why, code = os.execute(verify_bat .. " > NUL 2>&1")
+    os.remove(verify_bat)
+
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(
             "\n\nPHP installation appears to be broken: 'php --version' failed.\n\n" ..

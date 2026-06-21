@@ -14,6 +14,43 @@ local function join_path(...)
     return table.concat({ ... }, PATH_SEP)
 end
 
+local function write_file(path, content)
+    local file = io.open(path, "w")
+
+    if not file then
+        return false
+    end
+
+    file:write(content)
+    file:close()
+
+    return true
+end
+
+local function file_exists(path)
+    local file = io.open(path, "r")
+
+    if not file then
+        return false
+    end
+
+    file:close()
+
+    return true
+end
+
+local function run_bat(path, content)
+    if not write_file(path, content) then
+        return nil
+    end
+
+    local status = os.execute(path .. QUIET)
+
+    os.remove(path)
+
+    return status
+end
+
 function tools.has_extension_requests()
     return #PECL_EXTENSIONS > 0 or #PIE_EXTENSIONS > 0
 end
@@ -199,13 +236,22 @@ function tools.install_pie_for_windows(sdkPath, version)
 
     -- Download PIE PHAR
     local dl_cmd = string.format(
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile \'%s\'"' .. QUIET,
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile "%s"' .. QUIET,
         pie_phar
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[93mWarning:\27[0m Failed to download PIE.\n" ..
+            messages.verbose_tip(version) ..
+            messages.see("pie-verification-may-fail-or-time-out")
+        )
+        return false
+    end
+
+    if not file_exists(pie_phar) then
+        io.stderr:write(
+            "\27[93mWarning:\27[0m PIE PHAR was not downloaded.\n" ..
             messages.verbose_tip(version) ..
             messages.see("pie-verification-may-fail-or-time-out")
         )
@@ -228,8 +274,13 @@ function tools.install_pie_for_windows(sdkPath, version)
     bat:close()
 
     -- Verify PIE installation
-    local ok, why, code = os.execute('"' .. pie_bat .. '" --version > NUL 2>&1')
-    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+    status = run_bat(join_path(sdkPath, "mise-pie-verify.bat"), string.format(
+        [[@echo off
+call "%s" --version
+]],
+        pie_bat
+    ))
+    if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE verification failed.\n" ..
             messages.manual_tip("pie --version") ..
@@ -334,23 +385,41 @@ function tools.install_pie_extensions_for_windows(sdkPath, version)
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local cmd = string.format(
-            '"%s" "%s" install --with-php-path="%s" "%s"%s',
+        local tmp_bat = join_path(sdkPath, "mise-pie-install-extension.bat")
+
+        local ok = write_file(tmp_bat, string.format(
+            [[@echo off
+"%s" "%s" install --with-php-path="%s" "%s"
+]],
             php_bin,
             pie_phar,
             php_bin,
-            pkg,
-            QUIET
-        )
+            pkg
+        ))
 
-        local status = os.execute(cmd)
-        if status ~= 0 and status ~= true then
+        if not ok then
             io.stderr:write(
-                "\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n" ..
+                "\27[93mWarning:\27[0m Failed to create temporary PIE extension installer.\n" ..
                 messages.verbose_tip(version) ..
                 messages.see("extension-builds-require-phpize-and-build-tooling")
             )
+
             all_ok = false
+        else
+            local cmd = tmp_bat .. QUIET
+            local status = os.execute(cmd)
+
+            os.remove(tmp_bat)
+
+            if status ~= 0 and status ~= true then
+                io.stderr:write(
+                    "\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n" ..
+                    messages.verbose_tip(version) ..
+                    messages.see("extension-builds-require-phpize-and-build-tooling")
+                )
+
+                all_ok = false
+            end
         end
     end
 
@@ -387,13 +456,22 @@ function tools.install_composer_for_windows(sdkPath, version)
 
     -- Download Composer PHAR
     local dl_cmd = string.format(
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://getcomposer.org/composer-stable.phar -OutFile \'%s\'"' .. QUIET,
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-WebRequest -Uri https://getcomposer.org/composer-stable.phar -OutFile "%s"' .. QUIET,
         composer_phar
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[91mError:\27[0m Failed to download Composer.\n" ..
+            messages.verbose_tip(version) ..
+            messages.see("debugging")
+        )
+        return false
+    end
+
+    if not file_exists(composer_phar) then
+        io.stderr:write(
+            "\27[91mError:\27[0m Composer PHAR was not downloaded.\n" ..
             messages.verbose_tip(version) ..
             messages.see("debugging")
         )
@@ -418,8 +496,13 @@ function tools.install_composer_for_windows(sdkPath, version)
     bat:close()
 
     -- Verify Composer installation
-    local ok, why, code = os.execute('"' .. composer_bat .. '" --version > NUL 2>&1')
-    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+    status = run_bat(join_path(sdkPath, "mise-composer-verify.bat"), string.format(
+        [[@echo off
+call "%s" --version
+]],
+        composer_bat
+    ))
+    if status ~= 0 and status ~= true then
         io.stderr:write(
             "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..
             messages.manual_tip("composer --version") ..

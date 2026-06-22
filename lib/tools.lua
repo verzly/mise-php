@@ -368,7 +368,8 @@ function tools.install_pie_extensions_for_linux(sdkPath, version)
         print("Installing PIE extension: " .. pkg .. "...")
 
         local cmd = string.format(
-            '"%s" "%s" install --with-php-path="%s" --with-php-config="%s" --with-phpize-path="%s" "%s"%s',
+            'PATH="%s/bin:$PATH" "%s" "%s" install --with-php-path="%s" --with-php-config="%s" --with-phpize-path="%s" "%s"%s',
+            sdkPath,
             php_bin,
             pie_phar,
             php_bin,

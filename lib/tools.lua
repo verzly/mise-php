@@ -14,7 +14,7 @@ local function join_path(...)
     return table.concat({ ... }, PATH_SEP)
 end
 
-local function write_file(path, content)
+function tools.write_file(path, content)
     local file = io.open(path, "w")
 
     if not file then
@@ -40,11 +40,11 @@ local function file_exists(path)
 end
 
 local function run_bat(path, content)
-    if not write_file(path, content) then
+    if not tools.write_file(path, content) then
         return nil
     end
 
-    local status = os.execute(path .. QUIET)
+    local status = os.execute(path)
 
     os.remove(path)
 
@@ -387,7 +387,7 @@ function tools.install_pie_extensions_for_windows(sdkPath, version)
 
         local tmp_bat = join_path(sdkPath, "mise-pie-install-extension.bat")
 
-        local ok = write_file(tmp_bat, string.format(
+        local ok = tools.write_file(tmp_bat, string.format(
             [[@echo off
 "%s" "%s" install --with-php-path="%s" "%s"
 ]],

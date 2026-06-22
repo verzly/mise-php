@@ -34,7 +34,7 @@ function install_php_for_windows(sdkPath, version)
 
     local scriptPath = assert(RUNTIME.pluginDirPath .. "\\bin\\install-windows-php.ps1")
     local installCmd = string.format(
-        [[powershell -NoProfile -ExecutionPolicy Bypass -File "%s" -Version %s -Arch x64 -CustomPath "%s"]],
+        [[powershell -NoProfile -ExecutionPolicy Bypass -File %s -Version %s -Arch x64 -CustomPath %s]],
         scriptPath,
         version,
         sdkPath
@@ -50,24 +50,30 @@ function install_php_for_windows(sdkPath, version)
 
     -- Verify PHP installation
     local php_bin = sdkPath .. "\\php.exe"
-    local verify_bat = sdkPath .. "\\mise-php-verify.bat"
+    local verify_bat_name = "mise-php-verify.bat"
+    local verify_bat = sdkPath .. "\\" .. verify_bat_name
 
-    local ok = tools.write_file(verify_bat, string.format(
+    local written = tools.write_file(verify_bat, string.format(
         [[@echo off
 "%s" --version
 ]],
         php_bin
     ))
 
-    if not ok then
+    if not written then
         error(
-            "\n\nFailed to create temporary PHP verification script.\n\n" ..
+            "\n\nFailed to create PHP verification script.\n\n" ..
             messages.verbose_tip(version) ..
             messages.see("debugging")
         )
     end
 
-    local ok, why, code = os.execute(verify_bat .. " > NUL 2>&1")
+    local ok, why, code = os.execute(string.format(
+        'cd /d "%s" && %s > NUL 2>&1',
+        sdkPath,
+        verify_bat_name
+    ))
+
     os.remove(verify_bat)
 
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then

@@ -33,14 +33,14 @@ function install_php_for_windows(sdkPath, version)
     major, minor = tonumber(major) or 0, tonumber(minor) or 0
 
     local scriptPath = assert(RUNTIME.pluginDirPath .. "\\bin\\install-windows-php.ps1")
-    local installCmd = string.format(
-        [[powershell -NoProfile -ExecutionPolicy Bypass -File %s -Version %s -Arch x64 -CustomPath %s]],
+    local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-php-install", string.format(
+        [[powershell -NoProfile -ExecutionPolicy Bypass -File "%s" -Version %s -Arch x64 -CustomPath "%s"]],
         scriptPath,
         version,
         sdkPath
-    )
-    local status = os.execute(installCmd)
-    if status ~= 0 and status ~= true then
+    ), "")
+
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(
             "\n\nFailed to install PHP.\n\n" ..
             messages.verbose_tip(version) ..
@@ -50,7 +50,12 @@ function install_php_for_windows(sdkPath, version)
 
     -- Verify PHP installation
     local php_bin = sdkPath .. "\\php.exe"
-    local ok, why, code = os.execute('"' .. php_bin .. '" --version > NUL 2>&1')
+
+    ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-php-verify", string.format(
+        [["%s" --version]],
+        php_bin
+    ), " > NUL 2>&1")
+
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(
             "\n\nPHP installation appears to be broken: 'php --version' failed.\n\n" ..
@@ -58,6 +63,7 @@ function install_php_for_windows(sdkPath, version)
             messages.see("debugging")
         )
     end
+
     print("PHP installation complete!")
 
     -- Install PIE and PIE extensions

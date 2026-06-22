@@ -14,6 +14,71 @@ local function join_path(...)
     return table.concat({ ... }, PATH_SEP)
 end
 
+function tools.write_file(path, content)
+    local file = io.open(path, "w")
+
+    if not file then
+        return false
+    end
+
+    file:write(content)
+    file:close()
+
+    return true
+end
+
+local function file_exists(path)
+    local file = io.open(path, "r")
+
+    if not file then
+        return false
+    end
+
+    file:close()
+
+    return true
+end
+
+-- Executes Windows commands through a temporary .bat file.
+--
+-- This avoids quoting issues caused by os.execute() when the command itself
+-- contains quoted executable paths. The quotes stay inside the generated .bat,
+-- where cmd.exe handles them normally.
+--
+-- The temporary .bat file gets a unique name to avoid collisions between
+-- parallel installs.
+--
+-- Returns the raw os.execute() result: ok, why, code.
+function tools.os_execute_via_bat(dir, script_name, content, quiet)
+    local safe_script_name = script_name:gsub("[^%w%-_]", "-")
+    local name = string.format(
+        "%s-%d-%s.bat",
+        safe_script_name,
+        os.time(),
+        tostring({}):gsub("[^%w]", "")
+    )
+    local path = join_path(dir, name)
+    local redirect = quiet or ""
+
+    local script = string.format(
+        [[@echo off
+%s
+]],
+        content
+    )
+
+    if not tools.write_file(path, script) then
+        return nil, "exit", 1
+    end
+
+    -- Note: path must not contain spaces.
+    local ok, why, code = os.execute(path .. redirect)
+
+    os.remove(path)
+
+    return ok, why, code
+end
+
 function tools.has_extension_requests()
     return #PECL_EXTENSIONS > 0 or #PIE_EXTENSIONS > 0
 end
@@ -199,13 +264,22 @@ function tools.install_pie_for_windows(sdkPath, version)
 
     -- Download PIE PHAR
     local dl_cmd = string.format(
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile \'%s\'"' .. QUIET,
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile "%s"' .. QUIET,
         pie_phar
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[93mWarning:\27[0m Failed to download PIE.\n" ..
+            messages.verbose_tip(version) ..
+            messages.see("pie-verification-may-fail-or-time-out")
+        )
+        return false
+    end
+
+    if not file_exists(pie_phar) then
+        io.stderr:write(
+            "\27[93mWarning:\27[0m PIE PHAR was not downloaded.\n" ..
             messages.verbose_tip(version) ..
             messages.see("pie-verification-may-fail-or-time-out")
         )
@@ -228,7 +302,11 @@ function tools.install_pie_for_windows(sdkPath, version)
     bat:close()
 
     -- Verify PIE installation
-    local ok, why, code = os.execute('"' .. pie_bat .. '" --version > NUL 2>&1')
+    local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-pie-verify", string.format(
+        [[call "%s" --version]],
+        pie_bat
+    ), QUIET)
+
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE verification failed.\n" ..
@@ -334,22 +412,21 @@ function tools.install_pie_extensions_for_windows(sdkPath, version)
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local cmd = string.format(
-            '"%s" "%s" install --with-php-path="%s" "%s"%s',
+        local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-pie-install-extension", string.format(
+            [["%s" "%s" install --with-php-path="%s" "%s"]],
             php_bin,
             pie_phar,
             php_bin,
-            pkg,
-            QUIET
-        )
+            pkg
+        ), QUIET)
 
-        local status = os.execute(cmd)
-        if status ~= 0 and status ~= true then
+        if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
             io.stderr:write(
                 "\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n" ..
                 messages.verbose_tip(version) ..
                 messages.see("extension-builds-require-phpize-and-build-tooling")
             )
+
             all_ok = false
         end
     end
@@ -387,13 +464,22 @@ function tools.install_composer_for_windows(sdkPath, version)
 
     -- Download Composer PHAR
     local dl_cmd = string.format(
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri https://getcomposer.org/composer-stable.phar -OutFile \'%s\'"' .. QUIET,
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-WebRequest -Uri https://getcomposer.org/composer-stable.phar -OutFile "%s"' .. QUIET,
         composer_phar
     )
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[91mError:\27[0m Failed to download Composer.\n" ..
+            messages.verbose_tip(version) ..
+            messages.see("debugging")
+        )
+        return false
+    end
+
+    if not file_exists(composer_phar) then
+        io.stderr:write(
+            "\27[91mError:\27[0m Composer PHAR was not downloaded.\n" ..
             messages.verbose_tip(version) ..
             messages.see("debugging")
         )
@@ -418,7 +504,11 @@ function tools.install_composer_for_windows(sdkPath, version)
     bat:close()
 
     -- Verify Composer installation
-    local ok, why, code = os.execute('"' .. composer_bat .. '" --version > NUL 2>&1')
+    local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-composer-verify", string.format(
+        [[call "%s" --version]],
+        composer_bat
+    ), QUIET)
+
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         io.stderr:write(
             "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..
@@ -491,4 +581,5 @@ function tools.install_composer_for_linux(sdkPath, version)
 
     return true
 end
+
 return tools

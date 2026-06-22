@@ -39,16 +39,44 @@ local function file_exists(path)
     return true
 end
 
-local function run_bat(path, content)
-    if not tools.write_file(path, content) then
-        return nil
+-- Executes Windows commands through a temporary .bat file.
+--
+-- This avoids quoting issues caused by os.execute() when the command itself
+-- contains quoted executable paths. The quotes stay inside the generated .bat,
+-- where cmd.exe handles them normally.
+--
+-- The temporary .bat file gets a unique name to avoid collisions between
+-- parallel installs.
+--
+-- Returns the raw os.execute() result: ok, why, code.
+function tools.os_execute_via_bat(dir, script_name, content, quiet)
+    local safe_script_name = script_name:gsub("[^%w%-_]", "-")
+    local name = string.format(
+        "%s-%d-%s.bat",
+        safe_script_name,
+        os.time(),
+        tostring({}):gsub("[^%w]", "")
+    )
+    local path = join_path(dir, name)
+    local redirect = quiet or ""
+
+    local script = string.format(
+        [[@echo off
+%s
+]],
+        content
+    )
+
+    if not tools.write_file(path, script) then
+        return nil, "exit", 1
     end
 
-    local status = os.execute(path)
+    -- Note: path must not contain spaces.
+    local ok, why, code = os.execute(path .. redirect)
 
     os.remove(path)
 
-    return status
+    return ok, why, code
 end
 
 function tools.has_extension_requests()
@@ -274,13 +302,12 @@ function tools.install_pie_for_windows(sdkPath, version)
     bat:close()
 
     -- Verify PIE installation
-    status = run_bat(join_path(sdkPath, "mise-pie-verify.bat"), string.format(
-        [[@echo off
-call "%s" --version
-]],
+    local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-pie-verify", string.format(
+        [[call "%s" --version]],
         pie_bat
-    ))
-    if status ~= 0 and status ~= true then
+    ), QUIET)
+
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE verification failed.\n" ..
             messages.manual_tip("pie --version") ..
@@ -385,41 +412,22 @@ function tools.install_pie_extensions_for_windows(sdkPath, version)
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local tmp_bat = join_path(sdkPath, "mise-pie-install-extension.bat")
-
-        local ok = tools.write_file(tmp_bat, string.format(
-            [[@echo off
-"%s" "%s" install --with-php-path="%s" "%s"
-]],
+        local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-pie-install-extension", string.format(
+            [["%s" "%s" install --with-php-path="%s" "%s"]],
             php_bin,
             pie_phar,
             php_bin,
             pkg
-        ))
+        ), QUIET)
 
-        if not ok then
+        if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
             io.stderr:write(
-                "\27[93mWarning:\27[0m Failed to create temporary PIE extension installer.\n" ..
+                "\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n" ..
                 messages.verbose_tip(version) ..
                 messages.see("extension-builds-require-phpize-and-build-tooling")
             )
 
             all_ok = false
-        else
-            local cmd = tmp_bat .. QUIET
-            local status = os.execute(cmd)
-
-            os.remove(tmp_bat)
-
-            if status ~= 0 and status ~= true then
-                io.stderr:write(
-                    "\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n" ..
-                    messages.verbose_tip(version) ..
-                    messages.see("extension-builds-require-phpize-and-build-tooling")
-                )
-
-                all_ok = false
-            end
         end
     end
 
@@ -496,13 +504,12 @@ function tools.install_composer_for_windows(sdkPath, version)
     bat:close()
 
     -- Verify Composer installation
-    status = run_bat(join_path(sdkPath, "mise-composer-verify.bat"), string.format(
-        [[@echo off
-call "%s" --version
-]],
+    local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-composer-verify", string.format(
+        [[call "%s" --version]],
         composer_bat
-    ))
-    if status ~= 0 and status ~= true then
+    ), QUIET)
+
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         io.stderr:write(
             "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..
             messages.manual_tip("composer --version") ..
@@ -574,4 +581,5 @@ function tools.install_composer_for_linux(sdkPath, version)
 
     return true
 end
+
 return tools

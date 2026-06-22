@@ -33,14 +33,14 @@ function install_php_for_windows(sdkPath, version)
     major, minor = tonumber(major) or 0, tonumber(minor) or 0
 
     local scriptPath = assert(RUNTIME.pluginDirPath .. "\\bin\\install-windows-php.ps1")
-    local installCmd = string.format(
-        [[powershell -NoProfile -ExecutionPolicy Bypass -File %s -Version %s -Arch x64 -CustomPath %s]],
+    local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-php-install", string.format(
+        [[powershell -NoProfile -ExecutionPolicy Bypass -File "%s" -Version %s -Arch x64 -CustomPath "%s"]],
         scriptPath,
         version,
         sdkPath
-    )
-    local status = os.execute(installCmd)
-    if status ~= 0 and status ~= true then
+    ), "")
+
+    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(
             "\n\nFailed to install PHP.\n\n" ..
             messages.verbose_tip(version) ..
@@ -50,31 +50,11 @@ function install_php_for_windows(sdkPath, version)
 
     -- Verify PHP installation
     local php_bin = sdkPath .. "\\php.exe"
-    local verify_bat_name = "mise-php-verify.bat"
-    local verify_bat = sdkPath .. "\\" .. verify_bat_name
 
-    local written = tools.write_file(verify_bat, string.format(
-        [[@echo off
-"%s" --version
-]],
+    ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-php-verify", string.format(
+        [["%s" --version]],
         php_bin
-    ))
-
-    if not written then
-        error(
-            "\n\nFailed to create PHP verification script.\n\n" ..
-            messages.verbose_tip(version) ..
-            messages.see("debugging")
-        )
-    end
-
-    local ok, why, code = os.execute(string.format(
-        'cd /d "%s" && %s > NUL 2>&1',
-        sdkPath,
-        verify_bat_name
-    ))
-
-    os.remove(verify_bat)
+    ), " > NUL 2>&1")
 
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(
@@ -83,6 +63,7 @@ function install_php_for_windows(sdkPath, version)
             messages.see("debugging")
         )
     end
+
     print("PHP installation complete!")
 
     -- Install PIE and PIE extensions

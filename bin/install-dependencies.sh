@@ -520,7 +520,7 @@ install_debian_dependencies() {
 
   apt_install \
     ca-certificates curl git tar gzip xz-utils unzip \
-    build-essential autoconf bison re2c pkg-config gawk \
+    build-essential autoconf libtool bison re2c pkg-config gawk \
     libxml2-dev libssl-dev libicu-dev zlib1g-dev libonig-dev \
     libcurl4-openssl-dev libreadline-dev libsqlite3-dev gettext
 
@@ -551,7 +551,7 @@ install_fedora_dependencies() {
     @development-tools \
     @c-development \
     ca-certificates curl git tar gzip xz unzip findutils which \
-    gawk autoconf bison re2c pkgconf-pkg-config \
+    gawk autoconf libtool bison re2c pkgconf-pkg-config \
     libxml2-devel openssl-devel libicu-devel zlib-devel oniguruma-devel \
     libcurl-devel readline-devel sqlite-devel gettext-devel libxcrypt-devel
 
@@ -587,7 +587,7 @@ install_rhel_dependencies() {
     rhel_install gcc gcc-c++ make patch diffutils file redhat-rpm-config
 
   rhel_install \
-    autoconf bison re2c gawk \
+    autoconf libtool bison re2c gawk \
     libxml2-devel openssl-devel libicu-devel zlib-devel oniguruma-devel \
     libcurl-devel readline-devel sqlite-devel gettext-devel
 
@@ -641,7 +641,7 @@ install_rhel_dependencies() {
 install_arch_dependencies() {
   pacman_install \
     ca-certificates curl git tar gzip xz unzip which \
-    base-devel autoconf bison re2c pkgconf \
+    base-devel autoconf libtool bison re2c pkgconf \
     libxml2 openssl icu zlib oniguruma \
     readline sqlite gettext libxcrypt
 
@@ -675,7 +675,7 @@ install_amazonlinux_dependencies() {
   dnf_install \
     ca-certificates curl git tar gzip xz unzip findutils which sudo \
     gcc gcc-c++ make patch diffutils file \
-    autoconf bison re2c pkgconf-pkg-config gawk \
+    autoconf libtool bison re2c pkgconf-pkg-config gawk \
     libxml2-devel openssl-devel libicu-devel zlib-devel oniguruma-devel \
     libcurl-devel readline-devel sqlite-devel gettext-devel libxcrypt-devel
 
@@ -709,7 +709,7 @@ install_alpine_dependencies() {
   # convention and build-base provides gcc, g++, make, libc headers, and friends.
   apk_install \
     ca-certificates curl git tar gzip xz unzip bash findutils file which \
-    build-base linux-headers autoconf bison re2c pkgconf gawk \
+    build-base linux-headers autoconf libtool bison re2c pkgconf gawk \
     libxml2-dev openssl-dev icu-dev zlib-dev oniguruma-dev \
     curl-dev readline-dev sqlite-dev gettext-dev
 
@@ -741,7 +741,7 @@ install_macos_dependencies() {
   xcode-select --install 2>/dev/null || true
 
   brew_install \
-    autoconf bison re2c pkg-config \
+    autoconf libtool bison re2c pkg-config \
     libxml2 openssl@3 icu4c zlib oniguruma curl readline sqlite gettext \
     libiconv krb5 libedit
 

@@ -1,7 +1,6 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
 local tools = require("lib/tools")
-local php_packages = require("lib/php_packages")
 
 local M = {}
 
@@ -328,9 +327,6 @@ end
 function M.install(sdkPath, version)
     print("Preparing prebuilt static PHP...")
 
-    local major, minor = version:match("^(%d+)%.(%d+)")
-    major, minor = tonumber(major) or 0, tonumber(minor) or 0
-
     if is_windows() then
         os.execute(string.format('mkdir "%s" 2>NUL', sdkPath))
     else
@@ -394,15 +390,9 @@ function M.install(sdkPath, version)
 
     print("Prebuilt static PHP installation complete!")
 
-    if php_packages.has_extension_requests() then
-        php_packages.warn_prebuilt_static_extensions_skipped()
-    end
-
-    if major > 8 or (major == 8 and minor >= 1) then
-        php_packages.install_pie(sdkPath, version)
-    end
-
-    php_packages.install_composer(sdkPath, version)
+    return {
+        kind = "static",
+    }
 end
 
 

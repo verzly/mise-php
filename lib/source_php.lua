@@ -1,6 +1,5 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
-local php_packages = require("lib/php_packages")
 
 local source_php = {}
 
@@ -697,21 +696,16 @@ function source_php.install(sdkPath, version)
 
     print("PHP installation complete!")
 
-    -- Install PECL extensions
-    if not (major > 8 or (major == 8 and minor >= 5)) then
-        php_packages.install_pecl_extensions(sdkPath, envPrefix, version)
-    end
+    return {
+        kind = "source",
+        env_prefix = envPrefix,
+    }
+end
 
-    -- Install PIE and PIE extensions
-    if major > 8 or (major == 8 and minor >= 1) then
-        php_packages.install_pie(sdkPath, version)
-        php_packages.install_pie_extensions(sdkPath, version)
-    end
-
-    -- Install Composer
-    php_packages.install_composer(sdkPath, version)
-
-    -- Clean up source files to save space
+function source_php.cleanup(sdkPath)
+    -- Clean up source files to save space. Keep this separate from the runtime
+    -- install so PostInstall can run PECL/PIE/Composer setup before removing
+    -- source-build artifacts.
     print("Cleaning up source files...")
     local cleanCmd = string.format(
         "cd '%s' && rm -rf Zend ext sapi main TSRM build configure* aclocal* Makefile* 2>/dev/null",

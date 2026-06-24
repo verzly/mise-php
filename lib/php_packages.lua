@@ -14,6 +14,18 @@ local file_exists = tools.file_exists
 local download_file = tools.download_file
 local batch_path = tools.windows_cmd_quote
 
+local function version_at_least(version, major, minor)
+    local current_major, current_minor = tostring(version):match("^(%d+)%.(%d+)")
+    current_major = tonumber(current_major) or 0
+    current_minor = tonumber(current_minor) or 0
+
+    if current_major > major then
+        return true
+    end
+
+    return current_major == major and current_minor >= minor
+end
+
 function packages.has_extension_requests()
     return #PECL_EXTENSIONS > 0 or #PIE_EXTENSIONS > 0
 end
@@ -491,5 +503,36 @@ function packages.install_composer_for_linux(sdkPath, version)
     return true
 end
 
+
+
+function packages.install_after_php(sdkPath, version, installInfo)
+    installInfo = installInfo or {}
+
+    if installInfo.kind == "static" then
+        if packages.has_extension_requests() then
+            packages.warn_prebuilt_static_extensions_skipped()
+        end
+
+        if version_at_least(version, 8, 1) then
+            packages.install_pie(sdkPath, version)
+        end
+
+        packages.install_composer(sdkPath, version)
+        return
+    end
+
+    if installInfo.kind == "source" then
+        if not version_at_least(version, 8, 5) then
+            packages.install_pecl_extensions(sdkPath, installInfo.env_prefix or "", version)
+        end
+    end
+
+    if version_at_least(version, 8, 1) then
+        packages.install_pie(sdkPath, version)
+        packages.install_pie_extensions(sdkPath, version)
+    end
+
+    packages.install_composer(sdkPath, version)
+end
 
 return packages

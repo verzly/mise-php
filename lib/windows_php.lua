@@ -277,6 +277,10 @@ function M.install(sdkPath, version)
     end
 
     print("PHP installation complete!")
+
+    return {
+        kind = "windows",
+    }
 end
 
 return M

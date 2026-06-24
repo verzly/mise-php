@@ -1,6 +1,9 @@
+local env = require("lib/env")
 local archiver = require("archiver")
 local messages = require("lib/messages")
 local tools = require("lib/tools")
+
+local QUIET           = env.QUIET
 
 local M = {}
 
@@ -195,7 +198,13 @@ local function configure_php_ini(sdk_path, timezone)
     end
 
     local php_modules = ""
-    local ok, _, _, output = tools.execute_windows_program(php_bin, { "-m" })
+
+    -- Verify PIE installation
+    local ok, _, _, output = tools.execute_cmd(string.format(
+        '"%s" -m',
+        php_bin
+    ), '')
+
     if ok then
         php_modules = tostring(output)
     end
@@ -266,7 +275,10 @@ function M.install(sdkPath, version)
     configure_php_ini(sdkPath, "UTC")
 
     local php_bin = join_path(sdkPath, "php.exe")
-    ok = tools.execute_windows_program(php_bin, { "--version" })
+    local ok = tools.execute_cmd(string.format(
+        '"%s" -version',
+        php_bin
+    ), QUIET)
 
     if not ok then
         error(

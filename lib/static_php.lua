@@ -250,9 +250,10 @@ local function find_prebuilt_php_binary(sdkPath)
     end
 
     if is_windows() then
-        local ok, _, _, output = tools.execute_cmd(
-            "dir /s /b " .. tools.windows_cmd_quote(join_path(sdkPath, binary_name)) .. QUIET
-        )
+        local ok, _, _, output = tools.execute_cmd(string.format(
+            'dir /s /b "%s"',
+            join_path(sdkPath, binary_name)
+        ), '')
 
         if ok then
             for candidate in tostring(output):gmatch("[^\r\n]+") do
@@ -330,7 +331,10 @@ function M.install(sdkPath, version)
 
     local status
     if is_windows() then
-        status = tools.execute_windows_program(php_bin, { "--version" })
+        local status = tools.execute_cmd(string.format(
+            '"%s" -version',
+            php_bin
+        ), QUIET)
     else
         status = os.execute('"' .. php_bin .. '" --version > /dev/null 2>&1')
     end

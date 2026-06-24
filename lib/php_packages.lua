@@ -223,7 +223,10 @@ function packages.install_pie_for_windows(sdkPath, version)
     end
 
     -- Verify PIE installation
-    ok = tools.execute_windows_program(pie_bat, { "--version" })
+    ok = tools.execute_cmd(string.format(
+        '"%s" --version',
+        pie_bat
+    ), QUIET);
 
     if not ok then
         io.stderr:write(
@@ -328,12 +331,13 @@ function packages.install_pie_extensions_for_windows(sdkPath, version)
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local ok = tools.execute_windows_program(php_bin, {
+        local ok = tools.execute_cmd(string.format(
+            '"%s" "%s" install --with-php-path="%s" "%s"',
+            php_bin,
             pie_phar,
-            "install",
-            "--with-php-path=" .. php_bin,
-            pkg,
-        })
+            php_bin,
+            pkg
+        ), QUIET);
 
         if not ok then
             io.stderr:write(
@@ -403,7 +407,10 @@ function packages.install_composer_for_windows(sdkPath, version)
     end
 
     -- Verify Composer installation
-    ok = tools.execute_windows_program(composer_bat, { "--version" })
+    ok = tools.execute_cmd(string.format(
+        '"%s" --version',
+        composer_bat
+    ), QUIET);
 
     if not ok then
         io.stderr:write(

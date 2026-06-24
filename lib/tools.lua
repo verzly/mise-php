@@ -1,5 +1,6 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
+local cmd = require("cmd")
 
 local tools = {}
 
@@ -37,6 +38,20 @@ local function file_exists(path)
     file:close()
 
     return true
+end
+
+function tools.execute_cmd(command)
+    local success, output_quited = pcall(cmd.exec, command)
+
+    if VERBOSE and output_quited and output_quited ~= "" then
+        io.stdout:write(output_quited)
+    end
+
+    if success then
+        return true, "exit", 0, output_quited
+    end
+
+    return false, "error", 1, output_quited
 end
 
 -- Executes Windows commands through a temporary .bat file.
@@ -302,10 +317,10 @@ function tools.install_pie_for_windows(sdkPath, version)
     bat:close()
 
     -- Verify PIE installation
-    local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-pie-verify", string.format(
+    local ok, why, code = tools.execute_cmd(string.format(
         [[call "%s" --version]],
         pie_bat
-    ), QUIET)
+    ) .. QUIET)
 
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         io.stderr:write(
@@ -413,13 +428,13 @@ function tools.install_pie_extensions_for_windows(sdkPath, version)
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-pie-install-extension", string.format(
+        local ok, why, code = tools.execute_cmd(string.format(
             [["%s" "%s" install --with-php-path="%s" "%s"]],
             php_bin,
             pie_phar,
             php_bin,
             pkg
-        ), QUIET)
+        ) .. QUIET)
 
         if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
             io.stderr:write(
@@ -505,10 +520,10 @@ function tools.install_composer_for_windows(sdkPath, version)
     bat:close()
 
     -- Verify Composer installation
-    local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-composer-verify", string.format(
+    local ok, why, code = tools.execute_cmd(string.format(
         [[call "%s" --version]],
         composer_bat
-    ), QUIET)
+    ) .. QUIET)
 
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         io.stderr:write(

@@ -33,12 +33,12 @@ function install_php_for_windows(sdkPath, version)
     major, minor = tonumber(major) or 0, tonumber(minor) or 0
 
     local scriptPath = assert(RUNTIME.pluginDirPath .. "\\bin\\install-windows-php.ps1")
-    local ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-php-install", string.format(
+    local ok, why, code = tools.execute_cmd(string.format(
         [[powershell -NoProfile -ExecutionPolicy Bypass -File "%s" -Version %s -Arch x64 -CustomPath "%s"]],
         scriptPath,
         version,
         sdkPath
-    ), "")
+    ))
 
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(
@@ -51,10 +51,10 @@ function install_php_for_windows(sdkPath, version)
     -- Verify PHP installation
     local php_bin = sdkPath .. "\\php.exe"
 
-    ok, why, code = tools.os_execute_via_bat(sdkPath, "mise-php-verify", string.format(
+    ok, why, code = tools.execute_cmd(string.format(
         [["%s" --version]],
         php_bin
-    ), " > NUL 2>&1")
+    ) .. " > NUL 2>&1")
 
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(

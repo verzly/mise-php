@@ -1,15 +1,14 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
+local php_versions = require("lib/php_versions")
+local tools = require("lib/tools")
 
 local source_php = {}
 
 local VERBOSE = env.VERBOSE
 local QUIET = env.QUIET
 
-local function shell_quote(value)
-    return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
-end
-
+local shell_quote = tools.shell_quote
 
 local function append_env_flag(existing, flag)
     existing = existing or ""
@@ -74,22 +73,6 @@ local function is_el_compatible_major(expected_major)
         or id == "olinux"
         or id_like:find("rhel", 1, true) ~= nil
         or id_like:find("fedora", 1, true) ~= nil
-end
-
-local function php_version_at_least(version, major, minor)
-    local current_major, current_minor = version:match("^(%d+)%.(%d+)")
-    current_major = tonumber(current_major)
-    current_minor = tonumber(current_minor)
-
-    if not current_major or not current_minor then
-        return false
-    end
-
-    if current_major > major then
-        return true
-    end
-
-    return current_major == major and current_minor >= minor
 end
 
 local function sanitize_log_part(value)
@@ -456,7 +439,7 @@ local configure_macos
 local configure_linux
 
 local function apply_platform_build_flags(envPrefix, version)
-    if is_el_compatible_major(8) and php_version_at_least(version, 8, 5) then
+    if is_el_compatible_major(8) and php_versions.at_least(version, 8, 5) then
         -- EL8-compatible distributions can fail to link PHP 8.5+ executables
         -- with their default toolchain and linker behavior. The first failure
         -- appears around mbstring GNU IFUNC symbols and asks for a PIE build.

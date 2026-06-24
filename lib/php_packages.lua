@@ -1,5 +1,6 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
+local php_versions = require("lib/php_versions")
 local tools = require("lib/tools")
 
 local packages = {}
@@ -14,16 +15,11 @@ local file_exists = tools.file_exists
 local download_file = tools.download_file
 local batch_path = tools.windows_cmd_quote
 
-local function version_at_least(version, major, minor)
-    local current_major, current_minor = tostring(version):match("^(%d+)%.(%d+)")
-    current_major = tonumber(current_major) or 0
-    current_minor = tonumber(current_minor) or 0
-
-    if current_major > major then
-        return true
-    end
-
-    return current_major == major and current_minor >= minor
+local function write_windows_phar_wrapper(wrapper_path, php_bin, phar_name)
+    return tools.write_file(
+        wrapper_path,
+        '@echo off\r\n' .. string.format('%s "%%~dp0%s" %%*\r\n', batch_path(php_bin), phar_name)
+    )
 end
 
 function packages.has_extension_requests()
@@ -46,8 +42,7 @@ function packages.install_pecl_extensions(sdkPath, envPrefix, version)
     local phpize = sdkPath .. "/bin/phpize"
     local phpconfig = sdkPath .. "/bin/php-config"
 
-    local f = io.open(phpize, "r")
-    if not f then
+    if not file_exists(phpize) then
         io.stderr:write(
             "\27[93mWarning:\27[0m phpize not found, skipping PECL extensions.\n" ..
             messages.verbose_tip(version) ..
@@ -55,7 +50,6 @@ function packages.install_pecl_extensions(sdkPath, envPrefix, version)
         )
         return false
     end
-    f:close()
 
     local extensions = {}
     for _, name in ipairs(PECL_EXTENSIONS) do
@@ -97,11 +91,7 @@ function packages.install_pecl_extensions(sdkPath, envPrefix, version)
             )
             all_ok = false
         else
-            local iniFile = io.open(sdkPath .. "/conf.d/" .. ext.name .. ".ini", "w")
-            if iniFile then
-                iniFile:write("extension=" .. ext.name .. ".so\n")
-                iniFile:close()
-            else
+            if not tools.write_file(sdkPath .. "/conf.d/" .. ext.name .. ".ini", "extension=" .. ext.name .. ".so\n") then
                 io.stderr:write(
                     "\27[93mWarning:\27[0m Failed to write configuration for PECL extension " .. ext.name .. ".\n" ..
                     messages.verbose_tip(version) ..
@@ -223,8 +213,7 @@ function packages.install_pie_for_windows(sdkPath, version)
 
     -- Create PIE wrapper. This .bat is the runtime shim users invoke; no
     -- temporary command runner files are created.
-    local bat = io.open(pie_bat, "w")
-    if not bat then
+    if not write_windows_phar_wrapper(pie_bat, php_bin, "pie.phar") then
         io.stderr:write(
             "\27[93mWarning:\27[0m Failed to create PIE wrapper.\n" ..
             messages.verbose_tip(version) ..
@@ -232,10 +221,6 @@ function packages.install_pie_for_windows(sdkPath, version)
         )
         return false
     end
-
-    bat:write('@echo off\r\n')
-    bat:write(string.format('%s "%%~dp0pie.phar" %%*\r\n', batch_path(php_bin)))
-    bat:close()
 
     -- Verify PIE installation
     ok = tools.execute_windows_program(pie_bat, { "--version" })
@@ -285,8 +270,7 @@ function packages.install_pie_extensions_for_linux(sdkPath, version)
     local phpconfig = sdkPath .. "/bin/php-config"
     local pie_phar = sdkPath .. "/pie.phar"
 
-    local f = io.open(pie_phar, "r")
-    if not f then
+    if not file_exists(pie_phar) then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n" ..
             messages.verbose_tip(version) ..
@@ -294,7 +278,6 @@ function packages.install_pie_extensions_for_linux(sdkPath, version)
         )
         return false
     end
-    f:close()
 
     local all_ok = true
 
@@ -331,8 +314,7 @@ function packages.install_pie_extensions_for_windows(sdkPath, version)
     local php_bin  = join_path(sdkPath, "php.exe")
     local pie_phar = join_path(sdkPath, "pie.phar")
 
-    local f = io.open(pie_phar, "r")
-    if not f then
+    if not file_exists(pie_phar) then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n" ..
             messages.verbose_tip(version) ..
@@ -340,7 +322,6 @@ function packages.install_pie_extensions_for_windows(sdkPath, version)
         )
         return false
     end
-    f:close()
 
     local all_ok = true
 
@@ -412,8 +393,7 @@ function packages.install_composer_for_windows(sdkPath, version)
 
     -- Create Composer wrapper. This .bat is the runtime shim users invoke; no
     -- temporary command runner files are created.
-    local bat = io.open(composer_bat, "w")
-    if not bat then
+    if not write_windows_phar_wrapper(composer_bat, php_bin, "composer.phar") then
         io.stderr:write(
             "\27[93mWarning:\27[0m Failed to create Composer wrapper.\n" ..
             messages.verbose_tip(version) ..
@@ -421,10 +401,6 @@ function packages.install_composer_for_windows(sdkPath, version)
         )
         return false
     end
-
-    bat:write('@echo off\r\n')
-    bat:write(string.format('%s "%%~dp0composer.phar" %%*\r\n', batch_path(php_bin)))
-    bat:close()
 
     -- Verify Composer installation
     ok = tools.execute_windows_program(composer_bat, { "--version" })
@@ -513,7 +489,7 @@ function packages.install_after_php(sdkPath, version, installInfo)
             packages.warn_prebuilt_static_extensions_skipped()
         end
 
-        if version_at_least(version, 8, 1) then
+        if php_versions.at_least(version, 8, 1) then
             packages.install_pie(sdkPath, version)
         end
 
@@ -522,12 +498,12 @@ function packages.install_after_php(sdkPath, version, installInfo)
     end
 
     if installInfo.kind == "source" then
-        if not version_at_least(version, 8, 5) then
+        if not php_versions.at_least(version, 8, 5) then
             packages.install_pecl_extensions(sdkPath, installInfo.env_prefix or "", version)
         end
     end
 
-    if version_at_least(version, 8, 1) then
+    if php_versions.at_least(version, 8, 1) then
         packages.install_pie(sdkPath, version)
         packages.install_pie_extensions(sdkPath, version)
     end

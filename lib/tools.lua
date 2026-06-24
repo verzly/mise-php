@@ -47,6 +47,23 @@ function tools.write_file(path, content)
     return true
 end
 
+function tools.copy_file(source, destination)
+    local content = tools.read_file(source)
+    if content == nil then
+        return false
+    end
+
+    return tools.write_file(destination, content)
+end
+
+function tools.is_windows()
+    return RUNTIME.osType == "windows"
+end
+
+function tools.shell_quote(value)
+    return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
+end
+
 local function write_output(output)
     if output == nil then
         return

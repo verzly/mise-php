@@ -73,13 +73,14 @@ fn run_main() -> Result<(), String> {
     match command.as_str() {
         "env-options" => check_env_options(&args),
         "version-list" => check_version_list(&args),
+        "resolved-version" => check_resolved_version(&args),
         "installed-tools" => check_installed_tools(&args),
         _ => Err(usage()),
     }
 }
 
 fn usage() -> String {
-    "Usage:\n  ci-checks env-options <mise-env-file>\n  ci-checks version-list <source|static> <versions-file> <expected-version>\n  ci-checks installed-tools --mode <source|static> [--require-pecl]".to_string()
+    "Usage:\n  ci-checks env-options <mise-env-file>\n  ci-checks version-list <source|static> <versions-file> <expected-version>\n  ci-checks resolved-version <source|static> <request> <resolved-version-file>\n  ci-checks installed-tools --mode <source|static> [--require-pecl]".to_string()
 }
 
 fn check_env_options(args: &[String]) -> Result<(), String> {
@@ -173,34 +174,36 @@ fn check_version_list(args: &[String]) -> Result<(), String> {
         return Err(format!("Expected PHP {expected} in {kind} version list"));
     }
 
-    require_stable_first_version_list(kind, &versions)?;
-
     println!("{kind} version list contains {} versions", versions.len());
     Ok(())
 }
 
-fn require_stable_first_version_list(kind: &str, versions: &[&str]) -> Result<(), String> {
-    if is_php_prerelease(versions[0]) {
+fn check_resolved_version(args: &[String]) -> Result<(), String> {
+    if args.len() != 3 {
+        return Err(usage());
+    }
+
+    let kind = args[0].as_str();
+    if kind != "source" && kind != "static" {
+        return Err("resolved-version kind must be either 'source' or 'static'".to_string());
+    }
+
+    let request = &args[1];
+    let file = &args[2];
+    let content = fs::read_to_string(file).map_err(|err| format!("Failed to read {file}: {err}"))?;
+    let resolved = content
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .ok_or_else(|| format!("No {kind} version was resolved for {request}"))?;
+
+    if is_php_prerelease(resolved) {
         return Err(format!(
-            "Default {kind} version list must start with a stable PHP release, got {}",
-            versions[0]
+            "Default {kind} partial request {request} resolved to pre-release PHP {resolved}"
         ));
     }
 
-    let mut seen_prerelease = false;
-    for version in versions {
-        if is_php_prerelease(version) {
-            seen_prerelease = true;
-            continue;
-        }
-
-        if seen_prerelease {
-            return Err(format!(
-                "Default {kind} version list must order stable releases before pre-releases, but stable version {version} appeared after a pre-release"
-            ));
-        }
-    }
-
+    println!("{kind} partial request {request} resolved to stable PHP {resolved}");
     Ok(())
 }
 

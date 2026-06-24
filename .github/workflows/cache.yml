@@ -99,11 +99,10 @@ jobs:
           def version_key(v):
               m = re.match(r'^(\d+)\.(\d+)\.(\d+)(.*)', v)
               if not m:
-                  return (0, 0, 0, 0, '')
+                  return (0, 0, 0, '')
               major, minor, patch, suffix = int(m[1]), int(m[2]), int(m[3]), m[4]
-              stable_order = 1 if not suffix else 0
               suffix_order = 0 if not suffix else -1
-              return (stable_order, major, minor, patch, suffix_order, suffix)
+              return (major, minor, patch, suffix_order)
 
           old_versions = read_existing_versions()
           old_series = {series_key(v) for v in old_versions if series_key(v)}

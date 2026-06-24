@@ -160,8 +160,11 @@ After installing the plugin, [jdx/mise](https://github.com/jdx/mise) enables the
 You can install multiple PHP versions simultaneously. You can select a version to use globally, but you can also specify project-specific versions for individual projects. We work with official PHP releases - anything released on php.net can be installed.
 
 ```sh
-# Check available PHP versions
+# List stable PHP versions only
 mise ls-remote php
+
+# List stable PHP versions plus prereleases, including alpha, beta, and RC tags
+mise ls-remote --prerelease php
 
 # Check installed PHP versions
 mise ls php

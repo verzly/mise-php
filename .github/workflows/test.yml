@@ -71,18 +71,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Compile CI checks
-        shell: bash
-        run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
-          else
-            rustc .github/scripts/ci-checks.rs -o ci-checks
-          fi
-
       - name: Install mise
         uses: jdx/mise-action@v4
         with:
@@ -110,11 +98,27 @@ jobs:
           mise trust "${{ github.workspace }}" || true
           mise env --dotenv | tee mise-env.out
 
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ./ci-checks.exe env-options mise-env.out
-          else
-            ./ci-checks env-options mise-env.out
-          fi
+          require_env() {
+            key="$1"
+            expected="$2"
+            actual="$(grep -E "^${key}=" mise-env.out | tail -n 1 | cut -d= -f2- | sed "s/^['\"]//; s/['\"]$//")"
+
+            if [ "$actual" != "$expected" ]; then
+              echo "${key}: expected '${expected}', got '${actual}'"
+              exit 1
+            fi
+          }
+
+          require_env PHP_SKIP_DEPS 1
+          require_env PHP_VERBOSE 1
+          require_env PHP_PREBUILT_STATIC 1
+          require_env PHP_PREBUILT_STATIC_FLAVOR minimal
+          require_env PHP_CONFIGURE_OPTIONS --disable-all
+          require_env PHP_EXTRA_CONFIGURE_OPTIONS --enable-option-checking=fatal
+          require_env PHP_PECL_EXTENSIONS redis,xdebug
+          require_env PHP_PIE_EXTENSIONS amphp/ext-uv
+
+          echo "env._.php options were exported correctly"
 
   list-source-versions:
     name: List source versions - ${{ matrix.os }}
@@ -130,18 +134,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Compile CI checks
-        shell: bash
-        run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
-          else
-            rustc .github/scripts/ci-checks.rs -o ci-checks
-          fi
-
       - name: Install mise
         uses: jdx/mise-action@v4
         with:
@@ -155,12 +147,57 @@ jobs:
         shell: bash
         run: |
           mise cache clean || true
-          mise ls-remote php | tee source-versions.txt
+          mise ls-remote --no-versions-host php | tee source-versions.txt
 
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ./ci-checks.exe version-list source source-versions.txt "${PHP_TEST_VERSION}"
-          else
-            ./ci-checks version-list source source-versions.txt "${PHP_TEST_VERSION}"
+          if [ ! -s source-versions.txt ]; then
+            echo "No source versions were returned"
+            exit 1
+          fi
+
+          if ! grep -Fx "${PHP_TEST_VERSION}" source-versions.txt; then
+            echo "Expected PHP ${PHP_TEST_VERSION} in source version list"
+            exit 1
+          fi
+
+          if awk '/^[0-9]/ && $0 !~ /^[0-9]+[.][0-9]+[.][0-9]+$/ { print; found = 1 } END { exit found ? 0 : 1 }' source-versions.txt; then
+            echo "Default source version list must not include prerelease versions"
+            exit 1
+          fi
+
+          expected_aliases=$'stable\nlatest\nprerelease'
+          actual_aliases="$(tail -n 3 source-versions.txt | tr -d '\r')"
+          if [ "$actual_aliases" != "$expected_aliases" ]; then
+            echo "Expected source aliases at the end of the list:"
+            printf '%s\n' "$expected_aliases"
+            echo "Actual tail:"
+            printf '%s\n' "$actual_aliases"
+            exit 1
+          fi
+
+      - name: Check source prerelease version listing
+        shell: bash
+        run: |
+          mise cache clean || true
+          mise ls-remote --no-versions-host --prerelease php | tee source-prerelease-versions.txt
+
+          if ! awk '/^[0-9]/ && $0 !~ /^[0-9]+[.][0-9]+[.][0-9]+$/ { found = 1 } END { exit found ? 0 : 1 }' source-prerelease-versions.txt; then
+            echo "Prerelease source version list must include at least one prerelease version"
+            exit 1
+          fi
+
+          if ! grep -Fx '8.5.8RC1' source-prerelease-versions.txt; then
+            echo "Prerelease source version list must include 8.5.8RC1"
+            exit 1
+          fi
+
+          expected_aliases=$'stable\nlatest\nprerelease'
+          actual_aliases="$(tail -n 3 source-prerelease-versions.txt | tr -d '\r')"
+          if [ "$actual_aliases" != "$expected_aliases" ]; then
+            echo "Expected source prerelease aliases at the end of the list:"
+            printf '%s\n' "$expected_aliases"
+            echo "Actual tail:"
+            printf '%s\n' "$actual_aliases"
+            exit 1
           fi
 
   list-static-versions:
@@ -182,18 +219,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Compile CI checks
-        shell: bash
-        run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
-          else
-            rustc .github/scripts/ci-checks.rs -o ci-checks
-          fi
-
       - name: Install mise
         uses: jdx/mise-action@v4
         with:
@@ -210,12 +235,16 @@ jobs:
           PHP_PREBUILT_STATIC_FLAVOR: ${{ matrix.flavor.value }}
         run: |
           mise cache clean || true
-          mise ls-remote php | tee static-versions.txt
+          mise ls-remote --no-versions-host php | tee static-versions.txt
 
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ./ci-checks.exe version-list static static-versions.txt "${PHP_TEST_VERSION}"
-          else
-            ./ci-checks version-list static static-versions.txt "${PHP_TEST_VERSION}"
+          if [ ! -s static-versions.txt ]; then
+            echo "No static versions were returned"
+            exit 1
+          fi
+
+          if ! grep -Fx "${PHP_TEST_VERSION}" static-versions.txt; then
+            echo "Expected PHP ${PHP_TEST_VERSION} in static version list"
+            exit 1
           fi
 
   install-source:
@@ -323,20 +352,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Rust
-        if: matrix.target.kind == 'hosted'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Compile CI checks
-        if: matrix.target.kind == 'hosted'
-        shell: bash
-        run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
-          else
-            rustc .github/scripts/ci-checks.rs -o ci-checks
-          fi
-
       - name: Install mise
         if: matrix.target.kind == 'hosted'
         uses: jdx/mise-action@v4
@@ -375,11 +390,72 @@ jobs:
         if: matrix.target.kind == 'hosted'
         shell: bash
         run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ./ci-checks.exe installed-tools --mode source
-          else
-            ./ci-checks installed-tools --mode source
-          fi
+          check_php_install() {
+            mode="$1"
+            require_pecl="${2:-0}"
+
+            mise exec -- php --version
+            mise exec -- composer --version
+
+            php_version="$(mise exec -- php -r 'echo PHP_VERSION;')"
+            major="${php_version%%.*}"
+            rest="${php_version#*.}"
+            minor="${rest%%.*}"
+            echo "Detected PHP ${php_version}"
+
+            if [ "${RUNNER_OS}" = "Windows" ]; then
+              if [[ "${MISE_DATA_DIR:-}" != *" "* ]]; then
+                echo "Windows install smoke tests must use a spaced MISE_DATA_DIR"
+                exit 1
+              fi
+
+              php_binary="$(mise exec -- php -r 'echo PHP_BINARY;')"
+              if [[ "${php_binary}" != *" "* ]]; then
+                echo "PHP_BINARY should contain a space to cover Windows quoting regressions: ${php_binary}"
+                exit 1
+              fi
+            fi
+
+            if [ "${major}" -gt 8 ] || { [ "${major}" -eq 8 ] && [ "${minor}" -ge 1 ]; }; then
+              mise exec -- php -m | grep -i '^iconv$'
+              mise exec -- pie --version
+            else
+              echo "Skipping PIE check for PHP ${php_version}: PIE requires PHP 8.1 or newer."
+            fi
+
+            if [ "${mode}" = "static" ]; then
+              if [ "${require_pecl}" = "1" ]; then
+                echo "PECL was required, but PECL is intentionally skipped for prebuilt static PHP installs."
+                exit 1
+              fi
+              echo "Skipping PECL check for prebuilt static PHP."
+              return
+            fi
+
+            if [ "${RUNNER_OS}" = "Windows" ]; then
+              if [ "${require_pecl}" = "1" ]; then
+                echo "PECL was required, but the Windows installer path does not provision PEAR/PECL."
+                exit 1
+              fi
+              echo "Skipping PECL check on Windows."
+              return
+            fi
+
+            if [ "${major}" -gt 8 ] || { [ "${major}" -eq 8 ] && [ "${minor}" -ge 5 ]; }; then
+              if [ "${require_pecl}" = "1" ]; then
+                echo "PECL was required, but PHP ${php_version} is not PECL-capable in this plugin."
+                exit 1
+              fi
+              echo "Skipping PECL check for PHP ${php_version}: PECL is not available from PHP 8.5 onward."
+              return
+            fi
+
+            if [ "${require_pecl}" = "1" ]; then
+              mise exec -- pecl version
+            fi
+          }
+
+          check_php_install source
 
       - name: Install PHP via source/default path in ${{ matrix.target.label }}
         if: matrix.target.kind == 'container'
@@ -443,18 +519,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Compile CI checks
-        shell: bash
-        run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
-          else
-            rustc .github/scripts/ci-checks.rs -o ci-checks
-          fi
-
       - name: Install mise
         uses: jdx/mise-action@v4
         with:
@@ -487,12 +551,16 @@ jobs:
           PHP_PREBUILT_STATIC: '1'
         run: |
           mise cache clean || true
-          mise ls-remote php | tee static-install-versions.txt
+          mise ls-remote --no-versions-host php | tee static-install-versions.txt
 
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ./ci-checks.exe version-list static static-install-versions.txt "${PHP_TEST_VERSION}"
-          else
-            ./ci-checks version-list static static-install-versions.txt "${PHP_TEST_VERSION}"
+          if [ ! -s static-install-versions.txt ]; then
+            echo "No static versions were returned before install"
+            exit 1
+          fi
+
+          if ! grep -Fx "${PHP_TEST_VERSION}" static-install-versions.txt; then
+            echo "Expected PHP ${PHP_TEST_VERSION} in static version list before install"
+            exit 1
           fi
 
       - name: Install PHP via prebuilt static path
@@ -506,11 +574,72 @@ jobs:
           PHP_INSTALL_MODE: static
         shell: bash
         run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ./ci-checks.exe installed-tools --mode static
-          else
-            ./ci-checks installed-tools --mode static
-          fi
+          check_php_install() {
+            mode="$1"
+            require_pecl="${2:-0}"
+
+            mise exec -- php --version
+            mise exec -- composer --version
+
+            php_version="$(mise exec -- php -r 'echo PHP_VERSION;')"
+            major="${php_version%%.*}"
+            rest="${php_version#*.}"
+            minor="${rest%%.*}"
+            echo "Detected PHP ${php_version}"
+
+            if [ "${RUNNER_OS}" = "Windows" ]; then
+              if [[ "${MISE_DATA_DIR:-}" != *" "* ]]; then
+                echo "Windows install smoke tests must use a spaced MISE_DATA_DIR"
+                exit 1
+              fi
+
+              php_binary="$(mise exec -- php -r 'echo PHP_BINARY;')"
+              if [[ "${php_binary}" != *" "* ]]; then
+                echo "PHP_BINARY should contain a space to cover Windows quoting regressions: ${php_binary}"
+                exit 1
+              fi
+            fi
+
+            if [ "${major}" -gt 8 ] || { [ "${major}" -eq 8 ] && [ "${minor}" -ge 1 ]; }; then
+              mise exec -- php -m | grep -i '^iconv$'
+              mise exec -- pie --version
+            else
+              echo "Skipping PIE check for PHP ${php_version}: PIE requires PHP 8.1 or newer."
+            fi
+
+            if [ "${mode}" = "static" ]; then
+              if [ "${require_pecl}" = "1" ]; then
+                echo "PECL was required, but PECL is intentionally skipped for prebuilt static PHP installs."
+                exit 1
+              fi
+              echo "Skipping PECL check for prebuilt static PHP."
+              return
+            fi
+
+            if [ "${RUNNER_OS}" = "Windows" ]; then
+              if [ "${require_pecl}" = "1" ]; then
+                echo "PECL was required, but the Windows installer path does not provision PEAR/PECL."
+                exit 1
+              fi
+              echo "Skipping PECL check on Windows."
+              return
+            fi
+
+            if [ "${major}" -gt 8 ] || { [ "${major}" -eq 8 ] && [ "${minor}" -ge 5 ]; }; then
+              if [ "${require_pecl}" = "1" ]; then
+                echo "PECL was required, but PHP ${php_version} is not PECL-capable in this plugin."
+                exit 1
+              fi
+              echo "Skipping PECL check for PHP ${php_version}: PECL is not available from PHP 8.5 onward."
+              return
+            fi
+
+            if [ "${require_pecl}" = "1" ]; then
+              mise exec -- pecl version
+            fi
+          }
+
+          check_php_install static
 
   install-source-pecl:
     name: Install PECL-capable source/default - ${{ matrix.os }}
@@ -527,18 +656,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Compile CI checks
-        shell: bash
-        run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            rustc .github/scripts/ci-checks.rs -o ci-checks.exe
-          else
-            rustc .github/scripts/ci-checks.rs -o ci-checks
-          fi
 
       - name: Install mise
         uses: jdx/mise-action@v4
@@ -557,8 +674,69 @@ jobs:
       - name: Check Composer, PECL, and PIE for PECL-capable PHP
         shell: bash
         run: |
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ./ci-checks.exe installed-tools --mode source --require-pecl
-          else
-            ./ci-checks installed-tools --mode source --require-pecl
-          fi
+          check_php_install() {
+            mode="$1"
+            require_pecl="${2:-0}"
+
+            mise exec -- php --version
+            mise exec -- composer --version
+
+            php_version="$(mise exec -- php -r 'echo PHP_VERSION;')"
+            major="${php_version%%.*}"
+            rest="${php_version#*.}"
+            minor="${rest%%.*}"
+            echo "Detected PHP ${php_version}"
+
+            if [ "${RUNNER_OS}" = "Windows" ]; then
+              if [[ "${MISE_DATA_DIR:-}" != *" "* ]]; then
+                echo "Windows install smoke tests must use a spaced MISE_DATA_DIR"
+                exit 1
+              fi
+
+              php_binary="$(mise exec -- php -r 'echo PHP_BINARY;')"
+              if [[ "${php_binary}" != *" "* ]]; then
+                echo "PHP_BINARY should contain a space to cover Windows quoting regressions: ${php_binary}"
+                exit 1
+              fi
+            fi
+
+            if [ "${major}" -gt 8 ] || { [ "${major}" -eq 8 ] && [ "${minor}" -ge 1 ]; }; then
+              mise exec -- php -m | grep -i '^iconv$'
+              mise exec -- pie --version
+            else
+              echo "Skipping PIE check for PHP ${php_version}: PIE requires PHP 8.1 or newer."
+            fi
+
+            if [ "${mode}" = "static" ]; then
+              if [ "${require_pecl}" = "1" ]; then
+                echo "PECL was required, but PECL is intentionally skipped for prebuilt static PHP installs."
+                exit 1
+              fi
+              echo "Skipping PECL check for prebuilt static PHP."
+              return
+            fi
+
+            if [ "${RUNNER_OS}" = "Windows" ]; then
+              if [ "${require_pecl}" = "1" ]; then
+                echo "PECL was required, but the Windows installer path does not provision PEAR/PECL."
+                exit 1
+              fi
+              echo "Skipping PECL check on Windows."
+              return
+            fi
+
+            if [ "${major}" -gt 8 ] || { [ "${major}" -eq 8 ] && [ "${minor}" -ge 5 ]; }; then
+              if [ "${require_pecl}" = "1" ]; then
+                echo "PECL was required, but PHP ${php_version} is not PECL-capable in this plugin."
+                exit 1
+              fi
+              echo "Skipping PECL check for PHP ${php_version}: PECL is not available from PHP 8.5 onward."
+              return
+            fi
+
+            if [ "${require_pecl}" = "1" ]; then
+              mise exec -- pecl version
+            fi
+          }
+
+          check_php_install source 1

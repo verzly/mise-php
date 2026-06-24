@@ -158,7 +158,7 @@ function M.asset_url(version, flavor)
     return M.BASE_URL .. "/" .. M.release_path(flavor) .. "/" .. M.asset_name(version, flavor)
 end
 
-function M.available_versions(http, flavor)
+function M.available_versions(http, flavor, ctx)
     local os_name = M.os_name()
     local arch_name = M.arch_name()
 
@@ -196,12 +196,14 @@ function M.available_versions(http, flavor)
 
     table.sort(versions, php_versions.greater_than)
 
-    local result = {}
+    local all_versions = {}
     for _, version in ipairs(versions) do
-        table.insert(result, { version = version })
+        table.insert(all_versions, php_versions.available_record(version))
     end
 
-    return result
+    local result = php_versions.filter_for_available(all_versions, ctx)
+
+    return php_versions.append_aliases(result, all_versions)
 end
 
 function M.release(version, flavor)

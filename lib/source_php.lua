@@ -1,5 +1,6 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
+local php_versions = require("lib/php_versions")
 local tools = require("lib/tools")
 
 local source_php = {}
@@ -7,10 +8,7 @@ local source_php = {}
 local VERBOSE = env.VERBOSE
 local QUIET = env.QUIET
 
-local function shell_quote(value)
-    return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
-end
-
+local shell_quote = tools.shell_quote
 
 local function append_env_flag(existing, flag)
     existing = existing or ""
@@ -75,22 +73,6 @@ local function is_el_compatible_major(expected_major)
         or id == "olinux"
         or id_like:find("rhel", 1, true) ~= nil
         or id_like:find("fedora", 1, true) ~= nil
-end
-
-local function php_version_at_least(version, major, minor)
-    local current_major, current_minor = version:match("^(%d+)%.(%d+)")
-    current_major = tonumber(current_major)
-    current_minor = tonumber(current_minor)
-
-    if not current_major or not current_minor then
-        return false
-    end
-
-    if current_major > major then
-        return true
-    end
-
-    return current_major == major and current_minor >= minor
 end
 
 local function sanitize_log_part(value)
@@ -457,7 +439,7 @@ local configure_macos
 local configure_linux
 
 local function apply_platform_build_flags(envPrefix, version)
-    if is_el_compatible_major(8) and php_version_at_least(version, 8, 5) then
+    if is_el_compatible_major(8) and php_versions.at_least(version, 8, 5) then
         -- EL8-compatible distributions can fail to link PHP 8.5+ executables
         -- with their default toolchain and linker behavior. The first failure
         -- appears around mbstring GNU IFUNC symbols and asks for a PIE build.
@@ -697,21 +679,16 @@ function source_php.install(sdkPath, version)
 
     print("PHP installation complete!")
 
-    -- Install PECL extensions
-    if not (major > 8 or (major == 8 and minor >= 5)) then
-        tools.install_pecl_extensions(sdkPath, envPrefix, version)
-    end
+    return {
+        kind = "source",
+        env_prefix = envPrefix,
+    }
+end
 
-    -- Install PIE and PIE extensions
-    if major > 8 or (major == 8 and minor >= 1) then
-        tools.install_pie(sdkPath, version)
-        tools.install_pie_extensions(sdkPath, version)
-    end
-
-    -- Install Composer
-    tools.install_composer(sdkPath, version)
-
-    -- Clean up source files to save space
+function source_php.cleanup(sdkPath)
+    -- Clean up source files to save space. Keep this separate from the runtime
+    -- install so PostInstall can run PECL/PIE/Composer setup before removing
+    -- source-build artifacts.
     print("Cleaning up source files...")
     local cleanCmd = string.format(
         "cd '%s' && rm -rf Zend ext sapi main TSRM build configure* aclocal* Makefile* 2>/dev/null",

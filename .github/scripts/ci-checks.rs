@@ -207,6 +207,10 @@ fn check_installed_tools(args: &[String]) -> Result<(), String> {
 
     mise_exec(&["php", "--version"], false)?;
 
+    if runner_os == "Windows" {
+        require_windows_spaced_mise_install_path()?;
+    }
+
     let php_version_raw = mise_exec(&["php", "-r", "echo PHP_VERSION;"], true)?;
     let php_version_text = php_version_raw.trim();
     let php_version = PhpVersion::parse(php_version_text)?;
@@ -265,6 +269,45 @@ fn check_installed_tools(args: &[String]) -> Result<(), String> {
 
     mise_exec(&["pecl", "version"], false)?;
     Ok(())
+}
+
+
+fn require_windows_spaced_mise_install_path() -> Result<(), String> {
+    let mise_data_dir = env::var("MISE_DATA_DIR")
+        .map_err(|_| "MISE_DATA_DIR must be set for Windows install smoke tests".to_string())?;
+
+    if !mise_data_dir.contains(' ') {
+        return Err(format!(
+            "Windows install smoke tests must use a spaced MISE_DATA_DIR, got {mise_data_dir:?}"
+        ));
+    }
+
+    let php_binary = mise_exec(&["php", "-r", "echo PHP_BINARY;"], true)?;
+    let php_binary = normalize_windows_path(php_binary.trim());
+    let mise_data_dir = normalize_windows_path(mise_data_dir.trim());
+
+    if !php_binary.contains(' ') {
+        return Err(format!(
+            "PHP_BINARY should contain a space to cover Windows quoting regressions, got {php_binary:?}"
+        ));
+    }
+
+    if !php_binary.starts_with(&mise_data_dir) {
+        return Err(format!(
+            "PHP_BINARY should be installed under MISE_DATA_DIR. MISE_DATA_DIR={mise_data_dir:?}, PHP_BINARY={php_binary:?}"
+        ));
+    }
+
+    println!("Windows install path is under spaced MISE_DATA_DIR: {php_binary}");
+    Ok(())
+}
+
+fn normalize_windows_path(value: &str) -> String {
+    value
+        .trim_matches('"')
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase()
 }
 
 fn require_php_extension(extension: &str, reason: &str) -> Result<(), String> {

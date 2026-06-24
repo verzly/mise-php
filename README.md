@@ -22,6 +22,7 @@ Install multiple PHP versions side by side, each with its own isolated runtime, 
   - [Upgrade](#up-to-date)
 - [Usage](#usage)
   - [PHP](#php)
+  - [Version listing and aliases](#version-listing-and-aliases)
   - [Source build dependencies](#source-build-dependencies)
   - [Prebuilt static PHP](#prebuilt-static-php)
   - [Composer](#composer-for-php)
@@ -193,6 +194,33 @@ pie --version
 # Check current PECL version (deprecated on PHP 8.5+, use PIE instead)
 pecl version
 ```
+
+### Version listing and aliases
+
+By default, remote version listing shows stable PHP releases only. Stable releases are plain `major.minor.patch` versions, such as `8.5.7`.
+
+```sh
+# List stable PHP versions only
+mise ls-remote php
+
+# List stable PHP versions plus prereleases, including alpha, beta, and RC tags
+mise ls-remote --prerelease php
+```
+
+The plugin also provides global version aliases. These aliases are always shown after the numeric versions in `mise ls-remote` output.
+
+```sh
+# Latest stable PHP release
+mise use php@stable
+
+# Latest PHP release, allowing prereleases when they are newer than stable releases
+mise use php@latest
+
+# Latest PHP prerelease only
+mise use php@prerelease
+```
+
+Partial numeric requests prefer stable releases. For example, if `8.5.8RC1` and `8.5.7` are both available, `php@8` and `php@8.5` resolve to `8.5.7`. Explicit prerelease requests still work, such as `php@8.5.8RC1`.
 
 The list of version numbers is not gathered directly from [`php/php-src`](https://github.com/php/php-src/releases), because the GitHub API enforces rate limiting after a certain number of requests. Instead, we update our `versions.txt` file from a `cache` branch once per day, so it's possible that a release may only be installable via the `verzly/mise-php` plugin with a one-day delay, or may require a manual update.
 

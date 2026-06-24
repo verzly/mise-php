@@ -6,6 +6,9 @@ local ALIASES = {
     prerelease = true,
 }
 
+-- mise reverses vfox/tool-plugin available output before displaying it.
+-- Insert aliases at the beginning so the CLI displays them as the final
+-- entries in this order: stable, latest, prerelease.
 local ALIAS_ORDER = { "stable", "latest", "prerelease" }
 
 local function trim(value)
@@ -193,7 +196,7 @@ function versions.append_aliases(records, alias_source_records)
 
     for _, alias in ipairs(ALIAS_ORDER) do
         if aliases[alias] and not has_version(records, alias) then
-            table.insert(records, {
+            table.insert(records, 1, {
                 version = alias,
                 prerelease = false,
                 rolling = true,

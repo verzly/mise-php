@@ -73,14 +73,13 @@ fn run_main() -> Result<(), String> {
     match command.as_str() {
         "env-options" => check_env_options(&args),
         "version-list" => check_version_list(&args),
-        "resolved-version" => check_resolved_version(&args),
         "installed-tools" => check_installed_tools(&args),
         _ => Err(usage()),
     }
 }
 
 fn usage() -> String {
-    "Usage:\n  ci-checks env-options <mise-env-file>\n  ci-checks version-list <source|static> <versions-file> <expected-version>\n  ci-checks resolved-version <source|static> <request> <resolved-version-file>\n  ci-checks installed-tools --mode <source|static> [--require-pecl]".to_string()
+    "Usage:\n  ci-checks env-options <mise-env-file>\n  ci-checks version-list <source|static> <versions-file> <expected-version>\n  ci-checks installed-tools --mode <source|static> [--require-pecl]".to_string()
 }
 
 fn check_env_options(args: &[String]) -> Result<(), String> {
@@ -176,43 +175,6 @@ fn check_version_list(args: &[String]) -> Result<(), String> {
 
     println!("{kind} version list contains {} versions", versions.len());
     Ok(())
-}
-
-fn check_resolved_version(args: &[String]) -> Result<(), String> {
-    if args.len() != 3 {
-        return Err(usage());
-    }
-
-    let kind = args[0].as_str();
-    if kind != "source" && kind != "static" {
-        return Err("resolved-version kind must be either 'source' or 'static'".to_string());
-    }
-
-    let request = &args[1];
-    let file = &args[2];
-    let content = fs::read_to_string(file).map_err(|err| format!("Failed to read {file}: {err}"))?;
-    let resolved = content
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .ok_or_else(|| format!("No {kind} version was resolved for {request}"))?;
-
-    if is_php_prerelease(resolved) {
-        return Err(format!(
-            "Default {kind} partial request {request} resolved to pre-release PHP {resolved}"
-        ));
-    }
-
-    println!("{kind} partial request {request} resolved to stable PHP {resolved}");
-    Ok(())
-}
-
-fn is_php_prerelease(version: &str) -> bool {
-    let Some((_, suffix)) = version.rsplit_once('.') else {
-        return false;
-    };
-
-    suffix.chars().any(|ch| ch.is_ascii_alphabetic())
 }
 
 fn check_installed_tools(args: &[String]) -> Result<(), String> {

@@ -1,5 +1,6 @@
 local env = require("lib/env")
 local static_php = require("lib/static_php")
+local php_versions = require("lib/php_versions")
 
 local VERBOSE   = env.VERBOSE
 local QUIET     = env.QUIET
@@ -17,20 +18,14 @@ function PLUGIN:PreInstall(ctx)
         error("⚠️ No releases available.")
     end
 
-    if version == "latest" or version == "" then
-        version = releases[1].version
-    end
-
-    local release = nil
-    for _, r in ipairs(releases) do
-        if r.version == version then
-            release = r
-            break
-        end
-    end
+    local release = php_versions.resolve_requested_version(
+        releases,
+        version,
+        php_versions.prerelease_flag_enabled(ctx)
+    )
 
     if not release then
-        error("Version not found: " .. version)
+        error("Version not found: " .. tostring(version))
     end
 
     if static_php.is_requested(ctx) and static_php.is_supported_platform() then

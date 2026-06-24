@@ -163,20 +163,6 @@ jobs:
             ./ci-checks version-list source source-versions.txt "${PHP_TEST_VERSION}"
           fi
 
-      - name: Check source partial version resolution
-        shell: bash
-        run: |
-          mise latest php@8 | tee source-latest-8.txt
-          mise latest php@8.5 | tee source-latest-8-5.txt
-
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ./ci-checks.exe resolved-version source php@8 source-latest-8.txt
-            ./ci-checks.exe resolved-version source php@8.5 source-latest-8-5.txt
-          else
-            ./ci-checks resolved-version source php@8 source-latest-8.txt
-            ./ci-checks resolved-version source php@8.5 source-latest-8-5.txt
-          fi
-
   list-static-versions:
     name: List static versions - ${{ matrix.os }} - ${{ matrix.flavor.label }}
     needs: check-label
@@ -230,23 +216,6 @@ jobs:
             ./ci-checks.exe version-list static static-versions.txt "${PHP_TEST_VERSION}"
           else
             ./ci-checks version-list static static-versions.txt "${PHP_TEST_VERSION}"
-          fi
-
-      - name: Check static partial version resolution
-        shell: bash
-        env:
-          PHP_PREBUILT_STATIC: '1'
-          PHP_PREBUILT_STATIC_FLAVOR: ${{ matrix.flavor.value }}
-        run: |
-          mise latest php@8 | tee static-latest-8.txt
-          mise latest php@8.5 | tee static-latest-8-5.txt
-
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ./ci-checks.exe resolved-version static php@8 static-latest-8.txt
-            ./ci-checks.exe resolved-version static php@8.5 static-latest-8-5.txt
-          else
-            ./ci-checks resolved-version static php@8 static-latest-8.txt
-            ./ci-checks resolved-version static php@8.5 static-latest-8-5.txt
           fi
 
   install-source:

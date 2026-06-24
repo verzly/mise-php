@@ -1,19 +1,9 @@
 local env = require("lib/env")
-local options = require("lib/options")
 local static_php = require("lib/static_php")
 
 local VERBOSE   = env.VERBOSE
 local QUIET     = env.QUIET
 local SKIP_DEPS = env.SKIP_DEPS
-
-
-local function prebuilt_static_enabled(ctx)
-    return env.PREBUILT_STATIC or options.enabled(options.get(ctx, "prebuilt_static"))
-end
-
-local function prebuilt_static_flavor(ctx)
-    return options.get(ctx, "prebuilt_static_flavor") or env.PREBUILT_STATIC_FLAVOR
-end
 
 --- Returns download information for a specific version
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#preinstall-hook
@@ -43,8 +33,8 @@ function PLUGIN:PreInstall(ctx)
         error("Version not found: " .. version)
     end
 
-    if prebuilt_static_enabled(ctx) and static_php.is_supported_platform() then
-        local flavor = prebuilt_static_flavor(ctx)
+    if static_php.is_requested(ctx) and static_php.is_supported_platform() then
+        local flavor = static_php.requested_flavor(ctx)
         print(static_php.warning(flavor))
         return static_php.release(release.version, flavor)
     end

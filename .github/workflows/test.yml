@@ -2,7 +2,7 @@ name: Test PHP Plugin
 
 on:
   pull_request:
-    types: [labeled]
+    types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
     inputs:
       php_version:
@@ -51,7 +51,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "should-run=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.label.name }}" = "needs-ci" ]; then
+          elif [ "${{ contains(github.event.pull_request.labels.*.name, 'needs-ci') }}" = "true" ]; then
             echo "should-run=true" >> "$GITHUB_OUTPUT"
           else
             echo "should-run=false" >> "$GITHUB_OUTPUT"
@@ -344,6 +344,23 @@ jobs:
           install: false
           cache: false
 
+      - name: Configure spaced mise directories on Windows
+        if: matrix.target.kind == 'hosted' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dirs = @{
+            MISE_DATA_DIR = Join-Path $env:RUNNER_TEMP 'mise data dir'
+            MISE_CACHE_DIR = Join-Path $env:RUNNER_TEMP 'mise cache dir'
+            MISE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'mise config dir'
+            MISE_STATE_DIR = Join-Path $env:RUNNER_TEMP 'mise state dir'
+            MISE_TMP_DIR = Join-Path $env:RUNNER_TEMP 'mise tmp dir'
+          }
+
+          foreach ($item in $dirs.GetEnumerator()) {
+            New-Item -ItemType Directory -Force -Path $item.Value | Out-Null
+            "$($item.Key)=$($item.Value)" >> $env:GITHUB_ENV
+          }
+
       - name: Register plugin from PR source
         if: matrix.target.kind == 'hosted'
         run: mise plugin link php "${{ github.workspace }}"
@@ -443,6 +460,23 @@ jobs:
         with:
           install: false
           cache: false
+
+      - name: Configure spaced mise directories on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dirs = @{
+            MISE_DATA_DIR = Join-Path $env:RUNNER_TEMP 'mise data dir'
+            MISE_CACHE_DIR = Join-Path $env:RUNNER_TEMP 'mise cache dir'
+            MISE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'mise config dir'
+            MISE_STATE_DIR = Join-Path $env:RUNNER_TEMP 'mise state dir'
+            MISE_TMP_DIR = Join-Path $env:RUNNER_TEMP 'mise tmp dir'
+          }
+
+          foreach ($item in $dirs.GetEnumerator()) {
+            New-Item -ItemType Directory -Force -Path $item.Value | Out-Null
+            "$($item.Key)=$($item.Value)" >> $env:GITHUB_ENV
+          }
 
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"

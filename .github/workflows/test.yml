@@ -2,7 +2,7 @@ name: Test PHP Plugin
 
 on:
   pull_request:
-    types: [labeled]
+    types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
     inputs:
       php_version:
@@ -51,7 +51,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "should-run=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.label.name }}" = "needs-ci" ]; then
+          elif [ "${{ contains(github.event.pull_request.labels.*.name, 'needs-ci') }}" = "true" ]; then
             echo "should-run=true" >> "$GITHUB_OUTPUT"
           else
             echo "should-run=false" >> "$GITHUB_OUTPUT"

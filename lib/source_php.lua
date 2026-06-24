@@ -1,6 +1,6 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
-local tools = require("lib/tools")
+local php_packages = require("lib/php_packages")
 
 local source_php = {}
 
@@ -699,17 +699,17 @@ function source_php.install(sdkPath, version)
 
     -- Install PECL extensions
     if not (major > 8 or (major == 8 and minor >= 5)) then
-        tools.install_pecl_extensions(sdkPath, envPrefix, version)
+        php_packages.install_pecl_extensions(sdkPath, envPrefix, version)
     end
 
     -- Install PIE and PIE extensions
     if major > 8 or (major == 8 and minor >= 1) then
-        tools.install_pie(sdkPath, version)
-        tools.install_pie_extensions(sdkPath, version)
+        php_packages.install_pie(sdkPath, version)
+        php_packages.install_pie_extensions(sdkPath, version)
     end
 
     -- Install Composer
-    tools.install_composer(sdkPath, version)
+    php_packages.install_composer(sdkPath, version)
 
     -- Clean up source files to save space
     print("Cleaning up source files...")

@@ -1,5 +1,7 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
+local tools = require("lib/tools")
+local php_packages = require("lib/php_packages")
 
 local M = {}
 
@@ -287,20 +289,25 @@ local function find_prebuilt_php_binary(sdkPath)
         end
     end
 
+    if is_windows() then
+        local ok, _, _, output = tools.execute_cmd(
+            "dir /s /b " .. tools.windows_cmd_quote(join_path(sdkPath, binary_name)) .. QUIET
+        )
+
+        if ok then
+            for candidate in tostring(output):gmatch("[^\r\n]+") do
+                if candidate ~= "" then
+                    return candidate
+                end
+            end
+        end
+
+        return nil
+    end
+
     local result_file = os.tmpname()
     os.remove(result_file)
-
-    if is_windows() then
-        local cmd = string.format(
-            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path \'%s\' -Recurse -File -Filter %s | Select-Object -First 1 -ExpandProperty FullName" > "%s" 2>NUL',
-            sdkPath,
-            binary_name,
-            result_file
-        )
-        os.execute(cmd)
-    else
-        os.execute("find '" .. sdkPath .. "' -type f -name php 2>/dev/null | head -n 1 > '" .. result_file .. "'")
-    end
+    os.execute("find '" .. sdkPath .. "' -type f -name php 2>/dev/null | head -n 1 > '" .. result_file .. "'")
 
     local f = io.open(result_file, "r")
     if not f then
@@ -318,25 +325,7 @@ local function find_prebuilt_php_binary(sdkPath)
     return candidate
 end
 
-local function copy_binary(source, destination)
-    if source == destination then
-        return true
-    end
-
-    local cmd
-    if is_windows() then
-        cmd = string.format('cmd /c copy /Y "%s" "%s" > NUL', source, destination)
-    else
-        cmd = string.format("cp '%s' '%s'", source, destination)
-    end
-
-    local status = os.execute(cmd)
-    return status == 0 or status == true
-end
-
 function M.install(sdkPath, version)
-    local tools = require("lib/tools")
-
     print("Preparing prebuilt static PHP...")
 
     local major, minor = version:match("^(%d+)%.(%d+)")
@@ -390,7 +379,7 @@ function M.install(sdkPath, version)
 
     local status
     if is_windows() then
-        status = os.execute('"' .. php_bin .. '" --version > NUL 2>&1')
+        status = tools.execute_windows_program(php_bin, { "--version" })
     else
         status = os.execute('"' .. php_bin .. '" --version > /dev/null 2>&1')
     end
@@ -405,15 +394,15 @@ function M.install(sdkPath, version)
 
     print("Prebuilt static PHP installation complete!")
 
-    if tools.has_extension_requests() then
-        tools.warn_prebuilt_static_extensions_skipped()
+    if php_packages.has_extension_requests() then
+        php_packages.warn_prebuilt_static_extensions_skipped()
     end
 
     if major > 8 or (major == 8 and minor >= 1) then
-        tools.install_pie(sdkPath, version)
+        php_packages.install_pie(sdkPath, version)
     end
 
-    tools.install_composer(sdkPath, version)
+    php_packages.install_composer(sdkPath, version)
 end
 
 

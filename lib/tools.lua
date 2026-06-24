@@ -40,18 +40,59 @@ local function file_exists(path)
     return true
 end
 
-function tools.execute_cmd(command)
-    local success, output_quited = pcall(cmd.exec, command)
+-- Executes a shell command and captures its output.
+--
+-- Uses io.popen() instead of mise's cmd.exec() to avoid command wrapping
+-- performed by mise on Windows.
+--
+-- The optional quiet argument is appended to the command and can be used for
+-- redirection, for example: " 2>&1".
+--
+-- Imortant:
+-- - Work in `cmd` format quotes: `cmd /C "echo "test""`
+-- - Use `UTF-8`
+-- - Ger actual `exit code` from `cmd` instead of `handle:close()`
+-- - Write info for verbose mode
+--
+-- Returns: ok, why, code, output_quited
+--
+-- TODO: fix `quiet_redirect()` for verbose mode
+function tools.execute_cmd(command, quiet)
+    quiet = quiet or ""
 
-    if VERBOSE and output_quited and output_quited ~= "" then
-        io.stdout:write(output_quited)
+    local command_echo_exit_code = "echo __MISE_PHP_EXIT_CODE__=!ERRORLEVEL!"
+    local command_wrapper_with_exit_code = 'cmd /V:ON /C "' ..  command ..  quiet .. " & " .. command_echo_exit_code .. '"'
+
+    local handle = io.popen(command_wrapper_with_exit_code)
+
+    if not handle then
+        return false, "error", 1, "Failed to start command"
     end
 
-    if success then
-        return true, "exit", 0, output_quited
+    local output_quited = handle:read("*a")
+    local ok, why, code = handle:close()
+
+    -- fix: set actual `ok`, `why`, `code` from `__MISE_PHP_EXIT_CODE__`
+    local command_error_code = output_quited:match("__MISE_PHP_EXIT_CODE__=(%-?%d+)")
+    if command_error_code then
+        code = tonumber(command_error_code)
+        output_quited = output_quited:gsub("\r?\n?__MISE_PHP_EXIT_CODE__=%-?%d+\r?\n?", "")
+
+        if code and code ~= 0 then
+            ok = false
+            why = 'error'
+        end
     end
 
-    return false, "error", 1, output_quited
+    --if VERBOSE or not ok and output_quited and output_quited ~= "" then
+    --    if ok then
+    --        io.stdout:write("\27[93mInfo:\27[0m " .. tostring(output_quited) .. "\n")
+    --    else
+    --        io.stderr:write("\27[91mError:\27[0m " .. tostring(output_quited) .. "\n")
+    --    end
+    --end
+
+    return ok, why, code, tostring(output_quited)
 end
 
 -- Executes Windows commands through a temporary .bat file.
@@ -278,12 +319,11 @@ function tools.install_pie_for_windows(sdkPath, version)
     local pie_bat  = join_path(sdkPath, "pie.bat")
 
     -- Download PIE PHAR
-    local dl_cmd = string.format(
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile "%s"' .. QUIET,
+    local ok = tools.execute_cmd(string.format(
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command Invoke-WebRequest -Uri https://github.com/php/pie/releases/latest/download/pie.phar -OutFile "%s"',
         pie_phar
-    )
-    local status = os.execute(dl_cmd)
-    if status ~= 0 and status ~= true then
+    ), QUIET);
+    if not ok then
         io.stderr:write(
             "\27[93mWarning:\27[0m Failed to download PIE.\n" ..
             messages.verbose_tip(version) ..
@@ -317,12 +357,12 @@ function tools.install_pie_for_windows(sdkPath, version)
     bat:close()
 
     -- Verify PIE installation
-    local ok, why, code = tools.execute_cmd(string.format(
+    local ok = tools.execute_cmd(string.format(
         [[call "%s" --version]],
         pie_bat
-    ) .. QUIET)
+    ), QUIET)
 
-    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+    if not ok then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE verification failed.\n" ..
             messages.manual_tip("pie --version") ..
@@ -428,15 +468,15 @@ function tools.install_pie_extensions_for_windows(sdkPath, version)
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local ok, why, code = tools.execute_cmd(string.format(
+        local ok = tools.execute_cmd(string.format(
             [["%s" "%s" install --with-php-path="%s" "%s"]],
             php_bin,
             pie_phar,
             php_bin,
             pkg
-        ) .. QUIET)
+        ), QUIET)
 
-        if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+        if not ok then
             io.stderr:write(
                 "\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n" ..
                 messages.verbose_tip(version) ..
@@ -520,12 +560,12 @@ function tools.install_composer_for_windows(sdkPath, version)
     bat:close()
 
     -- Verify Composer installation
-    local ok, why, code = tools.execute_cmd(string.format(
+    local ok = tools.execute_cmd(string.format(
         [[call "%s" --version]],
         composer_bat
-    ) .. QUIET)
+    ), QUIET)
 
-    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+    if not ok then
         io.stderr:write(
             "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..
             messages.manual_tip("composer --version") ..

@@ -33,14 +33,14 @@ function install_php_for_windows(sdkPath, version)
     major, minor = tonumber(major) or 0, tonumber(minor) or 0
 
     local scriptPath = assert(RUNTIME.pluginDirPath .. "\\bin\\install-windows-php.ps1")
-    local ok, why, code = tools.execute_cmd(string.format(
+    local ok = tools.execute_cmd(string.format(
         [[powershell -NoProfile -ExecutionPolicy Bypass -File "%s" -Version %s -Arch x64 -CustomPath "%s"]],
         scriptPath,
         version,
         sdkPath
-    ))
+    ), QUIET)
 
-    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+    if not ok then
         error(
             "\n\nFailed to install PHP.\n\n" ..
             messages.verbose_tip(version) ..
@@ -51,12 +51,12 @@ function install_php_for_windows(sdkPath, version)
     -- Verify PHP installation
     local php_bin = sdkPath .. "\\php.exe"
 
-    ok, why, code = tools.execute_cmd(string.format(
+    ok = tools.execute_cmd(string.format(
         [["%s" --version]],
         php_bin
-    ) .. " > NUL 2>&1")
+    ), QUIET)
 
-    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+    if not ok then
         error(
             "\n\nPHP installation appears to be broken: 'php --version' failed.\n\n" ..
             messages.verbose_tip(version) ..

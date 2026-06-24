@@ -12,6 +12,18 @@ function versions.at_least(version, major, minor)
     return current_major == major and current_minor >= minor
 end
 
+function versions.is_exact(version)
+    return tostring(version):match("^%d+%.%d+%.%d+") ~= nil
+end
+
+function versions.is_stable(version)
+    return tostring(version):match("^%d+%.%d+%.%d+$") ~= nil
+end
+
+function versions.is_prerelease(version)
+    return versions.is_exact(version) and not versions.is_stable(version)
+end
+
 local function sort_key(version)
     local major, minor, patch, suffix = tostring(version):match("^(%d+)%.(%d+)%.(%d+)(.*)")
 
@@ -38,6 +50,22 @@ function versions.greater_than(a, b)
     if a_suffix_order ~= b_suffix_order then return a_suffix_order > b_suffix_order end
 
     return a_suffix > b_suffix
+end
+
+function versions.stable_first_greater_than(a, b)
+    local a_stable = versions.is_stable(a)
+    local b_stable = versions.is_stable(b)
+
+    if a_stable ~= b_stable then
+        return a_stable
+    end
+
+    return versions.greater_than(a, b)
+end
+
+function versions.sort_for_default_resolution(version_list)
+    table.sort(version_list, versions.stable_first_greater_than)
+    return version_list
 end
 
 return versions

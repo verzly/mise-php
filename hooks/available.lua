@@ -1,4 +1,5 @@
 local static_php = require("lib/static_php")
+local php_versions = require("lib/php_versions")
 
 --- Returns available PHP versions from GitHub php-src tags
 --- @param ctx table Context provided by vfox
@@ -23,11 +24,18 @@ function PLUGIN:Available(ctx)
         error("Failed to fetch versions.txt: " .. tostring(err))
     end
 
-    local result = {}
+    local versions = {}
     for version in resp.body:gmatch("[^\n]+") do
         if version ~= "" then
-            table.insert(result, { version = version })
+            table.insert(versions, version)
         end
+    end
+
+    php_versions.sort_for_default_resolution(versions)
+
+    local result = {}
+    for _, version in ipairs(versions) do
+        table.insert(result, { version = version })
     end
 
     return result

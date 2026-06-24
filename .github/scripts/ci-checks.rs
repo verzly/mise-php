@@ -173,8 +173,43 @@ fn check_version_list(args: &[String]) -> Result<(), String> {
         return Err(format!("Expected PHP {expected} in {kind} version list"));
     }
 
+    require_stable_first_version_list(kind, &versions)?;
+
     println!("{kind} version list contains {} versions", versions.len());
     Ok(())
+}
+
+fn require_stable_first_version_list(kind: &str, versions: &[&str]) -> Result<(), String> {
+    if is_php_prerelease(versions[0]) {
+        return Err(format!(
+            "Default {kind} version list must start with a stable PHP release, got {}",
+            versions[0]
+        ));
+    }
+
+    let mut seen_prerelease = false;
+    for version in versions {
+        if is_php_prerelease(version) {
+            seen_prerelease = true;
+            continue;
+        }
+
+        if seen_prerelease {
+            return Err(format!(
+                "Default {kind} version list must order stable releases before pre-releases, but stable version {version} appeared after a pre-release"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn is_php_prerelease(version: &str) -> bool {
+    let Some((_, suffix)) = version.rsplit_once('.') else {
+        return false;
+    };
+
+    suffix.chars().any(|ch| ch.is_ascii_alphabetic())
 }
 
 fn check_installed_tools(args: &[String]) -> Result<(), String> {

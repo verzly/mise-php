@@ -196,6 +196,8 @@ pecl version
 
 The list of version numbers is not gathered directly from [`php/php-src`](https://github.com/php/php-src/releases), because the GitHub API enforces rate limiting after a certain number of requests. Instead, we update our `versions.txt` file from a `cache` branch once per day, so it's possible that a release may only be installable via the `verzly/mise-php` plugin with a one-day delay, or may require a manual update.
 
+Partial version requests prefer stable PHP releases. For example, `php@8.5`, `php@8`, and `php@latest` resolve to stable releases even if a newer RC tag exists. Pre-release versions remain installable when requested explicitly, such as `php@8.5.8RC1`.
+
 When prebuilt static PHP is enabled, version listing switches to the available static-php-cli binaries for the current operating system, CPU architecture, and selected flavor.
 
 ### Source build dependencies

@@ -194,7 +194,7 @@ function M.available_versions(http, flavor)
         end
     end
 
-    table.sort(versions, php_versions.greater_than)
+    php_versions.sort_for_default_resolution(versions)
 
     local result = {}
     for _, version in ipairs(versions) do

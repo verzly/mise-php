@@ -180,8 +180,9 @@ jobs:
               title="Review Windows PHP installer mapping for PHP ${series}"
             fi
 
+            export ISSUE_TITLE="$title"
             existing="$(
-              ISSUE_TITLE="$title" gh issue list \
+              gh issue list \
                 --state open \
                 --search "${title} in:title" \
                 --json title \
@@ -194,22 +195,21 @@ jobs:
             fi
 
             body_file="$(mktemp)"
-            cat > "$body_file" <<EOF
-The PHP versions cache detected a new PHP ${scope} series: ${series}.
-
-First detected version: ${representative}
-
-Please review whether `lib/windows_php.lua` needs to be updated against the official PHP Windows installer script:
-https://www.php.net/include/download-instructions/windows.ps1
-
-Focus areas:
-- Visual C++ toolset mapping (`vs16`, `vs17`, future values)
-- x64/x86 availability and fallback rules
-- release vs QA/archive URL behavior
-- ZIP naming conventions for NTS Windows builds
-
-This issue was opened automatically by the PHP versions cache workflow because new major/minor PHP series can require Windows installer mapping changes.
-EOF
+            {
+              printf 'The PHP versions cache detected a new PHP %s series: %s.\n\n' "$scope" "$series"
+              printf 'First detected version: %s\n\n' "$representative"
+              printf '%s\n' \
+                'Please review whether `lib/windows_php.lua` needs to be updated against the official PHP Windows installer script:' \
+                'https://www.php.net/include/download-instructions/windows.ps1' \
+                '' \
+                'Focus areas:' \
+                '- Visual C++ toolset mapping (`vs16`, `vs17`, future values)' \
+                '- x64/x86 availability and fallback rules' \
+                '- release vs QA/archive URL behavior' \
+                '- ZIP naming conventions for NTS Windows builds' \
+                '' \
+                'This issue was opened automatically by the PHP versions cache workflow because new major/minor PHP series can require Windows installer mapping changes.'
+            } > "$body_file"
 
             gh issue create --title "$title" --body-file "$body_file"
             rm -f "$body_file"

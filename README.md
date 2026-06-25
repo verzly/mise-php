@@ -338,7 +338,7 @@ List of available PIE extensions:
 # Check current PHP version
 php --version
 
-# Install extensions for the active PHP version
+# Install an extension for the active PHP version
 pie install xdebug/xdebug
 
 # In a PHP project, install missing top-level extensions from composer.json
@@ -473,7 +473,7 @@ _.php = { pecl_extensions = "redis xdebug" }
 ```
 
 > [!TIP]
-> Extension names may differ between PECL and PIE packages (e.g. `xdebug` vs `xdebug/xdebug`).
+> Extension names differ from PIE (e.g. `xdebug` vs `xdebug/xdebug`).
 
 ### Environment variables
 
@@ -492,7 +492,7 @@ The following installation options can be set through `mise config set env._.php
 | `prebuilt_static` | `PHP_PREBUILT_STATIC` | `false` | Use prebuilt static PHP binaries instead of source builds on supported platforms. |
 | `prebuilt_static_flavor` | `PHP_PREBUILT_STATIC_FLAVOR` | `bulk` | Select the static-php-cli binary flavor. Defaults to the largest flavor: `bulk` on Linux/macOS and `spc-max` on Windows. |
 | `skip_deps` | `PHP_SKIP_DEPS` | `false` | Skip automatic build dependency installation for source builds. |
-| `verbose` | `PHP_VERBOSE` | `false` | Show commands, failure summaries, and temporary log file paths for debugging. |
+| `verbose` | `PHP_VERBOSE` | `false` | Show commands and concise failure summaries for debugging. |
 | `extra_configure_options` | `PHP_EXTRA_CONFIGURE_OPTIONS` | empty | Append extra configure options to the default source build configuration. |
 | `configure_options` | `PHP_CONFIGURE_OPTIONS` | empty | Replace configure options entirely while preserving the install prefix. |
 | `pecl_extensions` | `PHP_PECL_EXTENSIONS` | empty | Install PECL extensions after source builds where PECL is available. |
@@ -614,9 +614,9 @@ Useful when dependencies are already present or managed externally
 
 ### PHP_VERBOSE=1 - mise-php debug output
 
-By default, dependency and build output is captured to temporary log files to keep installation output readable. Set `PHP_VERBOSE=1` to show commands, concise failure summaries, and the temporary log file paths.
+By default, dependency, build, and extension installer output is captured to temporary log files to keep installation output readable. When a failure occurs, mise-php prints the relevant full log path even without `PHP_VERBOSE=1`. Set `PHP_VERBOSE=1` to show commands and concise failure summaries as well.
 
-`buildconf`, `configure`, and `make` output is still written to timestamped files under `/tmp`. Files from the same source build share the same log id, for example `mise-php-8.5.5-20260525T075628Z-configure-output.log` and `mise-php-8.5.5-20260525T075628Z-make.log`. When a failure occurs, mise-php prints the relevant error context directly in the terminal and includes the full log path for deeper debugging.
+`buildconf`, `configure`, `make`, and extension installer output is written to timestamped files under the system temporary directory. Files from the same source build share the same log id, for example `mise-php-8.5.5-20260525T075628Z-configure-output.log` and `mise-php-8.5.5-20260525T075628Z-make.log`. When a failure occurs, mise-php prints the relevant error context directly in the terminal and includes the full log path for deeper debugging.
 
 ```sh
 # One-time use (Linux / macOS / Bash)
@@ -627,7 +627,7 @@ $env:PHP_VERBOSE=1; mise install php@8.4.3
 
 # Enable permanently
 mise config set env._.php.verbose true
-# Subsequent installs will show commands, failure summaries, and log paths automatically
+# Subsequent installs will show commands and failure summaries automatically
 mise install php@8.4.3
 
 # Disable

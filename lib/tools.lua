@@ -201,8 +201,11 @@ local function split_windows_exit_marker(output)
     return program_output, tonumber(last_code)
 end
 
-function tools.execute_windows_program(program, args)
+function tools.execute_windows_program(program, args, options)
     args = args or {}
+    options = options or {}
+
+    local print_output = not options.capture_only
 
     local command = { tools.windows_cmd_quote(program) }
     for _, arg in ipairs(args) do
@@ -242,7 +245,7 @@ function tools.execute_windows_program(program, args)
     os.remove(script_path)
 
     if not success then
-        if output ~= nil and (VERBOSE or not success) then
+        if output ~= nil and print_output and (VERBOSE or not success) then
             write_output(output)
         end
 
@@ -251,7 +254,7 @@ function tools.execute_windows_program(program, args)
 
     local program_output, program_exit_code = split_windows_exit_marker(output)
     if program_exit_code == nil then
-        if program_output ~= "" then
+        if program_output ~= "" and print_output then
             write_output(program_output)
         end
 
@@ -259,7 +262,7 @@ function tools.execute_windows_program(program, args)
     end
 
     local program_success = program_exit_code == 0
-    if program_output ~= "" and (VERBOSE or not program_success) then
+    if program_output ~= "" and print_output and (VERBOSE or not program_success) then
         write_output(program_output)
     end
 

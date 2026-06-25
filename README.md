@@ -339,7 +339,6 @@ List of available PIE extensions:
 php --version
 
 # Install extensions for the active PHP version
-pie install phpredis/phpredis
 pie install xdebug/xdebug
 
 # In a PHP project, install missing top-level extensions from composer.json
@@ -353,22 +352,22 @@ You can install extensions during PHP installation by providing a list via `PHP_
 
 ```sh
 # One-time use (Linux / macOS / Bash)
-PHP_PIE_EXTENSIONS="phpredis/phpredis xdebug/xdebug" mise install php@8.5.0
+PHP_PIE_EXTENSIONS="xdebug/xdebug" mise install php@8.5.0
 
 # One-time use (Windows PowerShell)
-$env:PHP_PIE_EXTENSIONS="phpredis/phpredis xdebug/xdebug"; mise install php@8.5.0
+$env:PHP_PIE_EXTENSIONS="xdebug/xdebug"; mise install php@8.5.0
 ```
 
 You can also persist commonly used extensions so they are automatically installed whenever a new PHP version is installed:
 
 ```sh
 # Persist PIE extensions globally (set this before installing a PHP version)
-mise config set env._.php.pie_extensions "phpredis/phpredis xdebug/xdebug"
+mise config set env._.php.pie_extensions "xdebug/xdebug"
 ```
 
 ```toml
 [env]
-_.php = { pie_extensions = "phpredis/phpredis xdebug/xdebug" }
+_.php = { pie_extensions = "xdebug/xdebug" }
 ```
 
 Within a given PHP version, you can install a specific PIE version or update it to the latest version, similar to Composer.
@@ -474,7 +473,7 @@ _.php = { pecl_extensions = "redis xdebug" }
 ```
 
 > [!TIP]
-> Extension names differ from PIE (e.g. `redis` vs `phpredis/phpredis`).
+> Extension names may differ between PECL and PIE packages (e.g. `xdebug` vs `xdebug/xdebug`).
 
 ### Environment variables
 

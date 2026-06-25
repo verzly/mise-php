@@ -45,6 +45,99 @@ local function failed_packages_summary(failed_packages)
     return "Failed PIE extension packages: " .. table.concat(failed_packages, ", ") .. ".\n"
 end
 
+local function sanitize_log_part(value)
+    return tostring(value):gsub("[^%w%._%-]", "-")
+end
+
+local function utc_timestamp()
+    return os.date("!%Y%m%dT%H%M%SZ")
+end
+
+local function temp_dir()
+    if RUNTIME.osType == "windows" then
+        return os.getenv("TEMP") or os.getenv("TMP") or os.getenv("USERPROFILE") or "."
+    end
+
+    return os.getenv("TMPDIR") or "/tmp"
+end
+
+local function create_log_id(version)
+    return sanitize_log_part(version or "unknown") .. "-" .. utc_timestamp()
+end
+
+local function package_log_path(log_id, phase, pkg)
+    return join_path(
+        temp_dir(),
+        "mise-php-" .. log_id .. "-" .. phase .. "-" .. sanitize_log_part(pkg) .. ".log"
+    )
+end
+
+local function write_log_header(path, label, command, cwd)
+    local file = io.open(path, "w")
+    if not file then
+        return false
+    end
+
+    file:write("# mise-php " .. label .. " log\n")
+    file:write("# Started at: " .. utc_timestamp() .. "\n")
+    if cwd and cwd ~= "" then
+        file:write("# Working directory: " .. cwd .. "\n")
+    end
+    if command and command ~= "" then
+        file:write("# Command: " .. command .. "\n")
+    end
+    file:write("\n")
+    file:close()
+
+    return true
+end
+
+local function append_log_output(path, output, exit_code)
+    local file = io.open(path, "a")
+    if not file then
+        return false
+    end
+
+    local text = tostring(output or "")
+    if text ~= "" then
+        file:write(text)
+        if not text:match("\n$") then
+            file:write("\n")
+        end
+    end
+
+    if exit_code ~= nil then
+        file:write("\n# Exit code: " .. tostring(exit_code) .. "\n")
+    end
+
+    file:close()
+    return true
+end
+
+local function append_failed_package_log(failed_package_logs, pkg, path)
+    if path == nil or path == "" then
+        return
+    end
+
+    failed_package_logs[#failed_package_logs + 1] = {
+        package = pkg,
+        path = path,
+    }
+end
+
+local function failed_package_logs_summary(failed_package_logs)
+    if not VERBOSE or failed_package_logs == nil or #failed_package_logs == 0 then
+        return ""
+    end
+
+    local lines = {}
+    for _, item in ipairs(failed_package_logs) do
+        lines[#lines + 1] = "💡 Debug log: \27[93m" .. item.path .. "\27[0m (PIE extension " .. item.package .. ")"
+    end
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
 local function windows_pie_normalizer_script()
     return [=[<?php
 declare(strict_types=1);
@@ -397,11 +490,11 @@ function packages.install_pie_extensions(sdkPath, version)
         return true
     end
 
-    local ok, failed_packages
+    local ok, failed_packages, failed_package_logs
     if RUNTIME.osType == "windows" then
-        ok, failed_packages = packages.install_pie_extensions_for_windows(sdkPath, version)
+        ok, failed_packages, failed_package_logs = packages.install_pie_extensions_for_windows(sdkPath, version)
     else
-        ok, failed_packages = packages.install_pie_extensions_for_linux(sdkPath, version)
+        ok, failed_packages, failed_package_logs = packages.install_pie_extensions_for_linux(sdkPath, version)
     end
 
     if ok then
@@ -435,42 +528,44 @@ function packages.install_pie_extensions_for_linux(sdkPath, version)
             messages.verbose_tip(version) ..
             messages.see("extension-builds-require-phpize-and-build-tooling")
         )
-        return false, { "all requested PIE extensions" }
+        return false, { "all requested PIE extensions" }, {}
     end
 
     local all_ok = true
     local failed_packages = {}
+    local failed_package_logs = {}
+    local log_id = create_log_id(version)
 
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local cmd = string.format(
-            'PATH="%s/bin:$PATH" "%s" "%s" install --with-php-path="%s" --with-php-config="%s" --with-phpize-path="%s" "%s"%s',
+        local command = string.format(
+            'PATH="%s/bin:$PATH" "%s" "%s" install --with-php-path="%s" --with-php-config="%s" --with-phpize-path="%s" "%s"',
             sdkPath,
             php_bin,
             pie_phar,
             php_bin,
             phpconfig,
             phpize,
-            pkg,
-            QUIET
+            pkg
         )
+        local log_file = package_log_path(log_id, "pie-extension", pkg)
 
-        local status = os.execute(cmd)
+        write_log_header(log_file, "PIE extension", command, sdkPath)
+
+        local status = os.execute(command .. " >> " .. tools.shell_quote(log_file) .. " 2>&1")
         if status ~= 0 and status ~= true then
-            io.stderr:write(
-                "\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n" ..
-                messages.verbose_tip(version) ..
-                messages.see("extension-builds-require-phpize-and-build-tooling")
-            )
+            append_log_output(log_file, "", status)
             append_failed_package(failed_packages, pkg)
+            append_failed_package_log(failed_package_logs, pkg, log_file)
             all_ok = false
         else
+            os.remove(log_file)
             print("PIE extension installed: " .. pkg)
         end
     end
 
-    return all_ok, failed_packages
+    return all_ok, failed_packages, failed_package_logs
 end
 
 function packages.install_pie_extensions_for_windows(sdkPath, version)
@@ -484,36 +579,45 @@ function packages.install_pie_extensions_for_windows(sdkPath, version)
             messages.verbose_tip(version) ..
             messages.see("extension-builds-require-phpize-and-build-tooling")
         )
-        return false, { "all requested PIE extensions" }
+        return false, { "all requested PIE extensions" }, {}
     end
 
     local all_ok = true
     local failed_packages = {}
+    local failed_package_logs = {}
+    local log_id = create_log_id(version)
 
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local ok = tools.execute_windows_program(pie_bat, {
+        local args = {
             "install",
             "--with-php-path=" .. php_bin,
             pkg,
-        })
+        }
+        local command = tools.windows_cmd_quote(pie_bat)
+        for _, arg in ipairs(args) do
+            command = command .. " " .. tools.windows_cmd_quote(arg)
+        end
+        local log_file = package_log_path(log_id, "pie-extension", pkg)
+
+        write_log_header(log_file, "PIE extension", command, sdkPath)
+
+        local ok, _, code, output = tools.execute_windows_program(pie_bat, args, { capture_only = true })
+
+        append_log_output(log_file, output, code)
 
         if not ok then
-            io.stderr:write(
-                "\27[93mWarning:\27[0m Failed to install PIE extension package " .. pkg .. ".\n" ..
-                messages.verbose_tip(version) ..
-                messages.see("pie-for-php")
-            )
-
             append_failed_package(failed_packages, pkg)
+            append_failed_package_log(failed_package_logs, pkg, log_file)
             all_ok = false
         else
+            os.remove(log_file)
             print("PIE extension installed: " .. pkg)
         end
     end
 
-    return all_ok, failed_packages
+    return all_ok, failed_packages, failed_package_logs
 end
 
 function packages.install_composer(sdkPath, version)

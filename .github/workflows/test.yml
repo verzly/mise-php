@@ -740,3 +740,110 @@ jobs:
           }
 
           check_php_install source 1
+
+  pie-extension-diagnostics:
+    name: PIE extension diagnostics - Windows
+    needs: [check-label, env-options, list-source-versions]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+
+      - name: Configure spaced mise directories on Windows
+        shell: pwsh
+        run: |
+          $dirs = @{
+            MISE_DATA_DIR = Join-Path $env:RUNNER_TEMP 'mise data dir'
+            MISE_CACHE_DIR = Join-Path $env:RUNNER_TEMP 'mise cache dir'
+            MISE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'mise config dir'
+            MISE_STATE_DIR = Join-Path $env:RUNNER_TEMP 'mise state dir'
+            MISE_TMP_DIR = Join-Path $env:RUNNER_TEMP 'mise tmp dir'
+          }
+
+          foreach ($item in $dirs.GetEnumerator()) {
+            New-Item -ItemType Directory -Force -Path $item.Value | Out-Null
+            "$($item.Key)=$($item.Value)" >> $env:GITHUB_ENV
+          }
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Install mixed PIE extensions and verify diagnostics
+        shell: pwsh
+        env:
+          PHP_PIE_EXTENSIONS: xdebug/xdebug imagick/imagick redis/phpredis verzly/not-a-real-pie-extension
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $outputFile = Join-Path $env:RUNNER_TEMP 'pie-extension-diagnostics.out'
+
+          mise use -g "php@${{ env.PHP_TEST_VERSION }}" *>&1 |
+            Tee-Object -FilePath $outputFile
+
+          $output = Get-Content -LiteralPath $outputFile -Raw
+
+          function Require-Output {
+            param(
+              [string] $Pattern,
+              [string] $Message
+            )
+
+            if ($output -notmatch $Pattern) {
+              Write-Error $Message
+            }
+          }
+
+          Require-Output 'PIE extension installed: xdebug/xdebug' 'xdebug/xdebug should be reported as installed.'
+          Require-Output 'PIE extension installed: imagick/imagick' 'imagick/imagick should be reported as installed.'
+          Require-Output 'One or more PIE extensions failed to install\.' 'The final PIE failure summary should be shown.'
+          Require-Output 'Failed PIE extension packages: redis/phpredis, verzly/not-a-real-pie-extension\.' 'Only the two failing PIE packages should be listed.'
+          Require-Output 'Debug log: .+ \(redis/phpredis\)' 'redis/phpredis should include a debug log path.'
+          Require-Output 'Debug log: .+ \(verzly/not-a-real-pie-extension\)' 'The nonexistent package should include a debug log path.'
+
+          if ($output -match 'Failed PIE extension packages: .*xdebug/xdebug') {
+            Write-Error 'xdebug/xdebug must not be listed as failed.'
+          }
+
+          if ($output -match 'Failed PIE extension packages: .*imagick/imagick') {
+            Write-Error 'imagick/imagick must not be listed as failed.'
+          }
+
+          if ($output -match 'Debug log: .+ \(xdebug/xdebug\)') {
+            Write-Error 'xdebug/xdebug must not include a failure debug log path.'
+          }
+
+          if ($output -match 'Debug log: .+ \(imagick/imagick\)') {
+            Write-Error 'imagick/imagick must not include a failure debug log path.'
+          }
+
+          $logMatches = [regex]::Matches($output, 'Debug log: (?<path>.+?) \((?<package>.+?)\)')
+
+          if ($logMatches.Count -ne 2) {
+            Write-Error "Expected exactly 2 failed extension debug log paths, got $($logMatches.Count)."
+          }
+
+          foreach ($match in $logMatches) {
+            $path = $match.Groups['path'].Value
+            $package = $match.Groups['package'].Value
+
+            if (-not (Test-Path -LiteralPath $path)) {
+              Write-Error "Expected debug log to exist for ${package}: ${path}"
+            }
+
+            $log = Get-Content -LiteralPath $path -Raw
+
+            if ($log -notmatch [regex]::Escape($package)) {
+              Write-Error "Expected debug log for ${package} to contain the package name."
+            }
+          }
+
+          mise exec -- php --ri xdebug
+          mise exec -- php --ri imagick

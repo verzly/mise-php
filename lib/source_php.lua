@@ -2,6 +2,7 @@ local env = require("lib/env")
 local messages = require("lib/messages")
 local php_versions = require("lib/php_versions")
 local tools = require("lib/tools")
+local logs = require("lib/logs")
 
 local source_php = {}
 
@@ -73,44 +74,6 @@ local function is_el_compatible_major(expected_major)
         or id == "olinux"
         or id_like:find("rhel", 1, true) ~= nil
         or id_like:find("fedora", 1, true) ~= nil
-end
-
-local function sanitize_log_part(value)
-    return tostring(value):gsub("[^%w%._%-]", "-")
-end
-
-local function utc_timestamp()
-    return os.date("!%Y%m%dT%H%M%SZ")
-end
-
-local function create_log_id(version)
-    -- Use one timestamp for the whole source build session so configure,
-    -- config.log, and make logs can be visually grouped together.
-    return sanitize_log_part(version) .. "-" .. utc_timestamp()
-end
-
-local function log_path(log_id, phase)
-    return "/tmp/mise-php-" .. log_id .. "-" .. phase .. ".log"
-end
-
-local function write_log_header(path, label, command, cwd)
-    local file = io.open(path, "w")
-    if not file then
-        return false
-    end
-
-    file:write("# mise-php " .. label .. " log\n")
-    file:write("# Started at: " .. utc_timestamp() .. "\n")
-    if cwd and cwd ~= "" then
-        file:write("# Working directory: " .. cwd .. "\n")
-    end
-    if command and command ~= "" then
-        file:write("# Command: " .. command .. "\n")
-    end
-    file:write("\n")
-    file:close()
-
-    return true
 end
 
 local function append_file(src, dst)
@@ -336,17 +299,17 @@ end
 
 local function print_file_tip(path, label)
     if VERBOSE then
-        return "💡 Debug log: " .. path .. " (" .. label .. ")\n"
+        return logs.debug_tip(path, label)
     end
 
-    return "💡 Tip: \27[93mCheck the " .. label .. " log for details:\27[0m " .. path .. "\n"
+    return logs.check_tip(path, label)
 end
 
 local function run_make(sdkPath, envPrefix, log_id)
-    local makeLog = log_path(log_id, "make")
+    local makeLog = logs.path(log_id, "make")
     local makeCommand = "make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 
-    write_log_header(makeLog, "build", envPrefix .. makeCommand, sdkPath)
+    logs.write_header(makeLog, "build", envPrefix .. makeCommand, sdkPath)
 
     local status = os.execute(string.format(
         "cd %s && %s%s >> %s 2>&1",
@@ -482,7 +445,7 @@ function source_php.install(sdkPath, version)
     -- Build environment and configure options
     local envPrefix = ""
     local configureOptions = "--prefix='" .. sdkPath .. "'"
-    local log_id = create_log_id(version)
+    local log_id = logs.create_id(version)
 
     if VERBOSE then
         print("Build log id: " .. log_id)
@@ -570,8 +533,8 @@ function source_php.install(sdkPath, version)
 
     -- Run buildconf
     print("Running buildconf...")
-    local buildconfLog = log_path(log_id, "buildconf")
-    write_log_header(buildconfLog, "buildconf", "./buildconf --force", sdkPath)
+    local buildconfLog = logs.path(log_id, "buildconf")
+    logs.write_header(buildconfLog, "buildconf", "./buildconf --force", sdkPath)
 
     local buildconfCmd = string.format(
         "cd %s && ./buildconf --force >> %s 2>&1",
@@ -594,8 +557,8 @@ function source_php.install(sdkPath, version)
         print("Configure command: " .. envPrefix .. "./configure " .. configureOptions)
     end
 
-    local configureOutputLog = log_path(log_id, "configure-output")
-    write_log_header(configureOutputLog, "configure output", envPrefix .. "./configure " .. configureOptions, sdkPath)
+    local configureOutputLog = logs.path(log_id, "configure-output")
+    logs.write_header(configureOutputLog, "configure output", envPrefix .. "./configure " .. configureOptions, sdkPath)
 
     local configureCmd = string.format(
         "cd %s && %s./configure %s >> %s 2>&1",
@@ -607,10 +570,10 @@ function source_php.install(sdkPath, version)
     status = os.execute(configureCmd)
     if status ~= 0 and status ~= true then
         local src_log = sdkPath .. "/config.log"
-        local dst_log = log_path(log_id, "config")
+        local dst_log = logs.path(log_id, "config")
         local saved_log = print_file_tip(configureOutputLog, "configure output")
 
-        write_log_header(dst_log, "configure config.log", envPrefix .. "./configure " .. configureOptions, sdkPath)
+        logs.write_header(dst_log, "configure config.log", envPrefix .. "./configure " .. configureOptions, sdkPath)
         local append_status = append_file(src_log, dst_log)
         if append_status == 0 or append_status == true then
             if VERBOSE then

@@ -2,7 +2,6 @@ local env = require("lib/env")
 local messages = require("lib/messages")
 local php_versions = require("lib/php_versions")
 local tools = require("lib/tools")
-local logs = require("lib/logs")
 
 local packages = {}
 
@@ -32,6 +31,72 @@ local function write_windows_phar_wrapper(wrapper_path, php_bin, phar_name, afte
     end
 
     return tools.write_file(wrapper_path, content)
+end
+
+local function sanitize_log_part(value)
+    return tostring(value):gsub("[^%w%._%-]", "-")
+end
+
+local function utc_timestamp()
+    return os.date("!%Y%m%dT%H%M%SZ")
+end
+
+local function temp_dir()
+    if RUNTIME.osType == "windows" then
+        return os.getenv("TEMP") or os.getenv("TMP") or "."
+    end
+
+    return os.getenv("TMPDIR") or "/tmp"
+end
+
+local function create_log_id(version)
+    return sanitize_log_part(version) .. "-" .. utc_timestamp()
+end
+
+local function extension_log_path(log_id, pkg)
+    return join_path(temp_dir(), "mise-php-" .. log_id .. "-pie-" .. sanitize_log_part(pkg) .. ".log")
+end
+
+local function write_log_header(path, label, command, cwd)
+    local file = io.open(path, "w")
+    if not file then
+        return false
+    end
+
+    file:write("# mise-php " .. label .. " log\n")
+    file:write("# Started at: " .. utc_timestamp() .. "\n")
+    if cwd and cwd ~= "" then
+        file:write("# Working directory: " .. cwd .. "\n")
+    end
+    if command and command ~= "" then
+        file:write("# Command: " .. command .. "\n")
+    end
+    file:write("\n")
+    file:close()
+
+    return true
+end
+
+local function append_log_output(path, output)
+    local file = io.open(path, "ab")
+    if not file then
+        return false
+    end
+
+    local text = tostring(output or "")
+    if text ~= "" then
+        file:write(text)
+        if text:sub(-1) ~= "\n" then
+            file:write("\n")
+        end
+    end
+
+    file:close()
+    return true
+end
+
+local function print_file_tip(path, label)
+    return "💡 Debug log: " .. path .. " (" .. label .. ")\n"
 end
 
 local function append_failed_package(failed_packages, pkg, log_path)
@@ -70,7 +135,7 @@ local function failed_packages_log_summary(failed_packages)
     local summary = ""
     for _, failed_package in ipairs(failed_packages) do
         if type(failed_package) == "table" and failed_package.log_path ~= nil and failed_package.log_path ~= "" then
-            summary = summary .. logs.debug_tip(failed_package.log_path, failed_package.name)
+            summary = summary .. print_file_tip(failed_package.log_path, failed_package.name)
         end
     end
 
@@ -461,7 +526,7 @@ function packages.install_pie_extensions_for_linux(sdkPath, version)
     local phpize = sdkPath .. "/bin/phpize"
     local phpconfig = sdkPath .. "/bin/php-config"
     local pie_phar = sdkPath .. "/pie.phar"
-    local log_id = logs.create_id(version)
+    local log_id = create_log_id(version)
 
     if not file_exists(pie_phar) then
         io.stderr:write(
@@ -478,7 +543,7 @@ function packages.install_pie_extensions_for_linux(sdkPath, version)
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local log_file = logs.path(log_id, "pie-" .. pkg)
+        local log_file = extension_log_path(log_id, pkg)
         local command = string.format(
             'PATH="%s/bin:$PATH" "%s" "%s" install --with-php-path="%s" --with-php-config="%s" --with-phpize-path="%s" "%s"',
             sdkPath,
@@ -489,7 +554,7 @@ function packages.install_pie_extensions_for_linux(sdkPath, version)
             phpize,
             pkg
         )
-        logs.write_header(log_file, "PIE extension " .. pkg, command, sdkPath)
+        write_log_header(log_file, "PIE extension " .. pkg, command, sdkPath)
 
         local cmd = command .. " >> " .. tools.shell_quote(log_file) .. " 2>&1"
 
@@ -510,7 +575,7 @@ function packages.install_pie_extensions_for_windows(sdkPath, version)
     local php_bin  = join_path(sdkPath, "php.exe")
     local pie_phar = join_path(sdkPath, "pie.phar")
     local pie_bat  = join_path(sdkPath, "pie.bat")
-    local log_id = logs.create_id(version)
+    local log_id = create_log_id(version)
 
     if not file_exists(pie_phar) then
         io.stderr:write(
@@ -527,14 +592,14 @@ function packages.install_pie_extensions_for_windows(sdkPath, version)
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local log_file = logs.path(log_id, "pie-" .. pkg)
+        local log_file = extension_log_path(log_id, pkg)
         local command = table.concat({
             batch_path(pie_bat),
             "install",
             batch_path("--with-php-path=" .. php_bin),
             batch_path(pkg),
         }, " ")
-        logs.write_header(log_file, "PIE extension " .. pkg, command, sdkPath)
+        write_log_header(log_file, "PIE extension " .. pkg, command, sdkPath)
 
         local ok, _, _, output = tools.execute_windows_program(pie_bat, {
             "install",
@@ -543,7 +608,7 @@ function packages.install_pie_extensions_for_windows(sdkPath, version)
         }, {
             capture_only = not VERBOSE,
         })
-        logs.append(log_file, output)
+        append_log_output(log_file, output)
 
         if not ok then
             append_failed_package(failed_packages, pkg, log_file)

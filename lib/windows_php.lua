@@ -40,6 +40,7 @@ local function vs_version(version)
         ["8.3"] = "vs16",
         ["8.4"] = "vs17",
         ["8.5"] = "vs17",
+        ["8.6"] = "vs18",
     }
 
     local resolved = map[major_minor]

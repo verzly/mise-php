@@ -7,6 +7,8 @@ local tools = {}
 local VERBOSE = env.VERBOSE
 local PATH_SEP = package.config:sub(1, 1)
 local USER_AGENT = "mise-php"
+local WINDOWS_EXIT_MARKER = "__MISE_PHP_EXIT_CODE__="
+local UTF8_BOM = "\239\187\191"
 
 function tools.join_path(...)
     return table.concat({ ... }, PATH_SEP)

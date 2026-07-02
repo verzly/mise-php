@@ -336,7 +336,7 @@ end
 
 local function print_file_tip(path, label)
     if VERBOSE then
-        return "💡 Debug log: \27[93m" .. path .. "\27[0m (" .. label .. ")\n"
+        return "💡 Debug log: " .. path .. " (" .. label .. ")\n"
     end
 
     return "💡 Tip: \27[93mCheck the " .. label .. " log for details:\27[0m " .. path .. "\n"
@@ -489,7 +489,7 @@ function source_php.install(sdkPath, version)
     end
 
     if not VERBOSE then
-        print("\27[96mNote:\27[0m Build output is written to temporary log files. Set PHP_VERBOSE=1 to show commands, failure summaries, and log paths.")
+        print("\27[96mNote:\27[0m Build output is written to temporary log files. Set PHP_VERBOSE=1 to show commands and failure summaries.")
     end
 
     -- Common configure options

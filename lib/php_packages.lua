@@ -595,13 +595,20 @@ function packages.install_pie_extensions_for_windows(sdkPath, version)
     for _, pkg in ipairs(PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
-        local ok = tools.execute_cmd(string.format(
+        local command = string.format(
             '"%s" "%s" install --with-php-path="%s" "%s"',
             php_bin,
             pie_phar,
             php_bin,
             pkg
-        ), QUIET);
+        )
+
+        local log_file = extension_log_path(log_id, pkg)
+        write_log_header(log_file, "PIE extension " .. pkg, command, sdkPath)
+
+        local ok, _, _, output = tools.execute_cmd(command, QUIET);
+
+        append_log_output(log_file, output)
 
         if not ok then
             append_failed_package(failed_packages, pkg, log_file)

@@ -333,7 +333,7 @@ function M.install(sdkPath, version)
 
     local status
     if is_windows() then
-        local status = tools.execute_cmd(string.format(
+        status = tools.execute_cmd(string.format(
             '"%s" -version',
             php_bin
         ), QUIET)

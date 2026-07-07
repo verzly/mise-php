@@ -798,6 +798,7 @@ function configure_macos(configureOptions, homebrew_prefix)
         { name = "libpng", flag = "--with-png" },
         { name = "readline", flag = "--with-readline" },
         { name = "bzip2", flag = "--with-bz2" },
+        { name = "libzip", flag = "--with-zip" },
         { name = "libiconv", flag = "--with-iconv", missing_flag = "--without-iconv", extra_flags = true },
         { name = "libpq", flag = "--with-pdo-pgsql" },
     }

@@ -702,6 +702,51 @@ Then from Windows PowerShell:
 wsl --shutdown
 ```
 
+### Extension builds require phpize and build tooling
+
+PECL extensions and PIE packages that build native code need the PHP build tools for the active PHP version, especially `phpize` and `php-config`. Source builds provide these tools. Prebuilt static PHP installs do not provide a normal source-build toolchain, so extension requests are skipped there.
+
+If an extension build fails, install the operating-system dependencies required by that extension and retry the failed package. The installer prints the debug log path for failed extension commands; set `PHP_VERBOSE=1` to include command output and concise failure summaries in the terminal.
+
+```sh
+PHP_VERBOSE=1 mise install php@8.4.3
+mise exec -- pie install vendor/package
+```
+
+On Windows, PIE packages must publish a matching prebuilt archive for the active PHP version, thread-safety mode, compiler, and CPU architecture. If no matching archive exists, retrying will keep failing until the package publishes one or you choose a compatible package/version.
+
+### PIE verification may fail or time out
+
+mise-php installs PIE for PHP versions that support it and verifies the wrapper by running `pie --version`. A verification failure means the downloaded PHAR, generated wrapper, PHP runtime, or platform environment could not run PIE successfully.
+
+Run the command manually with the installed PHP selected:
+
+```sh
+mise exec -- pie --version
+```
+
+If PIE still fails, rerun the install with verbose output and check the printed command output. Common causes are a failed PHAR download, a non-executable wrapper on Unix-like systems, a broken PHP runtime, or a platform/package issue in PIE itself.
+
+```sh
+PHP_VERBOSE=1 mise install php@8.4.3
+```
+
+### Composer verification may prompt when run as root
+
+Composer can behave differently when executed as root or in non-interactive CI environments. mise-php verifies Composer after installation; if verification fails, the Composer files may still exist, but the install is treated as incomplete because the runtime command could not be confirmed.
+
+Check Composer manually with the installed PHP selected:
+
+```sh
+mise exec -- composer --version
+```
+
+In containers or CI jobs that run as root, allow Composer's root mode explicitly when testing manually:
+
+```sh
+COMPOSER_ALLOW_SUPERUSER=1 mise exec -- composer --version
+```
+
 ### PHP < 8.1 OpenSSL incompatibility (Linux and macOS only)
 
 PHP versions below 8.1 are not compatible with OpenSSL 3.x, which ships by default on most modern Linux distributions.

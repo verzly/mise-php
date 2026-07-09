@@ -3,7 +3,6 @@ local messages = require("lib/messages")
 local php_versions = require("lib/php_versions")
 local tools = require("lib/tools")
 local process = require("lib/process")
-local windows_pie = require("lib/windows_pie")
 
 local packages = {}
 
@@ -17,20 +16,9 @@ local file_exists = tools.file_exists
 local download_file = tools.download_file
 local batch_path = tools.windows_cmd_quote
 
-local function write_windows_phar_wrapper(wrapper_path, php_bin, phar_name, after_success_script)
+local function write_windows_phar_wrapper(wrapper_path, php_bin, phar_name)
     local content = '@echo off\r\n' ..
         string.format('%s "%%~dp0%s" %%*\r\n', batch_path(php_bin), phar_name)
-
-    if after_success_script ~= nil and after_success_script ~= "" then
-        content = content ..
-            'set "MISE_PHP_EXIT_CODE=%ERRORLEVEL%"\r\n' ..
-            string.format(
-                'if "%%MISE_PHP_EXIT_CODE%%"=="0" %s "%%~dp0%s" >NUL 2>&1\r\n',
-                batch_path(php_bin),
-                after_success_script
-            ) ..
-            'exit /b %MISE_PHP_EXIT_CODE%\r\n'
-    end
 
     return tools.write_file(wrapper_path, content)
 end
@@ -339,7 +327,6 @@ function packages.install_pie_for_windows(sdkPath, version)
     local php_bin  = join_path(sdkPath, "php.exe")
     local pie_phar = join_path(sdkPath, "pie.phar")
     local pie_bat  = join_path(sdkPath, "pie.bat")
-    local pie_normalizer = join_path(sdkPath, "pie-normalize-windows.php")
 
     -- Download PIE PHAR
     local ok, err = download_file("https://github.com/php/pie/releases/latest/download/pie.phar", pie_phar)
@@ -353,18 +340,10 @@ function packages.install_pie_for_windows(sdkPath, version)
         return false
     end
 
-    if not tools.write_file(pie_normalizer, windows_pie.normalizer_script()) then
-        io.stderr:write(
-            "\27[93mWarning:\27[0m Failed to create PIE Windows normalizer.\n" ..
-            messages.verbose_tip(version) ..
-            messages.see("pie-verification-may-fail-or-time-out")
-        )
-        return false
-    end
-
-    -- Create PIE wrapper. The normalizer keeps PIE's Windows metadata in sync
-    -- with DLL names copied from prebuilt extension archives.
-    if not write_windows_phar_wrapper(pie_bat, php_bin, "pie.phar", "pie-normalize-windows.php") then
+    -- Create the same kind of PHAR wrapper as Composer: run PHP with the PHAR
+    -- and preserve the PHAR exit code. Do not patch PIE internals or encode
+    -- PHP-version-specific behavior here.
+    if not write_windows_phar_wrapper(pie_bat, php_bin, "pie.phar") then
         io.stderr:write(
             "\27[93mWarning:\27[0m Failed to create PIE wrapper.\n" ..
             messages.verbose_tip(version) ..
@@ -390,7 +369,6 @@ function packages.install_pie_for_windows(sdkPath, version)
 
     return true
 end
-
 
 function packages.install_pie_extensions(sdkPath, version)
     -- Nothing to do when no PIE extensions were requested

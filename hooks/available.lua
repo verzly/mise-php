@@ -9,7 +9,6 @@ function PLUGIN:Available(ctx)
 
     if static_php.is_requested(ctx) and static_php.is_supported_platform() then
         local flavor = static_php.requested_flavor(ctx)
-        print(static_php.warning(flavor))
         return static_php.available_versions(http, flavor, ctx)
     end
 

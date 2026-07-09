@@ -4,7 +4,7 @@ set -euo pipefail
 file="${1:?usage: check-install-output.sh <output-file>}"
 
 if grep -E \
-  'runtime error:|stack traceback|PIE installation did not complete successfully|PIE verification failed|PIE verification timed out|Composer installation did not complete successfully|Composer verification failed|PECL extension installation failed|Failed to install .* PECL extension|Failed to write configuration for PECL extension' \
+  'runtime error:|stack traceback|PHP extension verification failed|PIE installation did not complete successfully|PIE verification failed|PIE verification timed out|Composer installation did not complete successfully|Composer verification failed|PECL extension installation failed|Failed to install .* PECL extension|Failed to write configuration for PECL extension' \
   "$file"; then
   echo "mise-php install reported post-install failure output"
   exit 1

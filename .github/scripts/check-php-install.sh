@@ -42,6 +42,70 @@ if [ "${mode}" = "static" ]; then
   exit 0
 fi
 
+php_modules="$(mise exec -- php -m)"
+require_php_module() {
+  module="$1"
+  if ! printf '%s\n' "${php_modules}" | grep -i "^${module}$" >/dev/null; then
+    echo "Expected PHP extension is not loaded: ${module}"
+    exit 1
+  fi
+}
+
+required_php_modules="
+bcmath
+bz2
+calendar
+curl
+exif
+fileinfo
+ftp
+gd
+gettext
+gmp
+iconv
+intl
+mbstring
+mysqli
+mysqlnd
+openssl
+pdo
+pdo_mysql
+pdo_pgsql
+pdo_sqlite
+pgsql
+shmop
+soap
+sockets
+sodium
+sqlite3
+zip
+zlib
+"
+
+if [ "${RUNNER_OS:-}" = "Windows" ]; then
+  required_php_modules="${required_php_modules}
+ffi
+ldap
+odbc
+pdo_odbc
+tidy
+xsl
+"
+else
+  required_php_modules="${required_php_modules}
+dba
+pcntl
+readline
+sysvmsg
+sysvsem
+sysvshm
+"
+fi
+
+for module in ${required_php_modules}; do
+  require_php_module "${module}"
+done
+
 if [ "${RUNNER_OS:-}" = "Windows" ]; then
   if [ "${require_pecl}" = "1" ]; then
     echo "PECL was required, but the Windows installer path does not provision PEAR/PECL."

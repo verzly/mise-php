@@ -1,6 +1,7 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
 local process = require("lib/process")
+local php_extensions = require("lib/php_extensions")
 local php_versions = require("lib/php_versions")
 local tools = require("lib/tools")
 
@@ -471,6 +472,7 @@ function source_php.install(sdkPath, version)
     -- Build environment and configure options
     local envPrefix = ""
     local configureOptions = "--prefix=" .. shell_quote(sdkPath)
+    local expectedExtensions = {}
     local log_id = create_log_id(version)
 
     if VERBOSE then
@@ -514,6 +516,34 @@ function source_php.install(sdkPath, version)
         "--without-snmp",
     }, " ")
     configureOptions = configureOptions .. " " .. commonOptions
+    php_extensions.add(expectedExtensions, {
+        "bcmath",
+        "calendar",
+        "curl",
+        "dba",
+        "exif",
+        "fileinfo",
+        "ftp",
+        "gd",
+        "iconv",
+        "intl",
+        "mbstring",
+        "mysqli",
+        "mysqlnd",
+        "openssl",
+        "pcntl",
+        "pdo",
+        "pdo_mysql",
+        "pdo_sqlite",
+        "sqlite3",
+        "shmop",
+        "soap",
+        "sockets",
+        "sysvmsg",
+        "sysvsem",
+        "sysvshm",
+        "zlib",
+    })
 
     -- PEAR was removed from the PHP source tree in 8.5.
     if major > 8 or (major == 8 and minor >= 5) then
@@ -523,9 +553,9 @@ function source_php.install(sdkPath, version)
     end
 
     if os_type == "darwin" then
-        configureOptions, envPrefix = configure_macos(configureOptions, homebrew_prefix)
+        configureOptions, envPrefix = configure_macos(configureOptions, homebrew_prefix, expectedExtensions)
     else
-        configureOptions = configure_linux(configureOptions)
+        configureOptions = configure_linux(configureOptions, expectedExtensions)
     end
 
     -- Older PHP source releases may contain K&R-style function definitions
@@ -553,6 +583,7 @@ function source_php.install(sdkPath, version)
     local userOptions = os.getenv("PHP_CONFIGURE_OPTIONS")
     if userOptions ~= nil and userOptions ~= "" then
         configureOptions = "--prefix=" .. shell_quote(sdkPath) .. " " .. userOptions
+        expectedExtensions = {}
     end
 
     -- Run buildconf
@@ -665,6 +696,8 @@ function source_php.install(sdkPath, version)
         )
     end
 
+    php_extensions.verify_loaded(php_bin, expectedExtensions, version)
+
     print("PHP installation complete!")
 
     return {
@@ -686,7 +719,7 @@ function source_php.cleanup(sdkPath)
 end
 
 --- Configure options for macOS with Homebrew
-function configure_macos(configureOptions, homebrew_prefix)
+function configure_macos(configureOptions, homebrew_prefix, expectedExtensions)
     local envPrefix = ""
     local pkg_config_paths = {}
 
@@ -772,17 +805,18 @@ function configure_macos(configureOptions, homebrew_prefix)
     -- Optional packages with configure flags
     -- extra_flags: LDFLAGS/CPPFLAGS needed for keg-only packages without .pc files
     local optional_packages = {
-        { name = "gmp", flag = "--with-gmp" },
-        { name = "libsodium", flag = "--with-sodium" },
+        { name = "gmp", flag = "--with-gmp", modules = { "gmp" } },
+        { name = "libsodium", flag = "--with-sodium", modules = { "sodium" } },
         { name = "freetype", flag = "--with-freetype" },
-        { name = "gettext", flag = "--with-gettext" },
+        { name = "gettext", flag = "--with-gettext", modules = { "gettext" } },
         { name = "jpeg", flag = "--with-jpeg" },
         { name = "webp", flag = "--with-webp" },
         { name = "libpng", flag = "--with-png" },
-        { name = "readline", flag = "--with-readline" },
-        { name = "bzip2", flag = "--with-bz2" },
-        { name = "libiconv", flag = "--with-iconv", missing_flag = "--without-iconv", extra_flags = true },
-        { name = "libpq", flag = "--with-pdo-pgsql" },
+        { name = "readline", flag = "--with-readline", modules = { "readline" } },
+        { name = "bzip2", flag = "--with-bz2", modules = { "bz2" } },
+        { name = "libzip", flag = "--with-zip", modules = { "zip" } },
+        { name = "libiconv", flag = "--with-iconv", missing_flag = "--without-iconv", extra_flags = true, modules = { "iconv" } },
+        { name = "libpq", flags = { "--with-pdo-pgsql", "--with-pgsql" }, modules = { "pdo_pgsql", "pgsql" } },
     }
 
     local ldflags = {}
@@ -793,7 +827,11 @@ function configure_macos(configureOptions, homebrew_prefix)
         local f = io.open(pkg_path .. "/lib", "r")
         if f ~= nil then
             f:close()
-            configureOptions = configureOptions .. " " .. pkg.flag .. "=" .. shell_quote(pkg_path)
+            local flags = pkg.flags or { pkg.flag }
+            for _, flag in ipairs(flags) do
+                configureOptions = configureOptions .. " " .. flag .. "=" .. shell_quote(pkg_path)
+            end
+            php_extensions.add(expectedExtensions, pkg.modules or {})
             if pkg.extra_flags then
                 table.insert(ldflags, "-L" .. pkg_path .. "/lib")
                 table.insert(cppflags, "-I" .. pkg_path .. "/include")
@@ -803,7 +841,7 @@ function configure_macos(configureOptions, homebrew_prefix)
                 configureOptions = configureOptions .. " " .. pkg.missing_flag
                 io.stderr:write("Info: " .. pkg.name .. " not found, using " .. pkg.missing_flag .. "\n")
             else
-                io.stderr:write("Info: " .. pkg.name .. " not found, skipping " .. pkg.flag .. "\n")
+                io.stderr:write("Info: " .. pkg.name .. " not found, skipping " .. table.concat(pkg.flags or { pkg.flag }, ", ") .. "\n")
             end
         end
     end
@@ -844,23 +882,27 @@ function configure_macos(configureOptions, homebrew_prefix)
 end
 
 --- Configure options for Linux
-function configure_linux(configureOptions)
+function configure_linux(configureOptions, expectedExtensions)
     -- On Linux, most libraries are in standard paths.
     configureOptions = configureOptions .. " --with-curl --with-readline --with-gettext"
+    php_extensions.add(expectedExtensions, { "readline", "gettext" })
 
     local bz2_check = os.execute("printf '#include <bzlib.h>\nint main(void){return 0;}\n' | cc -x c - -lbz2 >/dev/null 2>&1")
     if bz2_check == 0 or bz2_check == true then
         configureOptions = configureOptions .. " --with-bz2"
+        php_extensions.add(expectedExtensions, "bz2")
     end
 
-    local gmp_check = os.execute("pkg-config --exists gmp 2>/dev/null")
+    local gmp_check = os.execute("printf '#include <gmp.h>\nint main(void){mpz_t x; mpz_init(x); mpz_clear(x); return 0;}\n' | cc -x c - -lgmp >/dev/null 2>&1")
     if gmp_check == 0 or gmp_check == true then
         configureOptions = configureOptions .. " --with-gmp"
+        php_extensions.add(expectedExtensions, "gmp")
     end
 
     local sodium_check = os.execute("pkg-config --exists libsodium 2>/dev/null")
     if sodium_check == 0 or sodium_check == true then
         configureOptions = configureOptions .. " --with-sodium"
+        php_extensions.add(expectedExtensions, "sodium")
     end
 
     -- Check for external GD support. Older enterprise distributions may provide
@@ -873,7 +915,8 @@ function configure_linux(configureOptions)
     -- Check for PostgreSQL.
     local pgsql_check = os.execute("pg_config --version 2>/dev/null")
     if pgsql_check == 0 or pgsql_check == true then
-        configureOptions = configureOptions .. " --with-pdo-pgsql"
+        configureOptions = configureOptions .. " --with-pdo-pgsql --with-pgsql"
+        php_extensions.add(expectedExtensions, { "pdo_pgsql", "pgsql" })
     end
 
     -- Avoid enabling libzip from very old enterprise repositories. The PHP
@@ -882,6 +925,7 @@ function configure_linux(configureOptions)
     local zip_check = os.execute("pkg-config --exists 'libzip >= 0.11' 2>/dev/null")
     if zip_check == 0 or zip_check == true then
         configureOptions = configureOptions .. " --with-zip"
+        php_extensions.add(expectedExtensions, "zip")
     end
 
     return configureOptions

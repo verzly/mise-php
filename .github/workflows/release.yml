@@ -16,7 +16,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: release-${{ inputs.version }}
@@ -65,11 +64,6 @@ jobs:
             exit 1
           fi
 
-          if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
-            echo "Release branch already exists: ${branch}" >&2
-            exit 1
-          fi
-
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
 
@@ -78,11 +72,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Update metadata version
-        id: metadata
+      - name: Prepare release commit
+        id: target
         shell: bash
         run: |
           set -euo pipefail
+
+          tag="${{ steps.release.outputs.tag }}"
+          branch="${{ steps.release.outputs.branch }}"
+
+          git fetch origin "${DEFAULT_BRANCH}" --tags --force
+          git switch -C "${DEFAULT_BRANCH}" "origin/${DEFAULT_BRANCH}"
+          git switch -C "${branch}"
 
           python3 <<'PY'
           from pathlib import Path
@@ -102,99 +103,26 @@ jobs:
           if count != 1:
               raise SystemExit("Could not find PLUGIN.version in metadata.lua")
 
-          if updated != text:
-              path.write_text(updated, encoding="utf-8")
-              print("changed=true")
-          else:
-              print("changed=false")
+          path.write_text(updated, encoding="utf-8")
           PY
 
           if git diff --quiet -- metadata.lua; then
-            echo "changed=false" >> "${GITHUB_OUTPUT}"
-          else
-            echo "changed=true" >> "${GITHUB_OUTPUT}"
+            git switch "${DEFAULT_BRANCH}"
+            git branch -D "${branch}"
+            sha="$(git rev-parse HEAD)"
+            echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
+            echo "Metadata already prepared; using default branch commit: ${sha}"
+            exit 0
           fi
 
-      - name: Create release pull request
-        if: steps.metadata.outputs.changed == 'true'
-        id: pr
-        env:
-          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          tag="${{ steps.release.outputs.tag }}"
-          branch="${{ steps.release.outputs.branch }}"
-
-          git switch -c "${branch}"
           git add metadata.lua
-          git commit -m "chore(release): ${tag}"
-          git push --set-upstream origin "${branch}"
+          git -c commit.gpgSign=false commit -m "chore(release): ${tag}"
 
-          pr_url="$(gh pr create \
-            --base "${DEFAULT_BRANCH}" \
-            --head "${branch}" \
-            --title "chore(release): ${tag}" \
-            --body "Prepare ${tag} release metadata.")"
-
-          pr_number="${pr_url##*/}"
-          echo "number=${pr_number}" >> "${GITHUB_OUTPUT}"
-          echo "url=${pr_url}" >> "${GITHUB_OUTPUT}"
-
-      - name: Squash merge release pull request
-        if: steps.metadata.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          pr_number="${{ steps.pr.outputs.number }}"
-          tag="${{ steps.release.outputs.tag }}"
-
-          if ! gh pr merge "${pr_number}" \
-            --squash \
-            --delete-branch \
-            --subject "chore(release): ${tag}" \
-            --body ""; then
-            gh pr merge "${pr_number}" \
-              --squash \
-              --auto \
-              --delete-branch \
-              --subject "chore(release): ${tag}" \
-              --body ""
-          fi
-
-          for _ in $(seq 1 180); do
-            merged_at="$(gh pr view "${pr_number}" --json mergedAt --jq '.mergedAt // ""')"
-            state="$(gh pr view "${pr_number}" --json state --jq '.state')"
-
-            if [ -n "${merged_at}" ]; then
-              echo "Release PR merged at ${merged_at}."
-              exit 0
-            fi
-
-            if [ "${state}" = "CLOSED" ]; then
-              echo "Release PR was closed without being merged." >&2
-              exit 1
-            fi
-
-            sleep 10
-          done
-
-          echo "Timed out waiting for release PR to merge." >&2
-          exit 1
-
-      - name: Checkout release commit
-        id: target
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git fetch origin "${DEFAULT_BRANCH}" --tags --force
           git switch "${DEFAULT_BRANCH}"
-          git reset --hard "origin/${DEFAULT_BRANCH}"
+          git merge --squash "${branch}"
+          git -c commit.gpgSign=false commit -m "chore(release): ${tag}"
+          git push origin "HEAD:refs/heads/${DEFAULT_BRANCH}"
+          git branch -D "${branch}"
 
           sha="$(git rev-parse HEAD)"
           echo "sha=${sha}" >> "${GITHUB_OUTPUT}"

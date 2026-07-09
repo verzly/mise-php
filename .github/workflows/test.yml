@@ -543,11 +543,15 @@ jobs:
         run: bash .github/scripts/check-php-install.sh source 1
 
   pie-extension-diagnostics:
-    name: PIE extension diagnostics - Windows
+    name: PIE extension diagnostics - ${{ matrix.os }}
     needs: [check-label, env-options, list-source-versions]
     if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
-    runs-on: windows-latest
-    timeout-minutes: 45
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -559,6 +563,7 @@ jobs:
           cache: false
 
       - name: Configure spaced mise directories on Windows
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $dirs = @{

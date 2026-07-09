@@ -327,7 +327,7 @@ rhel_install_any() {
 }
 
 brew_install() {
-  brew install "$@"
+  HOMEBREW_NO_AUTO_UPDATE=1 brew install "$@"
 }
 
 pacman_install() {

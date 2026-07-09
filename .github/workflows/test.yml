@@ -586,8 +586,15 @@ jobs:
 
           $outputFile = Join-Path $env:RUNNER_TEMP 'pie-extension-diagnostics.out'
 
-          $installOutput = & mise use -g "php@${{ env.PHP_TEST_VERSION }}" *>&1
-          $installExitCode = $LASTEXITCODE
+          $previousNativeCommandPreference = $PSNativeCommandUseErrorActionPreference
+          $PSNativeCommandUseErrorActionPreference = $false
+          try {
+            $installOutput = & mise use -g "php@${{ env.PHP_TEST_VERSION }}" *>&1
+            $installExitCode = $LASTEXITCODE
+          } finally {
+            $PSNativeCommandUseErrorActionPreference = $previousNativeCommandPreference
+          }
+
           $installOutput | Tee-Object -FilePath $outputFile
 
           if ($installExitCode -eq 0) {
@@ -650,4 +657,7 @@ jobs:
               Write-Error "Expected debug log for ${package} to contain the package name."
             }
           }
+
+          # GitHub's pwsh wrapper can propagate a stale native command exit code.
+          $global:LASTEXITCODE = 0
 

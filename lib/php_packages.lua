@@ -133,28 +133,6 @@ local function failed_packages_log_summary(failed_packages)
     return summary
 end
 
--- macOS does not provide GNU timeout by default.
-local function unix_timeout_command(command, seconds)
-    return string.format([[
-(
-    %s &
-    child=$!
-    (
-        sleep %d
-        kill "$child" 2>/dev/null
-    ) &
-    watchdog=$!
-    wait "$child"
-    status=$?
-    kill "$watchdog" 2>/dev/null
-    wait "$watchdog" 2>/dev/null
-    if [ "$status" -ge 128 ]; then
-        exit 124
-    fi
-    exit "$status"
-)]], command, seconds)
-end
-
 local function require_ok(ok, label, version, anchor)
     if ok then
         return
@@ -318,7 +296,7 @@ function packages.install_pie_for_unix(sdkPath, version)
 
     -- Verify PIE installation
     local result = process.run(
-        unix_timeout_command(shell_quote(pie_bin) .. " --version", 20),
+        process.unix_timeout_command({ pie_bin, "--version" }, 20),
         { quiet = " > /dev/null 2>&1" }
     )
 

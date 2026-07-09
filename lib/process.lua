@@ -35,7 +35,28 @@ local function write_file(path, content)
 end
 
 local function posix_quote(value)
-    return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
+    value = tostring(value)
+    if value:find("[%z\r\n]") then
+        error("Unsupported POSIX command argument: " .. value)
+    end
+
+    return "'" .. value:gsub("'", "'\"'\"'") .. "'"
+end
+
+local function posix_command(argv)
+    if type(argv) ~= "table" or #argv == 0 then
+        error("POSIX command arguments must be a non-empty table")
+    end
+
+    local quoted = {}
+    for index = 1, #argv do
+        if argv[index] == nil then
+            error("POSIX command argument " .. index .. " must not be nil")
+        end
+        quoted[index] = posix_quote(argv[index])
+    end
+
+    return table.concat(quoted, " ")
 end
 
 local function windows_quote(value)
@@ -124,6 +145,33 @@ local function script_for(command, opts)
         "exit \"$code\"",
         "",
     }, "\n")
+end
+
+-- Build a POSIX sh timeout wrapper without requiring GNU timeout, which macOS lacks.
+function process.unix_timeout_command(argv, seconds)
+    seconds = tonumber(seconds)
+    if seconds == nil or seconds < 1 then
+        error("Timeout seconds must be a positive number")
+    end
+
+    return string.format([[
+(
+    %s &
+    child=$!
+    (
+        sleep %d
+        kill "$child" 2>/dev/null
+    ) &
+    watchdog=$!
+    wait "$child"
+    status=$?
+    kill "$watchdog" 2>/dev/null
+    wait "$watchdog" 2>/dev/null
+    if [ "$status" -ge 128 ]; then
+        exit 124
+    fi
+    exit "$status"
+)]], posix_command(argv), math.floor(seconds))
 end
 
 function process.run(command, opts)

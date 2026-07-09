@@ -1,5 +1,6 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
+local process = require("lib/process")
 local php_versions = require("lib/php_versions")
 local tools = require("lib/tools")
 
@@ -381,6 +382,18 @@ local function is_wsl()
     return string.find(content, "microsoft", 1, true) ~= nil
 end
 
+local function fail_with_wsl_windows_path_warning(detected_php_path)
+    local warning =
+        "\n\nWSL may be exposing Windows PATH entries inside your Linux shell, which can cause the installer to access a PHP binary installed on Windows.\n\n" ..
+        "Detected PHP path: \27[93m" .. (detected_php_path ~= "" and detected_php_path or "(unknown)") .. "\27[0m\n\n" ..
+        "💡 Tip: Add the following to \27[93m/etc/wsl.conf\27[0m and restart WSL:\n\n" ..
+        "\27[93m[interop]\nappendWindowsPath=false\27[0m\n\n" ..
+        "Then run \27[93mwsl --shutdown\27[0m from Windows, update your \27[93m~/.bashrc\27[0m if needed, and restart the installation.\n" ..
+        messages.see("wsl-windows-path-exposure")
+
+    error(warning)
+end
+
 local function fail_if_windows_php_is_visible_or_hangs()
     if RUNTIME.osType ~= "linux" then
         return
@@ -390,59 +403,26 @@ local function fail_if_windows_php_is_visible_or_hangs()
         return
     end
 
-    local php_path_file = "/tmp/mise-php-detected-path.txt"
+    local detect_result = process.run("command -v php", { quiet = " 2>/dev/null" })
+    local detected_php_path = (detect_result.output or ""):match("^([^\r\n]*)") or ""
 
-    os.remove(php_path_file)
-
-    local detect_cmd = string.format([[
-        sh -c '
-            PHP_PATH="$(command -v php 2>/dev/null || true)"
-            printf "%%s" "$PHP_PATH" > "%s"
-
-            if [ -z "$PHP_PATH" ]; then
-                exit 0
-            fi
-
-            case "$PHP_PATH" in
-                /mnt/[a-zA-Z]/*|*.exe)
-                    exit 42
-                    ;;
-            esac
-
-            timeout 10s "$PHP_PATH" -v >/dev/null 2>&1
-            rc=$?
-
-            if [ "$rc" -eq 124 ]; then
-                exit 124
-            fi
-
-            exit 0
-        '
-    ]], php_path_file)
-
-    local status = os.execute(detect_cmd)
-
-    local detected_php_path = ""
-    local f = io.open(php_path_file, "r")
-    if f then
-        detected_php_path = f:read("*a") or ""
-        f:close()
-        os.remove(php_path_file)
+    if detected_php_path == "" then
+        return
     end
 
-    if status == 42 or status == 124 or status == 42 * 256 or status == 124 * 256 then
-        local warning =
-            "\n\nWSL may be exposing Windows PATH entries inside your Linux shell, which can cause the installer to access a PHP binary installed on Windows.\n\n" ..
-            "Detected PHP path: \27[93m" .. (detected_php_path ~= "" and detected_php_path or "(unknown)") .. "\27[0m\n\n" ..
-            "💡 Tip: Add the following to \27[93m/etc/wsl.conf\27[0m and restart WSL:\n\n" ..
-            "\27[93m[interop]\nappendWindowsPath=false\27[0m\n\n" ..
-            "Then run \27[93mwsl --shutdown\27[0m from Windows, update your \27[93m~/.bashrc\27[0m if needed, and restart the installation.\n" ..
-            messages.see("wsl-windows-path-exposure")
+    if detected_php_path:match("^/mnt/[a-zA-Z]/") or detected_php_path:match("%.exe$") then
+        fail_with_wsl_windows_path_warning(detected_php_path)
+    end
 
-        error(warning)
+    local version_result = process.run(
+        process.unix_timeout_command({ detected_php_path, "-v" }, 10),
+        { quiet = " > /dev/null 2>&1" }
+    )
+
+    if version_result.code == 124 then
+        fail_with_wsl_windows_path_warning(detected_php_path)
     end
 end
-
 
 local configure_macos
 local configure_linux

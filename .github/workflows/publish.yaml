@@ -32,6 +32,7 @@ jobs:
           sudo lua -e '
           require("metadata");
           local dkjson = require("dkjson");
+          PLUGIN.version = "${{ env.VERSION }}";
           PLUGIN.downloadUrl = "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${{ env.REPO_NAME }}-${{ env.VERSION }}.zip";
           local str = dkjson.encode(PLUGIN);
           print(str)' > manifest.json

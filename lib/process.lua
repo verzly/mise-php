@@ -3,7 +3,7 @@ local env = require("lib/env")
 local process = {}
 
 local VERBOSE = env.VERBOSE
-local MARKER = "__MISE_PHP_EXIT_CODE__"
+local MARKER_PREFIX = "__MISE_PHP_EXIT_CODE__"
 local PATH_SEP = package.config:sub(1, 1)
 
 local function is_windows()
@@ -69,15 +69,32 @@ local function windows_quote(value)
     return '"' .. value:gsub("%%", "%%%%") .. '"'
 end
 
-local function strip_marker(output)
-    local text = tostring(output or "")
-    local code = text:match(MARKER .. "=(%-?%d+)")
+local function marker_for(script_path)
+    return MARKER_PREFIX .. "_" .. tostring(script_path):gsub("[^%w_]", "_")
+end
 
-    if code ~= nil then
-        text = text:gsub("\r?\n?" .. MARKER .. "=%-?%d+\r?\n?", "")
+local function pattern_escape(value)
+    return tostring(value):gsub("([^%w])", "%%%1")
+end
+
+local function strip_marker(output, marker)
+    local text = tostring(output or "")
+    local marker_pattern = pattern_escape(marker)
+    local code = nil
+    local lines = {}
+
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+        local normalized = line:gsub("\r$", "")
+        local found = normalized:match("^" .. marker_pattern .. "=(%-?%d+)$")
+
+        if found ~= nil then
+            code = tonumber(found)
+        else
+            lines[#lines + 1] = line
+        end
     end
 
-    return text, tonumber(code)
+    return table.concat(lines, "\n"), code
 end
 
 local function collect(command)
@@ -116,7 +133,7 @@ local function run_script(script_path, cwd)
     return collect(command)
 end
 
-local function script_for(command, opts)
+local function script_for(command, opts, marker)
     opts = opts or {}
     local quiet = opts.quiet or ""
     local command_line = command .. quiet
@@ -128,7 +145,7 @@ local function script_for(command, opts)
             "if not \"%~1\"==\"\" cd /D \"%~1\"",
             command_line,
             "set \"MISE_PHP_EXIT_CODE=%ERRORLEVEL%\"",
-            "echo " .. MARKER .. "=%MISE_PHP_EXIT_CODE%",
+            "echo " .. marker .. "=%MISE_PHP_EXIT_CODE%",
             "exit /b %MISE_PHP_EXIT_CODE%",
             "",
         }, "\r\n")
@@ -141,7 +158,7 @@ local function script_for(command, opts)
         "fi",
         command_line,
         "code=$?",
-        "printf '\\n" .. MARKER .. "=%s\\n' \"$code\"",
+        "printf '\\n" .. marker .. "=%s\\n' \"$code\"",
         "exit \"$code\"",
         "",
     }, "\n")
@@ -178,7 +195,8 @@ function process.run(command, opts)
     opts = opts or {}
     local extension = is_windows() and ".cmd" or ".sh"
     local script_path = temp_path(extension)
-    local script = script_for(command, opts)
+    local marker = marker_for(script_path)
+    local script = script_for(command, opts, marker)
 
     if not write_file(script_path, script) then
         return {
@@ -195,14 +213,18 @@ function process.run(command, opts)
         print("process.script: " .. script_path)
     end
 
-    local ok, why, code, output = run_script(script_path, opts.cwd)
+    local ok, why, close_code, output = run_script(script_path, opts.cwd)
     os.remove(script_path)
 
-    output, code = strip_marker(output)
+    local marker_code
+    output, marker_code = strip_marker(output, marker)
+    local code = marker_code
     if code == nil then
         if ok == true then
             code = 0
-        elseif type(code) ~= "number" then
+        elseif type(close_code) == "number" then
+            code = close_code
+        else
             code = 1
         end
     end

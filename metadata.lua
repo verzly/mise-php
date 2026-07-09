@@ -11,7 +11,7 @@ PLUGIN.notes = {
     "Compiles PHP from source. Requires: C compiler, make, autoconf, bison, re2c.",
     "macOS: brew install autoconf bison re2c libxml2 openssl@3 icu4c pkg-config",
     "Linux: apt install build-essential autoconf bison re2c libxml2-dev libssl-dev libicu-dev",
-    "Windows: nothing",
+    "Windows: uses prebuilt PHP binaries by default.",
     "Automatically installs Composer after PHP.",
-    "Dependency handling is intentionally kept install-path aware; see README for jdx/mise#10848 notes.",
+    "Dependency handling is install-path aware; source builds verify dependencies in the installer.",
 }

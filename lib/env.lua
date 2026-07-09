@@ -22,11 +22,38 @@ local function quiet_redirect()
     return " > /dev/null 2>&1"
 end
 
+local function validate_package_token(env_var, value, allow_slash)
+    if value == nil or value == "" then
+        error(env_var .. " contains an empty package name")
+    end
+
+    local pattern = allow_slash and "^[%w][%w%._%-%/]*$" or "^[%w][%w%._%-]*$"
+    if not value:match(pattern) or value:find("..", 1, true) then
+        error(
+            env_var .. " contains an unsupported package name: " .. value .. "\n" ..
+            "Use plain package identifiers only: letters, numbers, dot, underscore, dash" ..
+            (allow_slash and ", and optionally one slash for vendor/package names." or ".")
+        )
+    end
+
+    if allow_slash then
+        local slash_count = 0
+        for _ in value:gmatch("/") do
+            slash_count = slash_count + 1
+        end
+
+        if slash_count > 1 or value:sub(-1) == "/" then
+            error(env_var .. " contains an unsupported package name: " .. value)
+        end
+    end
+end
+
 local function parse_pecl_extensions()
     local val = os.getenv("PHP_PECL_EXTENSIONS")
     if val == nil or val == "" then return {} end
     local extensions = {}
     for ext in val:gmatch("[^,%s]+") do
+        validate_package_token("PHP_PECL_EXTENSIONS", ext, false)
         table.insert(extensions, ext)
     end
     return extensions
@@ -37,6 +64,7 @@ local function parse_pie_extensions()
     if val == nil or val == "" then return {} end
     local extensions = {}
     for ext in val:gmatch("[^,%s]+") do
+        validate_package_token("PHP_PIE_EXTENSIONS", ext, true)
         table.insert(extensions, ext)
     end
     return extensions

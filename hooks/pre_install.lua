@@ -1,10 +1,13 @@
 local env = require("lib/env")
 local static_php = require("lib/static_php")
 local php_versions = require("lib/php_versions")
+local tools = require("lib/tools")
 
 local VERBOSE   = env.VERBOSE
 local QUIET     = env.QUIET
 local SKIP_DEPS = env.SKIP_DEPS
+
+local shell_quote = tools.shell_quote
 
 --- Returns download information for a specific version
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#preinstall-hook
@@ -154,8 +157,13 @@ function install_dependencies(version)
     print("Installing dependencies...")
 
     local path = RUNTIME.pluginDirPath .. '/bin/install-dependencies.sh'
-    os.execute('chmod +x "' .. path .. '"')
-
+    local chmod_status = os.execute("chmod +x " .. shell_quote(path) .. QUIET)
+    if chmod_status ~= 0 and chmod_status ~= true then
+        error(
+            "\n\nFailed to prepare PHP build dependency installer.\n\n" ..
+            "Could not make the dependency installer executable.\n"
+        )
+    end
     if RUNTIME.osType ~= "darwin" then
         local has_sudo = os.execute('command -v sudo >/dev/null 2>&1')
         if has_sudo == true or has_sudo == 0 then
@@ -172,10 +180,10 @@ function install_dependencies(version)
 
     local version_prefix = ''
     if version ~= nil and version ~= '' then
-        version_prefix = 'PHP_BUILD_VERSION="' .. version .. '" '
+        version_prefix = 'PHP_BUILD_VERSION=' .. shell_quote(version) .. ' '
     end
 
-    local status = os.execute(version_prefix .. 'sh "' .. path .. '"' .. QUIET)
+    local status = os.execute(version_prefix .. 'sh ' .. shell_quote(path) .. QUIET)
     if status ~= 0 and status ~= true then
         error(
             "\n\nFailed to install PHP build dependencies.\n\n" ..

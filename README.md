@@ -215,9 +215,9 @@ For permanent or one-time disabling, see [Skip dependency installation](#skip-de
 
 `jdx/mise#10848` introduced `PLUGIN.systemDependencies` for vfox plugins. That feature lets a plugin declare host prerequisites in `metadata.lua` using capability checks such as `bin`, `pkgconfig`, `sharedlib`, and `command`, then lets mise report, prompt, auto-install, warn, or ignore missing dependencies through the `system_deps` setting. See <https://github.com/jdx/mise/pull/10848>.
 
-`mise-php` does not move the full PHP source-build dependency list into `PLUGIN.systemDependencies` yet. The declaration is plugin-level metadata, while this plugin has several install paths: Windows uses prebuilt PHP binaries by default, Linux and macOS build from source by default, and prebuilt static PHP skips source-build tooling on all supported platforms. A plugin-level Unix build dependency list would therefore produce unnecessary dependency prompts or warnings for Windows and static installs.
+`mise-php` does not declare the full PHP source-build dependency set as required `PLUGIN.systemDependencies`. That metadata is plugin-level, while this plugin has several install paths: Windows uses prebuilt PHP binaries by default, Linux and macOS build from source by default, and prebuilt static PHP skips source-build tooling on all supported platforms. Marking Unix build dependencies as required would produce incorrect prompts or warnings for Windows and static installs.
 
-For now, `bin/install-dependencies.sh` remains the source-build dependency fallback. Future migration to `PLUGIN.systemDependencies` should happen only when mise can scope declarations safely by platform and install path. Until then, source-build verification and post-install tooling still need to fail inside the plugin installer itself when required Composer, PIE, PECL, or extension setup fails.
+`bin/install-dependencies.sh` remains the authoritative source-build dependency installer. It is path-aware and can inspect the requested PHP version, custom configure options, requested PECL/PIE extensions, distro family, repository setup, and version-specific fallbacks such as newer `re2c` on older Enterprise Linux releases. Source-build verification and post-install tooling fail inside the plugin installer when required Composer, PIE, PECL, or extension setup fails.
 
 ### Prebuilt static PHP
 
@@ -595,7 +595,7 @@ The following options are additionally detected based on available libraries:
 ### Skip dependency installation
 
 By default, the plugin automatically installs required build dependencies before
-compiling PHP. This remains the source-build fallback until mise can safely scope `PLUGIN.systemDependencies` by platform and install path for cross-platform plugins. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
+compiling PHP. This path-aware installer remains responsible for source builds until mise can scope `PLUGIN.systemDependencies` by platform and install path. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
 
 ```sh
 # One-time use (Linux / macOS / Bash)

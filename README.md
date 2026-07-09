@@ -50,7 +50,7 @@ You can optionally use prebuilt static PHP binaries provided by static-php-cli. 
 
 ### Build from source
 
-For Linux and macOS systems, source builds remain the default. The `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `/bin/install-dependencies.sh`, which the system runs automatically.
+For Linux and macOS systems, source builds remain the default. The `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `bin/install-dependencies.sh`, which the system runs automatically for source builds.
 
 ### Cleanup
 
@@ -210,6 +210,14 @@ Supported installers cover Debian and Ubuntu, Fedora, Enterprise Linux-compatibl
 Some PHP/platform combinations need extra handling, such as a newer `re2c` for PHP 8.3+ on older Enterprise Linux releases or PIC/PIE build flags for PHP 8.5+ on EL8-compatible systems. Static PHP installs skip this step because they use prebuilt binaries with a fixed extension set.
 
 For permanent or one-time disabling, see [Skip dependency installation](#skip-dependency-installation). For package names, repository setup, and version-specific notes, see [`bin/install-dependencies.sh`](bin/install-dependencies.sh).
+
+#### mise system dependency preflight
+
+`jdx/mise#10848` introduced `PLUGIN.systemDependencies` for vfox plugins. That feature lets a plugin declare host prerequisites in `metadata.lua` using capability checks such as `bin`, `pkgconfig`, `sharedlib`, and `command`, then lets mise report, prompt, auto-install, warn, or ignore missing dependencies through the `system_deps` setting. See <https://github.com/jdx/mise/pull/10848>.
+
+`mise-php` does not move the full PHP source-build dependency list into `PLUGIN.systemDependencies` yet. The declaration is plugin-level metadata, while this plugin has several install paths: Windows uses prebuilt PHP binaries by default, Linux and macOS build from source by default, and prebuilt static PHP skips source-build tooling on all supported platforms. A plugin-level Unix build dependency list would therefore produce unnecessary dependency prompts or warnings for Windows and static installs.
+
+For now, `bin/install-dependencies.sh` remains the source-build dependency fallback. Future migration to `PLUGIN.systemDependencies` should happen only when mise can scope declarations safely by platform and install path. Until then, source-build verification and post-install tooling still need to fail inside the plugin installer itself when required Composer, PIE, PECL, or extension setup fails.
 
 ### Prebuilt static PHP
 
@@ -587,7 +595,7 @@ The following options are additionally detected based on available libraries:
 ### Skip dependency installation
 
 By default, the plugin automatically installs required build dependencies before
-compiling PHP. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
+compiling PHP. This remains the source-build fallback until mise can safely scope `PLUGIN.systemDependencies` by platform and install path for cross-platform plugins. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
 
 ```sh
 # One-time use (Linux / macOS / Bash)

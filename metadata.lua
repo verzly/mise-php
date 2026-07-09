@@ -13,4 +13,5 @@ PLUGIN.notes = {
     "Linux: apt install build-essential autoconf bison re2c libxml2-dev libssl-dev libicu-dev",
     "Windows: nothing",
     "Automatically installs Composer after PHP.",
+    "Dependency handling is intentionally kept install-path aware; see README for jdx/mise#10848 notes.",
 }

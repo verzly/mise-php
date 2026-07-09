@@ -1,5 +1,7 @@
 name: Delete release
 
+run-name: Delete release v${{ inputs.version }}
+
 on:
   workflow_dispatch:
     inputs:

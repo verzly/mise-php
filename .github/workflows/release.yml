@@ -27,7 +27,7 @@ jobs:
       VERSION: ${{ inputs.version }}
       PRERELEASE: ${{ inputs.prerelease }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -209,42 +209,50 @@ jobs:
           git tag "${tag}" "${sha}"
           git push origin "refs/tags/${tag}"
 
-      - name: Set up Lua
-        uses: leafo/gh-actions-lua@v8
-        with:
-          luaVersion: '5.3.5'
-
-      - name: Install manifest dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y luarocks zip
-          sudo luarocks install dkjson
-
-      - name: Build release artifacts
-        id: artifacts
+      - name: Generate manifest
         shell: bash
         run: |
           set -euo pipefail
 
-          repo_name="${GITHUB_REPOSITORY#*/}"
-          zip_file="${repo_name}-${VERSION}.zip"
-          git archive --format=zip --output "${zip_file}" HEAD
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+          import os
+          import re
 
-          lua -e '
-          require("metadata")
-          local dkjson = require("dkjson")
-          PLUGIN.version = os.getenv("VERSION")
-          PLUGIN.downloadUrl = os.getenv("DOWNLOAD_URL")
-          print(dkjson.encode(PLUGIN))
-          ' > manifest.json
+          text = Path("metadata.lua").read_text(encoding="utf-8")
+
+          def string_field(name):
+              match = re.search(rf'PLUGIN\.{name}\s*=\s*"([^"]*)"', text)
+              if not match:
+                  raise SystemExit(f"Could not find PLUGIN.{name} in metadata.lua")
+              return match.group(1)
+
+          notes = []
+          notes_match = re.search(r'PLUGIN\.notes\s*=\s*\{(.*?)\}', text, re.S)
+          if notes_match:
+              notes = re.findall(r'"([^"]*)"', notes_match.group(1))
+
+          version = os.environ["VERSION"]
+          tag = f"v{version}"
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          manifest = {
+              "name": string_field("name"),
+              "version": version,
+              "homepage": string_field("homepage"),
+              "license": string_field("license"),
+              "description": string_field("description"),
+              "minRuntimeVersion": string_field("minRuntimeVersion"),
+              "manifestUrl": string_field("manifestUrl"),
+              "downloadUrl": f"https://github.com/{repo}/archive/refs/tags/{tag}.zip",
+              "notes": notes,
+          }
+
+          Path("manifest.json").write_text(json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
 
           cat manifest.json
-
-          echo "zip=${zip_file}" >> "${GITHUB_OUTPUT}"
-        env:
-          DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/${{ github.event.repository.name }}-${{ inputs.version }}.zip
 
       - name: Create GitHub release
         env:
@@ -254,8 +262,7 @@ jobs:
           set -euo pipefail
 
           tag="${{ steps.release.outputs.tag }}"
-          zip_file="${{ steps.artifacts.outputs.zip }}"
-          args=(release create "${tag}" "${zip_file}" manifest.json --title "${tag}" --generate-notes)
+          args=(release create "${tag}" manifest.json --title "${tag}" --generate-notes)
 
           if [ "${PRERELEASE}" = "true" ]; then
             args+=(--prerelease)

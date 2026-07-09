@@ -1,4 +1,4 @@
-name: generate and publish manifest
+name: publish manifest
 
 on:
   push:
@@ -8,80 +8,77 @@ permissions:
   contents: write
 
 jobs:
-  generate-manifest-json:
+  publish-manifest:
     runs-on: ubuntu-latest
     steps:
-      - name: Set repo name
+      - name: Set release version
+        shell: bash
         run: |
-          echo "REPO_NAME=$(echo ${{ github.repository }} | cut -d'/' -f2)" >> $GITHUB_ENV
-          echo "VERSION=$(echo ${{ github.ref }} | cut -d'/' -f3 | cut -c2-)" >> $GITHUB_ENV
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          echo "VERSION=${version}" >> "${GITHUB_ENV}"
+
       - uses: actions/checkout@v4
 
-      - name: Set up Lua
-        uses: leafo/gh-actions-lua@v8
-        with:
-          luaVersion: '5.3.5'
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get install luarocks
-          sudo luarocks install dkjson
-
       - name: Generate manifest
+        shell: bash
         run: |
-          sudo lua -e '
-          require("metadata");
-          local dkjson = require("dkjson");
-          PLUGIN.version = "${{ env.VERSION }}";
-          PLUGIN.downloadUrl = "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${{ env.REPO_NAME }}-${{ env.VERSION }}.zip";
-          local str = dkjson.encode(PLUGIN);
-          print(str)' > manifest.json
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+          import os
+          import re
+
+          text = Path("metadata.lua").read_text(encoding="utf-8")
+
+          def string_field(name):
+              match = re.search(rf'PLUGIN\.{name}\s*=\s*"([^"]*)"', text)
+              if not match:
+                  raise SystemExit(f"Could not find PLUGIN.{name} in metadata.lua")
+              return match.group(1)
+
+          notes = []
+          notes_match = re.search(r'PLUGIN\.notes\s*=\s*\{(.*?)\}', text, re.S)
+          if notes_match:
+              notes = re.findall(r'"([^"]*)"', notes_match.group(1))
+
+          version = os.environ["VERSION"]
+          tag = f"v{version}"
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          manifest = {
+              "name": string_field("name"),
+              "version": version,
+              "homepage": string_field("homepage"),
+              "license": string_field("license"),
+              "description": string_field("description"),
+              "minRuntimeVersion": string_field("minRuntimeVersion"),
+              "manifestUrl": string_field("manifestUrl"),
+              "downloadUrl": f"https://github.com/{repo}/archive/refs/tags/{tag}.zip",
+              "notes": notes,
+          }
+
+          Path("manifest.json").write_text(json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+
           cat manifest.json
 
-      - name: Upload JSON file
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest
-          path: manifest.json
-
-  release-plugin-and-manifest:
-    needs: generate-manifest-json
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set repo name
-        run: |
-          echo "REPO_NAME=$(echo ${{ github.repository }} | cut -d'/' -f2)" >> $GITHUB_ENV
-          echo "VERSION=$(echo ${{ github.ref }} | cut -d'/' -f3 | cut -c2-)" >> $GITHUB_ENV
-          
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download JSON file
-        uses: actions/download-artifact@v4
-        with:
-          name: manifest
-
-      - name: Compress build files
-        uses: thedoctor0/zip-release@0.7.6
-        with:
-          type: "zip"
-          directory: "./"
-          filename: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
-          exclusions: "*.git* manifest.json"
-
-      - name: Publish release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./${{ env.REPO_NAME }}-${{ env.VERSION }}.zip
-          tag: v${{ env.VERSION }}
-          file_glob: true
-
       - name: Publish manifest
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./manifest.json
-          tag: "manifest"
-          overwrite: true
-          file_glob: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view manifest >/dev/null 2>&1; then
+            gh release upload manifest manifest.json --clobber
+            gh release edit manifest --prerelease
+          else
+            gh release create manifest manifest.json \
+              --title "manifest" \
+              --notes "Latest mise plugin manifest." \
+              --prerelease
+          fi

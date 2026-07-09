@@ -893,7 +893,7 @@ function configure_linux(configureOptions, expectedExtensions)
         php_extensions.add(expectedExtensions, "bz2")
     end
 
-    local gmp_check = os.execute("pkg-config --exists gmp 2>/dev/null")
+    local gmp_check = os.execute("printf '#include <gmp.h>\nint main(void){mpz_t x; mpz_init(x); mpz_clear(x); return 0;}\n' | cc -x c - -lgmp >/dev/null 2>&1")
     if gmp_check == 0 or gmp_check == true then
         configureOptions = configureOptions .. " --with-gmp"
         php_extensions.add(expectedExtensions, "gmp")

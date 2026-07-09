@@ -3,6 +3,16 @@ name: publish manifest
 on:
   push:
     tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the leading v, for example 0.10.1 or 0.10.1-rc.1
+        required: true
+      update_manifest_release:
+        description: Also update the shared manifest release asset
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -10,16 +20,56 @@ permissions:
 jobs:
   publish-manifest:
     runs-on: ubuntu-latest
+    env:
+      VERSION_INPUT: ${{ inputs.version }}
+      UPDATE_MANIFEST_RELEASE_INPUT: ${{ inputs.update_manifest_release }}
     steps:
-      - name: Set release version
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release
+        id: release
         shell: bash
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          version="${tag#v}"
-          echo "VERSION=${version}" >> "${GITHUB_ENV}"
 
-      - uses: actions/checkout@v4
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#v}"
+            update_manifest_release="true"
+          else
+            version="${VERSION_INPUT}"
+            update_manifest_release="${UPDATE_MANIFEST_RELEASE_INPUT}"
+
+            if [[ "${version}" == v* ]]; then
+              echo "Version input must not include the leading v: ${version}" >&2
+              exit 1
+            fi
+
+            tag="v${version}"
+          fi
+
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Version must be SemVer without a leading v, for example 0.10.1 or 0.10.1-rc.1." >&2
+            exit 1
+          fi
+
+          git fetch origin --tags --force
+
+          if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "Tag does not exist: ${tag}" >&2
+            exit 1
+          fi
+
+          git show "${tag}:metadata.lua" > "${RUNNER_TEMP}/metadata.lua"
+
+          echo "VERSION=${version}" >> "${GITHUB_ENV}"
+          echo "TAG=${tag}" >> "${GITHUB_ENV}"
+          echo "METADATA_PATH=${RUNNER_TEMP}/metadata.lua" >> "${GITHUB_ENV}"
+          echo "UPDATE_MANIFEST_RELEASE=${update_manifest_release}" >> "${GITHUB_ENV}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "update-manifest-release=${update_manifest_release}" >> "${GITHUB_OUTPUT}"
 
       - name: Generate manifest
         shell: bash
@@ -32,7 +82,8 @@ jobs:
           import os
           import re
 
-          text = Path("metadata.lua").read_text(encoding="utf-8")
+          metadata_path = Path(os.environ.get("METADATA_PATH", "metadata.lua"))
+          text = metadata_path.read_text(encoding="utf-8")
 
           def string_field(name):
               match = re.search(rf'PLUGIN\.{name}\s*=\s*"([^"]*)"', text)
@@ -46,7 +97,7 @@ jobs:
               notes = re.findall(r'"([^"]*)"', notes_match.group(1))
 
           version = os.environ["VERSION"]
-          tag = f"v{version}"
+          tag = os.environ.get("TAG", f"v{version}")
           repo = os.environ["GITHUB_REPOSITORY"]
 
           manifest = {
@@ -66,7 +117,29 @@ jobs:
 
           cat manifest.json
 
-      - name: Publish manifest
+      - name: Publish version release manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.release.outputs.tag }}"
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" manifest.json --clobber
+          else
+            args=(release create "${tag}" manifest.json --title "${tag}" --generate-notes)
+
+            if [[ "${VERSION}" == *-* ]]; then
+              args+=(--prerelease)
+            fi
+
+            gh "${args[@]}"
+          fi
+
+      - name: Publish shared manifest
+        if: steps.release.outputs.update-manifest-release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash

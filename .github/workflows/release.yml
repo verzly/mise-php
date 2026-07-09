@@ -1,5 +1,7 @@
 name: Release
 
+run-name: Release v${{ inputs.version }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -206,7 +208,7 @@ jobs:
           tag="${{ steps.release.outputs.tag }}"
           sha="${{ steps.target.outputs.sha }}"
 
-          git tag "${tag}" "${sha}"
+          git -c tag.gpgSign=false tag "${tag}" "${sha}"
           git push origin "refs/tags/${tag}"
 
       - name: Generate manifest
@@ -214,13 +216,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          export TAG="${{ steps.release.outputs.tag }}"
+
           python3 <<'PY'
           from pathlib import Path
           import json
           import os
           import re
 
-          text = Path("metadata.lua").read_text(encoding="utf-8")
+          metadata_path = Path(os.environ.get("METADATA_PATH", "metadata.lua"))
+          text = metadata_path.read_text(encoding="utf-8")
 
           def string_field(name):
               match = re.search(rf'PLUGIN\.{name}\s*=\s*"([^"]*)"', text)
@@ -234,7 +239,7 @@ jobs:
               notes = re.findall(r'"([^"]*)"', notes_match.group(1))
 
           version = os.environ["VERSION"]
-          tag = f"v{version}"
+          tag = os.environ.get("TAG", f"v{version}")
           repo = os.environ["GITHUB_REPOSITORY"]
 
           manifest = {
@@ -287,12 +292,117 @@ jobs:
               --prerelease
           fi
 
-      - name: Update latest tag
-        if: inputs.prerelease == false
+      - name: Update channel tags
         shell: bash
         run: |
           set -euo pipefail
 
-          sha="${{ steps.target.outputs.sha }}"
-          git tag -f latest "${sha}"
-          git push origin refs/tags/latest --force
+          refs_file="$(mktemp)"
+          trap 'rm -f "${refs_file}"' EXIT
+
+          git fetch origin --tags --force
+          git ls-remote --tags --refs origin "refs/tags/v*" > "${refs_file}"
+
+          selection="$(python3 - "${refs_file}" <<'PY'
+          import functools
+          import re
+          import sys
+          from pathlib import Path
+
+          tag_re = re.compile(r"^refs/tags/v(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z][0-9A-Za-z.-]*))?$")
+
+          def parse_identifier(value):
+              return (0, int(value)) if value.isdigit() else (1, value)
+
+          def compare_identifier(left, right):
+              left_kind, left_value = parse_identifier(left)
+              right_kind, right_value = parse_identifier(right)
+              if left_kind != right_kind:
+                  return -1 if left_kind < right_kind else 1
+              return (left_value > right_value) - (left_value < right_value)
+
+          def compare_version(left, right):
+              if left["core"] != right["core"]:
+                  return (left["core"] > right["core"]) - (left["core"] < right["core"])
+
+              left_pre = left["prerelease"]
+              right_pre = right["prerelease"]
+              if left_pre == right_pre:
+                  return 0
+              if left_pre is None:
+                  return 1
+              if right_pre is None:
+                  return -1
+
+              left_parts = left_pre.split(".")
+              right_parts = right_pre.split(".")
+              for left_part, right_part in zip(left_parts, right_parts):
+                  result = compare_identifier(left_part, right_part)
+                  if result:
+                      return result
+              return (len(left_parts) > len(right_parts)) - (len(left_parts) < len(right_parts))
+
+          versions = []
+          for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+              parts = line.split("\t", 1)
+              if len(parts) != 2:
+                  continue
+              match = tag_re.match(parts[1])
+              if not match:
+                  continue
+              versions.append({
+                  "tag": parts[1].rsplit("/", 1)[-1],
+                  "core": tuple(int(match.group(index)) for index in (1, 2, 3)),
+                  "prerelease": match.group(4),
+              })
+
+          sort_key = functools.cmp_to_key(compare_version)
+          stable = [version for version in versions if version["prerelease"] is None]
+          latest = max(stable, key=sort_key, default=None)
+          prereleases = [version for version in versions if version["prerelease"] is not None]
+          if latest is not None:
+              prereleases = [version for version in prereleases if compare_version(version, latest) > 0]
+          next_version = max(prereleases, key=sort_key, default=None)
+
+          print(f"latest={latest['tag'] if latest else ''}")
+          print(f"next={next_version['tag'] if next_version else ''}")
+          PY
+          )"
+
+          latest_target=""
+          next_target=""
+          while IFS="=" read -r channel target; do
+            case "${channel}" in
+              latest) latest_target="${target}" ;;
+              next) next_target="${target}" ;;
+            esac
+          done <<< "${selection}"
+
+          remote_tag_exists() {
+            local tag="$1"
+            git ls-remote --exit-code --tags --refs origin "refs/tags/${tag}" >/dev/null 2>&1
+          }
+
+          update_channel_tag() {
+            local channel="$1"
+            local target="$2"
+
+            if [ -n "${target}" ]; then
+              git fetch origin "refs/tags/${target}:refs/tags/${target}" --force
+              target_sha="$(git rev-list -n 1 "${target}")"
+              git -c tag.gpgSign=false tag -f "${channel}" "${target_sha}"
+              git push origin "refs/tags/${channel}" --force
+              echo "Updated ${channel} tag to ${target} (${target_sha})."
+              return
+            fi
+
+            if remote_tag_exists "${channel}"; then
+              git push origin ":refs/tags/${channel}"
+              echo "Deleted ${channel} tag because no eligible release tag exists."
+            else
+              echo "${channel} tag does not exist and no eligible release tag exists."
+            fi
+          }
+
+          update_channel_tag latest "${latest_target}"
+          update_channel_tag next "${next_target}"

@@ -51,9 +51,60 @@ require_php_module() {
   fi
 }
 
-require_php_module zip
-require_php_module pdo_pgsql
-require_php_module pgsql
+required_php_modules="
+bcmath
+bz2
+calendar
+curl
+exif
+fileinfo
+ftp
+gd
+gettext
+gmp
+iconv
+intl
+mbstring
+mysqli
+mysqlnd
+openssl
+pdo
+pdo_mysql
+pdo_pgsql
+pdo_sqlite
+pgsql
+shmop
+soap
+sockets
+sodium
+sqlite3
+zip
+zlib
+"
+
+if [ "${RUNNER_OS:-}" = "Windows" ]; then
+  required_php_modules="${required_php_modules}
+ffi
+ldap
+odbc
+pdo_odbc
+tidy
+xsl
+"
+else
+  required_php_modules="${required_php_modules}
+dba
+pcntl
+readline
+sysvmsg
+sysvsem
+sysvshm
+"
+fi
+
+for module in ${required_php_modules}; do
+  require_php_module "${module}"
+done
 
 if [ "${RUNNER_OS:-}" = "Windows" ]; then
   if [ "${require_pecl}" = "1" ]; then

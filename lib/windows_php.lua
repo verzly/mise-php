@@ -217,6 +217,14 @@ local function configure_php_ini(sdk_path, timezone)
     }
     local enabled_extensions = {}
     local expected_extensions = {}
+    php_extensions.add(expected_extensions, {
+        "bcmath",
+        "calendar",
+        "iconv",
+        "mysqlnd",
+        "pdo",
+        "zlib",
+    })
 
     local extension_dlls = list_configurable_extensions(content, ext_dir)
 

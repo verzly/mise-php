@@ -1,6 +1,7 @@
 local env = require("lib/env")
 local archiver = require("archiver")
 local messages = require("lib/messages")
+local php_extensions = require("lib/php_extensions")
 local tools = require("lib/tools")
 
 local QUIET           = env.QUIET
@@ -188,19 +189,19 @@ local function configure_php_ini(sdk_path, timezone)
     end
 
     if not file_exists(php_ini_source) then
-        return
+        return {}
     end
 
     local php_bin = join_path(sdk_path, "php.exe")
     local ext_dir = join_path(sdk_path, "ext")
     local content = read_file(php_ini_source)
     if content == nil then
-        return
+        return {}
     end
 
     local php_modules = ""
 
-    -- Verify PIE installation
+    -- Detect modules that are already compiled into this PHP build.
     local ok, _, _, output = tools.execute_cmd(string.format(
         '"%s" -m',
         php_bin
@@ -215,6 +216,7 @@ local function configure_php_ini(sdk_path, timezone)
         snmp = true,
     }
     local enabled_extensions = {}
+    local expected_extensions = {}
 
     local extension_dlls = list_configurable_extensions(content, ext_dir)
 
@@ -226,6 +228,7 @@ local function configure_php_ini(sdk_path, timezone)
             print("Skipping " .. extension .. " - already compiled statically")
         else
             enabled_extensions[name] = true
+            php_extensions.add(expected_extensions, name)
             print("Enabled " .. extension)
         end
     end
@@ -241,6 +244,8 @@ local function configure_php_ini(sdk_path, timezone)
     ) then
         error("Failed to write php.ini")
     end
+
+    return expected_extensions
 end
 
 function M.install(sdkPath, version)
@@ -273,7 +278,7 @@ function M.install(sdkPath, version)
         )
     end
 
-    configure_php_ini(sdkPath, "UTC")
+    local expected_extensions = configure_php_ini(sdkPath, "UTC") or {}
 
     local php_bin = join_path(sdkPath, "php.exe")
     local ok = tools.execute_cmd(string.format(
@@ -288,6 +293,8 @@ function M.install(sdkPath, version)
             messages.see("debugging")
         )
     end
+
+    php_extensions.verify_loaded(php_bin, expected_extensions, version)
 
     print("PHP installation complete!")
 

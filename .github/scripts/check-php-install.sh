@@ -42,6 +42,19 @@ if [ "${mode}" = "static" ]; then
   exit 0
 fi
 
+php_modules="$(mise exec -- php -m)"
+require_php_module() {
+  module="$1"
+  if ! printf '%s\n' "${php_modules}" | grep -i "^${module}$" >/dev/null; then
+    echo "Expected PHP extension is not loaded: ${module}"
+    exit 1
+  fi
+}
+
+require_php_module zip
+require_php_module pdo_pgsql
+require_php_module pgsql
+
 if [ "${RUNNER_OS:-}" = "Windows" ]; then
   if [ "${require_pecl}" = "1" ]; then
     echo "PECL was required, but the Windows installer path does not provision PEAR/PECL."

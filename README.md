@@ -366,6 +366,8 @@ PHP_PIE_EXTENSIONS="xdebug/xdebug" mise install php@8.5.0
 $env:PHP_PIE_EXTENSIONS="xdebug/xdebug"; mise install php@8.5.0
 ```
 
+If one or more requested PIE extensions fail, PHP installation continues. The plugin prints the failed package names, debug log paths, and a retry command such as `mise exec -- pie install vendor/package`. Check that each package supports your operating system and PHP version, and that each package name is spelled correctly.
+
 You can also persist commonly used extensions so they are automatically installed whenever a new PHP version is installed:
 
 ```sh

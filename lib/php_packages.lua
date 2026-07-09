@@ -133,6 +133,21 @@ local function failed_packages_log_summary(failed_packages)
     return summary
 end
 
+local function failed_packages_retry_tip(failed_packages)
+    if failed_packages == nil or #failed_packages == 0 then
+        return ""
+    end
+
+    local names = {}
+    for _, failed_package in ipairs(failed_packages) do
+        names[#names + 1] = failed_package_name(failed_package)
+    end
+
+    return "PHP installation continued, but the failed PIE extensions were not installed.\n" ..
+        "Check that each package supports your operating system and PHP version, and that each package name is spelled correctly.\n" ..
+        "💡 Tip: Retry failed PIE extensions with \27[93mmise exec -- pie install " .. table.concat(names, " ") .. "\27[0m.\n"
+end
+
 local function require_ok(ok, label, version, anchor)
     if ok then
         return
@@ -393,6 +408,7 @@ function packages.install_pie_extensions(sdkPath, version)
             "\27[93mWarning:\27[0m One or more PIE extensions failed to install.\n" ..
             failed_packages_summary(failed_packages) ..
             failed_packages_log_summary(failed_packages) ..
+            failed_packages_retry_tip(failed_packages) ..
             messages.verbose_tip(version) ..
             messages.see(docs_anchor)
         )
@@ -689,12 +705,7 @@ function packages.install_after_php(sdkPath, version, installInfo)
             "pie-verification-may-fail-or-time-out"
         )
 
-        require_ok(
-            packages.install_pie_extensions(sdkPath, version),
-            "PIE extension installation",
-            version,
-            RUNTIME.osType == "windows" and "pie-for-php" or "extension-builds-require-phpize-and-build-tooling"
-        )
+        packages.install_pie_extensions(sdkPath, version)
     end
 
     require_ok(

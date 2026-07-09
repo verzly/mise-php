@@ -18,9 +18,12 @@ local function temp_dir()
     return os.getenv("TMPDIR") or "/tmp"
 end
 
+local function unique_id()
+    return tostring(os.time()) .. "_" .. tostring(math.random(100000, 999999))
+end
+
 local function temp_path(extension)
-    local random = tostring(math.random(100000, 999999))
-    return temp_dir() .. PATH_SEP .. "mise-php-command-" .. tostring(os.time()) .. "-" .. random .. extension
+    return temp_dir() .. PATH_SEP .. "mise-php-command-" .. unique_id() .. extension
 end
 
 local function write_file(path, content)
@@ -38,6 +41,15 @@ local function posix_quote(value)
     value = tostring(value)
     if value:find("[%z\r\n]") then
         error("Unsupported POSIX command argument: " .. value)
+    end
+
+    return "'" .. value:gsub("'", "'\"'\"'") .. "'"
+end
+
+local function posix_script_quote(value)
+    value = tostring(value)
+    if value:find("%z") then
+        error("Unsupported POSIX command script")
     end
 
     return "'" .. value:gsub("'", "'\"'\"'") .. "'"
@@ -69,8 +81,8 @@ local function windows_quote(value)
     return '"' .. value:gsub("%%", "%%%%") .. '"'
 end
 
-local function marker_for(script_path)
-    return MARKER_PREFIX .. "_" .. tostring(script_path):gsub("[^%w_]", "_")
+local function marker_for()
+    return MARKER_PREFIX .. "_" .. unique_id()
 end
 
 local function pattern_escape(value)
@@ -115,17 +127,17 @@ local function collect(command)
     return ok, why, code, table.concat(output, "\n")
 end
 
-local function run_script(script_path, cwd)
-    if is_windows() then
-        local inner = windows_quote(script_path)
-        if cwd and cwd ~= "" then
-            inner = inner .. " " .. windows_quote(cwd)
-        end
-
-        return collect('cmd /D /S /C "' .. inner .. '"')
+local function run_windows_script_file(script_path, cwd)
+    local inner = windows_quote(script_path)
+    if cwd and cwd ~= "" then
+        inner = inner .. " " .. windows_quote(cwd)
     end
 
-    local command = "sh " .. posix_quote(script_path)
+    return collect('cmd /D /S /C "' .. inner .. '"')
+end
+
+local function run_posix_script(script, cwd)
+    local command = "sh -c " .. posix_script_quote(script) .. " mise-php"
     if cwd and cwd ~= "" then
         command = command .. " " .. posix_quote(cwd)
     end
@@ -193,28 +205,35 @@ end
 
 function process.run(command, opts)
     opts = opts or {}
-    local extension = is_windows() and ".cmd" or ".sh"
-    local script_path = temp_path(extension)
-    local marker = marker_for(script_path)
+    local marker = marker_for()
     local script = script_for(command, opts, marker)
-
-    if not write_file(script_path, script) then
-        return {
-            ok = false,
-            why = "error",
-            code = 1,
-            output = "Failed to write temporary command script",
-            command = command,
-        }
-    end
 
     if VERBOSE then
         print("process.run: " .. command)
-        print("process.script: " .. script_path)
     end
 
-    local ok, why, close_code, output = run_script(script_path, opts.cwd)
-    os.remove(script_path)
+    local ok, why, close_code, output
+    if is_windows() then
+        local script_path = temp_path(".cmd")
+        if not write_file(script_path, script) then
+            return {
+                ok = false,
+                why = "error",
+                code = 1,
+                output = "Failed to write temporary command script",
+                command = command,
+            }
+        end
+
+        if VERBOSE then
+            print("process.script: " .. script_path)
+        end
+
+        ok, why, close_code, output = run_windows_script_file(script_path, opts.cwd)
+        os.remove(script_path)
+    else
+        ok, why, close_code, output = run_posix_script(script, opts.cwd)
+    end
 
     local marker_code
     output, marker_code = strip_marker(output, marker)

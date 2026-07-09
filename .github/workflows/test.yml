@@ -602,8 +602,8 @@ jobs:
 
           $installOutput | Tee-Object -FilePath $outputFile
 
-          if ($installExitCode -eq 0) {
-            Write-Error 'Expected mixed PIE extension install to fail because two requested packages are invalid.'
+          if ($installExitCode -ne 0) {
+            Write-Error "Expected PHP install to continue when requested PIE extensions fail, got exit code ${installExitCode}."
           }
 
           $output = Get-Content -LiteralPath $outputFile -Raw
@@ -623,6 +623,9 @@ jobs:
           Require-Output 'PIE extension installed: imagick/imagick' 'imagick/imagick should be reported as installed.'
           Require-Output 'One or more PIE extensions failed to install\.' 'The final PIE failure summary should be shown.'
           Require-Output 'Failed PIE extension packages: redis/phpredis, verzly/not-a-real-pie-extension\.' 'Only the two failing PIE packages should be listed.'
+          Require-Output 'PHP installation continued, but the failed PIE extensions were not installed\.' 'The install should continue after PIE extension failures.'
+          Require-Output 'Check that each package supports your operating system and PHP version, and that each package name is spelled correctly\.' 'The warning should explain how to validate failed package requests.'
+          Require-Output 'Retry failed PIE extensions with .*mise exec -- pie install redis/phpredis verzly/not-a-real-pie-extension' 'The warning should include a retry command for failed packages.'
           Require-Output 'Debug log: .+ \(redis/phpredis\)' 'redis/phpredis should include a debug log path.'
           Require-Output 'Debug log: .+ \(verzly/not-a-real-pie-extension\)' 'The nonexistent package should include a debug log path.'
 
@@ -640,6 +643,14 @@ jobs:
 
           if ($output -match 'Debug log: .+ \(imagick/imagick\)') {
             Write-Error 'imagick/imagick must not include a failure debug log path.'
+          }
+
+          if ($output -match 'PIE extension installation failed') {
+            Write-Error 'PIE extension failures should not abort PHP installation.'
+          }
+
+          if ($output -match 'stack traceback') {
+            Write-Error 'PIE extension diagnostics must not include a Lua stack traceback.'
           }
 
           $logMatches = [regex]::Matches($output, 'Debug log: (?<path>.+?) \((?<package>.+?)\)')

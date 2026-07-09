@@ -1,72 +1,28 @@
-name: Update latest tag
+name: Update channel tags
 
 on:
   release:
-    types: [published]
+    types: [published, edited, deleted, prereleased, released]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  update-latest-tag:
+  update-channel-tags:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repository with full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ env.RELEASE_TOKEN }}
 
-      - name: Fetch all tags
-        run: git fetch --tags --force
-
-      - name: Resolve latest release tag from GitHub API
-        id: latest_release
+      - name: Update channel tags
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
         shell: bash
-        run: |
-          set -euo pipefail
-
-          TAG_NAME="$(
-            gh api \
-              -H "Accept: application/vnd.github+json" \
-              /repos/${{ github.repository }}/releases/latest \
-              --jq '.tag_name'
-          )"
-
-          if [ -z "${TAG_NAME:-}" ] || [ "${TAG_NAME}" = "null" ]; then
-            echo "Failed to resolve latest release tag."
-            exit 1
-          fi
-
-          if ! git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null; then
-            echo "Latest release tag '$TAG_NAME' does not exist in git refs."
-            exit 1
-          fi
-
-          TARGET_SHA="$(git rev-list -n 1 "$TAG_NAME")"
-
-          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
-          echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
-
-          echo "Latest release tag: $TAG_NAME"
-          echo "Target SHA: $TARGET_SHA"
-
-      - name: Move latest tag to latest release
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TARGET_TAG="${{ steps.latest_release.outputs.tag_name }}"
-          TARGET_SHA="${{ steps.latest_release.outputs.target_sha }}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Create/update lightweight tag so tools can resolve it as a normal commit ref
-          git tag -f latest "$TARGET_SHA"
-          git push origin refs/tags/latest --force
-
-          echo "Updated latest -> $TARGET_TAG ($TARGET_SHA)"
+        run: bash .github/scripts/update-channel-tags.sh

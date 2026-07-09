@@ -15,6 +15,7 @@ local join_path = tools.join_path
 local file_exists = tools.file_exists
 local download_file = tools.download_file
 local batch_path = tools.windows_cmd_quote
+local shell_quote = tools.shell_quote
 
 local function write_windows_phar_wrapper(wrapper_path, php_bin, phar_name)
     local content = '@echo off\r\n' ..
@@ -132,6 +133,28 @@ local function failed_packages_log_summary(failed_packages)
     return summary
 end
 
+-- macOS does not provide GNU timeout by default.
+local function unix_timeout_command(command, seconds)
+    return string.format([[
+(
+    %s &
+    child=$!
+    (
+        sleep %d
+        kill "$child" 2>/dev/null
+    ) &
+    watchdog=$!
+    wait "$child"
+    status=$?
+    kill "$watchdog" 2>/dev/null
+    wait "$watchdog" 2>/dev/null
+    if [ "$status" -ge 128 ]; then
+        exit 124
+    fi
+    exit "$status"
+)]], command, seconds)
+end
+
 local function require_ok(ok, label, version, anchor)
     if ok then
         return
@@ -234,7 +257,7 @@ function packages.install_pie(sdkPath, version)
     if RUNTIME.osType == "windows" then
         ok = packages.install_pie_for_windows(sdkPath, version)
     else
-        ok = packages.install_pie_for_linux(sdkPath, version)
+        ok = packages.install_pie_for_unix(sdkPath, version)
     end
 
     if ok then
@@ -250,16 +273,13 @@ function packages.install_pie(sdkPath, version)
     return ok
 end
 
-function packages.install_pie_for_linux(sdkPath, version)
+function packages.install_pie_for_unix(sdkPath, version)
     local php_bin = sdkPath .. "/bin/php"
     local pie_bin = sdkPath .. "/bin/pie"
     local pie_phar = sdkPath .. "/pie.phar"
 
     -- Download PIE PHAR
-    local dl_cmd = string.format(
-        'curl -fsSL https://github.com/php/pie/releases/latest/download/pie.phar -o "%s"' .. QUIET,
-        pie_phar
-    )
+    local dl_cmd = "curl -fsSL https://github.com/php/pie/releases/latest/download/pie.phar -o " .. shell_quote(pie_phar) .. QUIET
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write(
@@ -282,11 +302,11 @@ function packages.install_pie_for_linux(sdkPath, version)
     end
 
     wrapper:write("#!/usr/bin/env sh\n")
-    wrapper:write('exec "' .. php_bin .. '" "' .. pie_phar .. '" "$@"\n')
+    wrapper:write("exec " .. shell_quote(php_bin) .. " " .. shell_quote(pie_phar) .. " \"$@\"\n")
     wrapper:close()
 
     -- Make PIE wrapper executable
-    status = os.execute('chmod +x "' .. pie_bin .. '"' .. QUIET)
+    status = os.execute("chmod +x " .. shell_quote(pie_bin) .. QUIET)
     if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[93mWarning:\27[0m Failed to make PIE wrapper executable.\n" ..
@@ -298,7 +318,7 @@ function packages.install_pie_for_linux(sdkPath, version)
 
     -- Verify PIE installation
     local result = process.run(
-        'timeout 20s "' .. pie_bin .. '" --version',
+        unix_timeout_command(shell_quote(pie_bin) .. " --version", 20),
         { quiet = " > /dev/null 2>&1" }
     )
 

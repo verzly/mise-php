@@ -213,20 +213,6 @@ function M.release(version, flavor)
     }
 end
 
-function M.warning(flavor)
-    local requested = M.normalize_flavor(flavor)
-    local resolved = M.resolve_flavor(flavor)
-    local flavor_label = requested
-
-    if requested ~= resolved then
-        flavor_label = requested .. " -> " .. resolved
-    end
-
-    return "\27[93mWarning:\27[0m " ..
-        "Using static-php-cli prebuilt PHP binaries (" .. flavor_label .. "). " ..
-        "Fewer PHP versions may be available than source builds, and new PHP versions may appear later."
-end
-
 local function find_prebuilt_php_binary(sdkPath)
     local binary_name = is_windows() and "php.exe" or "php"
     local candidates

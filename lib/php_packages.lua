@@ -2,6 +2,7 @@ local env = require("lib/env")
 local messages = require("lib/messages")
 local php_versions = require("lib/php_versions")
 local tools = require("lib/tools")
+local process = require("lib/process")
 
 local packages = {}
 
@@ -14,21 +15,11 @@ local join_path = tools.join_path
 local file_exists = tools.file_exists
 local download_file = tools.download_file
 local batch_path = tools.windows_cmd_quote
+local shell_quote = tools.shell_quote
 
-local function write_windows_phar_wrapper(wrapper_path, php_bin, phar_name, after_success_script)
+local function write_windows_phar_wrapper(wrapper_path, php_bin, phar_name)
     local content = '@echo off\r\n' ..
         string.format('%s "%%~dp0%s" %%*\r\n', batch_path(php_bin), phar_name)
-
-    if after_success_script ~= nil and after_success_script ~= "" then
-        content = content ..
-            'set "MISE_PHP_EXIT_CODE=%ERRORLEVEL%"\r\n' ..
-            string.format(
-                'if "%%MISE_PHP_EXIT_CODE%%"=="0" %s "%%~dp0%s" >NUL 2>&1\r\n',
-                batch_path(php_bin),
-                after_success_script
-            ) ..
-            'exit /b %MISE_PHP_EXIT_CODE%\r\n'
-    end
 
     return tools.write_file(wrapper_path, content)
 end
@@ -142,124 +133,31 @@ local function failed_packages_log_summary(failed_packages)
     return summary
 end
 
-local function windows_pie_normalizer_script()
-    return [=[<?php
-declare(strict_types=1);
+local function failed_packages_retry_tip(failed_packages)
+    if failed_packages == nil or #failed_packages == 0 then
+        return ""
+    end
 
-$phpPath = realpath(__DIR__ . DIRECTORY_SEPARATOR . 'php.exe') ?: (__DIR__ . DIRECTORY_SEPARATOR . 'php.exe');
-$extensionDir = ini_get('extension_dir') ?: (__DIR__ . DIRECTORY_SEPARATOR . 'ext');
-$extensionDir = rtrim((string) $extensionDir, "\\/");
-$pieRoot = getenv('APPDATA') ? getenv('APPDATA') . DIRECTORY_SEPARATOR . 'PIE' : null;
+    local names = {}
+    for _, failed_package in ipairs(failed_packages) do
+        names[#names + 1] = failed_package_name(failed_package)
+    end
 
-if ($pieRoot === null || ! is_dir($pieRoot) || ! is_dir($extensionDir)) {
-    exit(0);
-}
+    return "PHP installation continued, but the failed PIE extensions were not installed.\n" ..
+        "Check that each package supports your operating system and PHP version, and that each package name is spelled correctly.\n" ..
+        "💡 Tip: Retry failed PIE extensions with \27[93mmise exec -- pie install " .. table.concat(names, " ") .. "\27[0m.\n"
+end
 
-$normalizePath = static function (string $path): string {
-    $real = realpath($path);
-    $path = $real !== false ? $real : $path;
-    return strtolower(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path));
-};
+local function require_ok(ok, label, version, anchor)
+    if ok then
+        return
+    end
 
-$phpPathNormalized = $normalizePath($phpPath);
-$extensionDirNormalized = $normalizePath($extensionDir);
-$iniPath = php_ini_loaded_file() ?: null;
-$iniContent = $iniPath !== null && is_file($iniPath) ? file_get_contents($iniPath) : false;
-$iniChanged = false;
-
-$iterator = new RecursiveIteratorIterator(
-    new RecursiveDirectoryIterator($pieRoot, FilesystemIterator::SKIP_DOTS)
-);
-
-foreach ($iterator as $file) {
-    if ($file->getFilename() !== 'installed.json') {
-        continue;
-    }
-
-    $jsonPath = $file->getPathname();
-    $json = json_decode((string) file_get_contents($jsonPath), true);
-
-    if (! is_array($json) || ! isset($json['packages']) || ! is_array($json['packages'])) {
-        continue;
-    }
-
-    $changed = false;
-
-    foreach ($json['packages'] as &$package) {
-        if (! isset($package['extra']) || ! is_array($package['extra'])) {
-            continue;
-        }
-
-        $extra = &$package['extra'];
-        $targetPhp = $extra['pie-target-platform-php-path'] ?? null;
-        $installedBinary = $extra['pie-installed-binary'] ?? null;
-
-        if (! is_string($targetPhp) || ! is_string($installedBinary)) {
-            continue;
-        }
-
-        if ($normalizePath($targetPhp) !== $phpPathNormalized) {
-            continue;
-        }
-
-        if (! is_file($installedBinary)) {
-            continue;
-        }
-
-        $binaryDirectory = dirname($installedBinary);
-        if ($normalizePath($binaryDirectory) !== $extensionDirNormalized) {
-            continue;
-        }
-
-        $binaryName = basename($installedBinary);
-        if (! preg_match('/^php_([A-Za-z0-9_]+)\.dll$/', $binaryName, $matches)) {
-            continue;
-        }
-
-        $extensionName = strtolower($matches[1]);
-        $aliasBinary = $extensionDir . DIRECTORY_SEPARATOR . $extensionName . '.dll';
-
-        if (! is_file($aliasBinary) || hash_file('sha256', $aliasBinary) !== hash_file('sha256', $installedBinary)) {
-            copy($installedBinary, $aliasBinary);
-        }
-
-        $sourcePdb = preg_replace('/\.dll$/i', '.pdb', $installedBinary);
-        $aliasPdb = preg_replace('/\.dll$/i', '.pdb', $aliasBinary);
-        if (is_string($sourcePdb) && is_string($aliasPdb) && is_file($sourcePdb) && ! is_file($aliasPdb)) {
-            copy($sourcePdb, $aliasPdb);
-        }
-
-        if (($extra['pie-installed-binary'] ?? null) !== $aliasBinary) {
-            $extra['pie-installed-binary'] = $aliasBinary;
-            $changed = true;
-        }
-
-        if ($iniContent !== false) {
-            $pattern = '/^(\s*(?:zend_extension|extension)\s*=\s*)"?' . preg_quote($extensionName, '/') . '"?\s*$/mi';
-            $replacement = '$1' . $extensionName . '.dll';
-            $updatedIni = preg_replace($pattern, $replacement, $iniContent);
-
-            if (is_string($updatedIni) && $updatedIni !== $iniContent) {
-                $iniContent = $updatedIni;
-                $iniChanged = true;
-            }
-        }
-    }
-    unset($package);
-
-    if ($changed) {
-        file_put_contents(
-            $jsonPath,
-            json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL,
-            LOCK_EX
-        );
-    }
-}
-
-if ($iniChanged && $iniPath !== null && is_string($iniContent)) {
-    file_put_contents($iniPath, $iniContent, LOCK_EX);
-}
-]=]
+    error(
+        "\n\n" .. label .. " failed.\n\n" ..
+        messages.verbose_tip(version) ..
+        messages.see(anchor)
+    )
 end
 
 function packages.has_extension_requests()
@@ -352,7 +250,7 @@ function packages.install_pie(sdkPath, version)
     if RUNTIME.osType == "windows" then
         ok = packages.install_pie_for_windows(sdkPath, version)
     else
-        ok = packages.install_pie_for_linux(sdkPath, version)
+        ok = packages.install_pie_for_unix(sdkPath, version)
     end
 
     if ok then
@@ -364,18 +262,17 @@ function packages.install_pie(sdkPath, version)
             messages.see("pie-verification-may-fail-or-time-out")
         )
     end
+
+    return ok
 end
 
-function packages.install_pie_for_linux(sdkPath, version)
+function packages.install_pie_for_unix(sdkPath, version)
     local php_bin = sdkPath .. "/bin/php"
     local pie_bin = sdkPath .. "/bin/pie"
     local pie_phar = sdkPath .. "/pie.phar"
 
     -- Download PIE PHAR
-    local dl_cmd = string.format(
-        'curl -fsSL https://github.com/php/pie/releases/latest/download/pie.phar -o "%s"' .. QUIET,
-        pie_phar
-    )
+    local dl_cmd = "curl -fsSL https://github.com/php/pie/releases/latest/download/pie.phar -o " .. shell_quote(pie_phar) .. QUIET
     local status = os.execute(dl_cmd)
     if status ~= 0 and status ~= true then
         io.stderr:write(
@@ -398,11 +295,11 @@ function packages.install_pie_for_linux(sdkPath, version)
     end
 
     wrapper:write("#!/usr/bin/env sh\n")
-    wrapper:write('exec "' .. php_bin .. '" "' .. pie_phar .. '" "$@"\n')
+    wrapper:write("exec " .. shell_quote(php_bin) .. " " .. shell_quote(pie_phar) .. " \"$@\"\n")
     wrapper:close()
 
     -- Make PIE wrapper executable
-    status = os.execute('chmod +x "' .. pie_bin .. '"' .. QUIET)
+    status = os.execute("chmod +x " .. shell_quote(pie_bin) .. QUIET)
     if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[93mWarning:\27[0m Failed to make PIE wrapper executable.\n" ..
@@ -413,8 +310,12 @@ function packages.install_pie_for_linux(sdkPath, version)
     end
 
     -- Verify PIE installation
-    status = os.execute('timeout 20s "' .. pie_bin .. '" --version > /dev/null 2>&1')
-    if status == 124 or status == 124 * 256 then
+    local result = process.run(
+        process.unix_timeout_command({ pie_bin, "--version" }, 20),
+        { quiet = " > /dev/null 2>&1" }
+    )
+
+    if result.code == 124 then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE verification timed out.\n" ..
             messages.manual_tip("pie --version") ..
@@ -422,7 +323,8 @@ function packages.install_pie_for_linux(sdkPath, version)
         )
         return false
     end
-    if status ~= 0 and status ~= true then
+
+    if not result.ok then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE verification failed.\n" ..
             messages.manual_tip("pie --version") ..
@@ -438,7 +340,6 @@ function packages.install_pie_for_windows(sdkPath, version)
     local php_bin  = join_path(sdkPath, "php.exe")
     local pie_phar = join_path(sdkPath, "pie.phar")
     local pie_bat  = join_path(sdkPath, "pie.bat")
-    local pie_normalizer = join_path(sdkPath, "pie-normalize-windows.php")
 
     -- Download PIE PHAR
     local ok, err = download_file("https://github.com/php/pie/releases/latest/download/pie.phar", pie_phar)
@@ -452,18 +353,10 @@ function packages.install_pie_for_windows(sdkPath, version)
         return false
     end
 
-    if not tools.write_file(pie_normalizer, windows_pie_normalizer_script()) then
-        io.stderr:write(
-            "\27[93mWarning:\27[0m Failed to create PIE Windows normalizer.\n" ..
-            messages.verbose_tip(version) ..
-            messages.see("pie-verification-may-fail-or-time-out")
-        )
-        return false
-    end
-
-    -- Create PIE wrapper. The normalizer keeps PIE's Windows metadata in sync
-    -- with DLL names copied from prebuilt extension archives.
-    if not write_windows_phar_wrapper(pie_bat, php_bin, "pie.phar", "pie-normalize-windows.php") then
+    -- Create the same kind of PHAR wrapper as Composer: run PHP with the PHAR
+    -- and preserve the PHAR exit code. Do not patch PIE internals or encode
+    -- PHP-version-specific behavior here.
+    if not write_windows_phar_wrapper(pie_bat, php_bin, "pie.phar") then
         io.stderr:write(
             "\27[93mWarning:\27[0m Failed to create PIE wrapper.\n" ..
             messages.verbose_tip(version) ..
@@ -473,12 +366,12 @@ function packages.install_pie_for_windows(sdkPath, version)
     end
 
     -- Verify PIE installation
-    ok = tools.execute_cmd(string.format(
+    local result = process.run(string.format(
         '"%s" --version',
         pie_bat
-    ), QUIET);
+    ), { quiet = QUIET })
 
-    if not ok then
+    if not result.ok then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE verification failed.\n" ..
             messages.manual_tip("pie --version") ..
@@ -489,7 +382,6 @@ function packages.install_pie_for_windows(sdkPath, version)
 
     return true
 end
-
 
 function packages.install_pie_extensions(sdkPath, version)
     -- Nothing to do when no PIE extensions were requested
@@ -516,6 +408,7 @@ function packages.install_pie_extensions(sdkPath, version)
             "\27[93mWarning:\27[0m One or more PIE extensions failed to install.\n" ..
             failed_packages_summary(failed_packages) ..
             failed_packages_log_summary(failed_packages) ..
+            failed_packages_retry_tip(failed_packages) ..
             messages.verbose_tip(version) ..
             messages.see(docs_anchor)
         )
@@ -606,11 +499,11 @@ function packages.install_pie_extensions_for_windows(sdkPath, version)
         local log_file = extension_log_path(log_id, pkg)
         write_log_header(log_file, "PIE extension " .. pkg, command, sdkPath)
 
-        local ok, _, _, output = tools.execute_cmd(command, QUIET);
+        local result = process.run(command, { quiet = QUIET })
 
-        append_log_output(log_file, output)
+        append_log_output(log_file, result.output)
 
-        if not ok then
+        if not result.ok then
             append_failed_package(failed_packages, pkg, log_file)
             all_ok = false
         else
@@ -640,6 +533,8 @@ function packages.install_composer(sdkPath, version)
             messages.see("composer-verification-may-prompt-when-run-as-root")
         )
     end
+
+    return ok
 end
 
 function packages.install_composer_for_windows(sdkPath, version)
@@ -676,12 +571,12 @@ function packages.install_composer_for_windows(sdkPath, version)
     end
 
     -- Verify Composer installation
-    ok = tools.execute_cmd(string.format(
+    local result = process.run(string.format(
         '"%s" --version',
         composer_bat
-    ), QUIET);
+    ), { quiet = QUIET })
 
-    if not ok then
+    if not result.ok then
         io.stderr:write(
             "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..
             messages.manual_tip("composer --version") ..
@@ -740,10 +635,12 @@ function packages.install_composer_for_linux(sdkPath, version)
 
     -- Verify Composer installation
     local composer_bin = install_dir .. "/composer"
-    local ok, why, code = os.execute(
-        'COMPOSER_ALLOW_SUPERUSER=1 "' .. php_bin .. '" "' .. composer_bin .. '" --version > /dev/null 2>&1'
+    local result = process.run(
+        'COMPOSER_ALLOW_SUPERUSER=1 "' .. php_bin .. '" "' .. composer_bin .. '" --version',
+        { quiet = " > /dev/null 2>&1" }
     )
-    if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
+
+    if not result.ok then
         io.stderr:write(
             "\n\n\27[93mWarning:\27[0m Composer verification failed, but installation may still be usable.\n\n" ..
             messages.manual_tip("composer --version") ..
@@ -766,25 +663,57 @@ function packages.install_after_php(sdkPath, version, installInfo)
         end
 
         if php_versions.at_least(version, 8, 1) then
-            packages.install_pie(sdkPath, version)
+            require_ok(
+                packages.install_pie(sdkPath, version),
+                "PIE installation",
+                version,
+                "pie-verification-may-fail-or-time-out"
+            )
         end
 
-        packages.install_composer(sdkPath, version)
+        require_ok(
+            packages.install_composer(sdkPath, version),
+            "Composer installation",
+            version,
+            "composer-verification-may-prompt-when-run-as-root"
+        )
+
         return
     end
 
-    if installInfo.kind == "source" then
-        if not php_versions.at_least(version, 8, 5) then
-            packages.install_pecl_extensions(sdkPath, installInfo.env_prefix or "", version)
-        end
+    if installInfo.kind == "source" and not php_versions.at_least(version, 8, 5) then
+        require_ok(
+            packages.install_pecl_extensions(sdkPath, installInfo.env_prefix or "", version),
+            "PECL extension installation",
+            version,
+            "extension-builds-require-phpize-and-build-tooling"
+        )
+    elseif installInfo.kind == "source" and #PECL_EXTENSIONS > 0 then
+        error(
+            "\n\nPECL extension installation failed.\n\n" ..
+            "PECL is not available for PHP " .. version .. " in this plugin. " ..
+            "Use PHP 8.4 or older for PECL extension smoke tests, or use PIE-compatible extension packages.\n" ..
+            messages.see("extension-builds-require-phpize-and-build-tooling")
+        )
     end
 
     if php_versions.at_least(version, 8, 1) then
-        packages.install_pie(sdkPath, version)
+        require_ok(
+            packages.install_pie(sdkPath, version),
+            "PIE installation",
+            version,
+            "pie-verification-may-fail-or-time-out"
+        )
+
         packages.install_pie_extensions(sdkPath, version)
     end
 
-    packages.install_composer(sdkPath, version)
+    require_ok(
+        packages.install_composer(sdkPath, version),
+        "Composer installation",
+        version,
+        "composer-verification-may-prompt-when-run-as-root"
+    )
 end
 
 return packages

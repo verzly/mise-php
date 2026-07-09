@@ -1,5 +1,6 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
+local process = require("lib/process")
 local php_versions = require("lib/php_versions")
 local tools = require("lib/tools")
 
@@ -29,6 +30,15 @@ local function export_env_var(envPrefix, name, value)
     end
 
     return envPrefix .. "export " .. name .. "=" .. shell_quote(value) .. " && "
+end
+
+local function prepend_env_path(envPrefix, name, path)
+    if not path or path == "" then
+        return envPrefix
+    end
+
+    return envPrefix ..
+        "export " .. name .. "=" .. shell_quote(path) .. "${" .. name .. ":+:$" .. name .. "} && "
 end
 
 local function read_os_release()
@@ -372,6 +382,18 @@ local function is_wsl()
     return string.find(content, "microsoft", 1, true) ~= nil
 end
 
+local function fail_with_wsl_windows_path_warning(detected_php_path)
+    local warning =
+        "\n\nWSL may be exposing Windows PATH entries inside your Linux shell, which can cause the installer to access a PHP binary installed on Windows.\n\n" ..
+        "Detected PHP path: \27[93m" .. (detected_php_path ~= "" and detected_php_path or "(unknown)") .. "\27[0m\n\n" ..
+        "💡 Tip: Add the following to \27[93m/etc/wsl.conf\27[0m and restart WSL:\n\n" ..
+        "\27[93m[interop]\nappendWindowsPath=false\27[0m\n\n" ..
+        "Then run \27[93mwsl --shutdown\27[0m from Windows, update your \27[93m~/.bashrc\27[0m if needed, and restart the installation.\n" ..
+        messages.see("wsl-windows-path-exposure")
+
+    error(warning)
+end
+
 local function fail_if_windows_php_is_visible_or_hangs()
     if RUNTIME.osType ~= "linux" then
         return
@@ -381,59 +403,26 @@ local function fail_if_windows_php_is_visible_or_hangs()
         return
     end
 
-    local php_path_file = "/tmp/mise-php-detected-path.txt"
+    local detect_result = process.run("command -v php", { quiet = " 2>/dev/null" })
+    local detected_php_path = (detect_result.output or ""):match("^([^\r\n]*)") or ""
 
-    os.remove(php_path_file)
-
-    local detect_cmd = string.format([[
-        sh -c '
-            PHP_PATH="$(command -v php 2>/dev/null || true)"
-            printf "%%s" "$PHP_PATH" > "%s"
-
-            if [ -z "$PHP_PATH" ]; then
-                exit 0
-            fi
-
-            case "$PHP_PATH" in
-                /mnt/[a-zA-Z]/*|*.exe)
-                    exit 42
-                    ;;
-            esac
-
-            timeout 10s "$PHP_PATH" -v >/dev/null 2>&1
-            rc=$?
-
-            if [ "$rc" -eq 124 ]; then
-                exit 124
-            fi
-
-            exit 0
-        '
-    ]], php_path_file)
-
-    local status = os.execute(detect_cmd)
-
-    local detected_php_path = ""
-    local f = io.open(php_path_file, "r")
-    if f then
-        detected_php_path = f:read("*a") or ""
-        f:close()
-        os.remove(php_path_file)
+    if detected_php_path == "" then
+        return
     end
 
-    if status == 42 or status == 124 or status == 42 * 256 or status == 124 * 256 then
-        local warning =
-            "\n\nWSL may be exposing Windows PATH entries inside your Linux shell, which can cause the installer to access a PHP binary installed on Windows.\n\n" ..
-            "Detected PHP path: \27[93m" .. (detected_php_path ~= "" and detected_php_path or "(unknown)") .. "\27[0m\n\n" ..
-            "💡 Tip: Add the following to \27[93m/etc/wsl.conf\27[0m and restart WSL:\n\n" ..
-            "\27[93m[interop]\nappendWindowsPath=false\27[0m\n\n" ..
-            "Then run \27[93mwsl --shutdown\27[0m from Windows, update your \27[93m~/.bashrc\27[0m if needed, and restart the installation.\n" ..
-            messages.see("wsl-windows-path-exposure")
+    if detected_php_path:match("^/mnt/[a-zA-Z]/") or detected_php_path:match("%.exe$") then
+        fail_with_wsl_windows_path_warning(detected_php_path)
+    end
 
-        error(warning)
+    local version_result = process.run(
+        process.unix_timeout_command({ detected_php_path, "-v" }, 10),
+        { quiet = " > /dev/null 2>&1" }
+    )
+
+    if version_result.code == 124 then
+        fail_with_wsl_windows_path_warning(detected_php_path)
     end
 end
-
 
 local configure_macos
 local configure_linux
@@ -481,7 +470,7 @@ function source_php.install(sdkPath, version)
 
     -- Build environment and configure options
     local envPrefix = ""
-    local configureOptions = "--prefix='" .. sdkPath .. "'"
+    local configureOptions = "--prefix=" .. shell_quote(sdkPath)
     local log_id = create_log_id(version)
 
     if VERBOSE then
@@ -493,39 +482,37 @@ function source_php.install(sdkPath, version)
     end
 
     -- Common configure options
-    local commonOptions = [[
-        --enable-bcmath
-        --enable-calendar
-        --enable-dba
-        --enable-exif
-        --enable-fpm
-        --enable-ftp
-        --enable-gd
-        --enable-intl
-        --enable-mbregex
-        --enable-mbstring
-        --enable-mysqlnd
-        --enable-pcntl
-        --enable-shmop
-        --enable-soap
-        --enable-sockets
-        --enable-sysvmsg
-        --enable-sysvsem
-        --enable-sysvshm
-        --sysconfdir=']] .. sdkPath .. [['
-        --with-config-file-path=']] .. sdkPath .. [['
-        --with-config-file-scan-dir=']] .. sdkPath .. [[/conf.d'
-        --with-curl
-        --with-mhash
-        --with-openssl
-        --with-mysqli=mysqlnd
-        --with-pdo-mysql=mysqlnd
-        --with-zlib
-        --without-pcre-jit
-        --without-snmp
-    ]]
-
-    commonOptions = string.gsub(commonOptions, "%s+", " ")
+    local commonOptions = table.concat({
+        "--enable-bcmath",
+        "--enable-calendar",
+        "--enable-dba",
+        "--enable-exif",
+        "--enable-fpm",
+        "--enable-ftp",
+        "--enable-gd",
+        "--enable-intl",
+        "--enable-mbregex",
+        "--enable-mbstring",
+        "--enable-mysqlnd",
+        "--enable-pcntl",
+        "--enable-shmop",
+        "--enable-soap",
+        "--enable-sockets",
+        "--enable-sysvmsg",
+        "--enable-sysvsem",
+        "--enable-sysvshm",
+        "--sysconfdir=" .. shell_quote(sdkPath),
+        "--with-config-file-path=" .. shell_quote(sdkPath),
+        "--with-config-file-scan-dir=" .. shell_quote(sdkPath .. "/conf.d"),
+        "--with-curl",
+        "--with-mhash",
+        "--with-openssl",
+        "--with-mysqli=mysqlnd",
+        "--with-pdo-mysql=mysqlnd",
+        "--with-zlib",
+        "--without-pcre-jit",
+        "--without-snmp",
+    }, " ")
     configureOptions = configureOptions .. " " .. commonOptions
 
     -- PEAR was removed from the PHP source tree in 8.5.
@@ -565,17 +552,18 @@ function source_php.install(sdkPath, version)
     -- Allow user to replace configure options entirely while preserving prefix
     local userOptions = os.getenv("PHP_CONFIGURE_OPTIONS")
     if userOptions ~= nil and userOptions ~= "" then
-        configureOptions = "--prefix='" .. sdkPath .. "' " .. userOptions
+        configureOptions = "--prefix=" .. shell_quote(sdkPath) .. " " .. userOptions
     end
 
     -- Run buildconf
     print("Running buildconf...")
     local buildconfLog = log_path(log_id, "buildconf")
-    write_log_header(buildconfLog, "buildconf", "./buildconf --force", sdkPath)
+    write_log_header(buildconfLog, "buildconf", envPrefix .. "./buildconf --force", sdkPath)
 
     local buildconfCmd = string.format(
-        "cd %s && ./buildconf --force >> %s 2>&1",
+        "cd %s && %s./buildconf --force >> %s 2>&1",
         shell_quote(sdkPath),
+        envPrefix,
         shell_quote(buildconfLog)
     )
     local status = os.execute(buildconfCmd)
@@ -648,7 +636,7 @@ function source_php.install(sdkPath, version)
 
     -- Install PHP
     print("Installing PHP...")
-    local installCmd = string.format("cd '%s' && %smake install" .. QUIET, sdkPath, envPrefix)
+    local installCmd = string.format("cd %s && %smake install" .. QUIET, shell_quote(sdkPath), envPrefix)
     status = os.execute(installCmd)
     if status ~= 0 and status ~= true then
         error(
@@ -659,7 +647,7 @@ function source_php.install(sdkPath, version)
     end
 
     -- Create conf.d directory
-    os.execute(string.format("mkdir -p '%s/conf.d'", sdkPath))
+    os.execute("mkdir -p " .. shell_quote(sdkPath .. "/conf.d"))
     local confFile = io.open(sdkPath .. "/conf.d/php.ini", "w")
     if confFile then
         confFile:write("# Add system-wide PHP configuration options here\n")
@@ -668,7 +656,7 @@ function source_php.install(sdkPath, version)
 
     -- Verify PHP installation
     local php_bin = sdkPath .. "/bin/php"
-    local ok, why, code = os.execute('"' .. php_bin .. '" --version > /dev/null 2>&1')
+    local ok, why, code = os.execute(shell_quote(php_bin) .. " --version > /dev/null 2>&1")
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(
             "\n\nPHP installation appears to be broken: 'php --version' failed.\n\n" ..
@@ -691,8 +679,8 @@ function source_php.cleanup(sdkPath)
     -- source-build artifacts.
     print("Cleaning up source files...")
     local cleanCmd = string.format(
-        "cd '%s' && rm -rf Zend ext sapi main TSRM build configure* aclocal* Makefile* 2>/dev/null",
-        sdkPath
+        "cd %s && rm -rf Zend ext sapi main TSRM build configure* aclocal* Makefile* 2>/dev/null",
+        shell_quote(sdkPath)
     )
     os.execute(cleanCmd)
 end
@@ -757,7 +745,7 @@ function configure_macos(configureOptions, homebrew_prefix)
                     table.insert(pkg_config_paths, pkg_path .. "/lib/pkgconfig")
                 end
                 if pkg.path_only then
-                    envPrefix = envPrefix .. 'export PATH="' .. pkg_path .. '/bin:$PATH" && '
+                    envPrefix = prepend_env_path(envPrefix, "PATH", pkg_path .. "/bin")
                 end
             else
                 io.stderr:write("Warning: " .. pkg.name .. " not found at " .. pkg_path .. check_dir .. "\n")
@@ -769,12 +757,7 @@ function configure_macos(configureOptions, homebrew_prefix)
 
     -- Build PKG_CONFIG_PATH
     if #pkg_config_paths > 0 then
-        local existing_pkg = os.getenv("PKG_CONFIG_PATH") or ""
-        local new_pkg = table.concat(pkg_config_paths, ":")
-        if existing_pkg ~= "" then
-            new_pkg = new_pkg .. ":" .. existing_pkg
-        end
-        envPrefix = envPrefix .. 'export PKG_CONFIG_PATH="' .. new_pkg .. '" && '
+        envPrefix = prepend_env_path(envPrefix, "PKG_CONFIG_PATH", table.concat(pkg_config_paths, ":"))
     end
 
     -- Set FREETYPE2 flags to bypass pkg-config because bzip2 has no .pc file
@@ -782,8 +765,8 @@ function configure_macos(configureOptions, homebrew_prefix)
     local f = io.open(freetype_path .. "/lib", "r")
     if f ~= nil then
         f:close()
-        envPrefix = envPrefix .. 'export FREETYPE2_CFLAGS="-I' .. freetype_path .. '/include/freetype2" && '
-        envPrefix = envPrefix .. 'export FREETYPE2_LIBS="-L' .. freetype_path .. '/lib -lfreetype" && '
+        envPrefix = export_env_var(envPrefix, "FREETYPE2_CFLAGS", "-I" .. freetype_path .. "/include/freetype2")
+        envPrefix = export_env_var(envPrefix, "FREETYPE2_LIBS", "-L" .. freetype_path .. "/lib -lfreetype")
     end
 
     -- Optional packages with configure flags
@@ -810,7 +793,7 @@ function configure_macos(configureOptions, homebrew_prefix)
         local f = io.open(pkg_path .. "/lib", "r")
         if f ~= nil then
             f:close()
-            configureOptions = configureOptions .. " " .. pkg.flag .. "='" .. pkg_path .. "'"
+            configureOptions = configureOptions .. " " .. pkg.flag .. "=" .. shell_quote(pkg_path)
             if pkg.extra_flags then
                 table.insert(ldflags, "-L" .. pkg_path .. "/lib")
                 table.insert(cppflags, "-I" .. pkg_path .. "/include")
@@ -831,7 +814,7 @@ function configure_macos(configureOptions, homebrew_prefix)
         if existing ~= "" then
             val = val .. " " .. existing
         end
-        envPrefix = envPrefix .. 'export LDFLAGS="' .. val .. '" && '
+        envPrefix = export_env_var(envPrefix, "LDFLAGS", val)
     end
     if #cppflags > 0 then
         local existing = os.getenv("CPPFLAGS") or ""
@@ -839,7 +822,7 @@ function configure_macos(configureOptions, homebrew_prefix)
         if existing ~= "" then
             val = val .. " " .. existing
         end
-        envPrefix = envPrefix .. 'export CPPFLAGS="' .. val .. '" && '
+        envPrefix = export_env_var(envPrefix, "CPPFLAGS", val)
     end
 
     -- Add external-gd if the required dependencies are available

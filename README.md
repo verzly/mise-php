@@ -50,7 +50,7 @@ You can optionally use prebuilt static PHP binaries provided by static-php-cli. 
 
 ### Build from source
 
-For Linux and macOS systems, source builds remain the default. The `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `/bin/install-dependencies.sh`, which the system runs automatically.
+For Linux and macOS systems, source builds remain the default. The `verzly/mise-php` plugin builds the necessary binaries from the PHP source on each user's system when installing the given version. This process is time-consuming and can take anywhere from 1 to 5 minutes, depending on the machine (or virtual machine). The dependencies required for this are listed in `bin/install-dependencies.sh`, which the system runs automatically for source builds.
 
 ### Cleanup
 
@@ -211,6 +211,14 @@ Some PHP/platform combinations need extra handling, such as a newer `re2c` for P
 
 For permanent or one-time disabling, see [Skip dependency installation](#skip-dependency-installation). For package names, repository setup, and version-specific notes, see [`bin/install-dependencies.sh`](bin/install-dependencies.sh).
 
+#### mise system dependency preflight
+
+`jdx/mise#10848` introduced `PLUGIN.systemDependencies` for vfox plugins. That feature lets a plugin declare host prerequisites in `metadata.lua` using capability checks such as `bin`, `pkgconfig`, `sharedlib`, and `command`, then lets mise report, prompt, auto-install, warn, or ignore missing dependencies through the `system_deps` setting. See <https://github.com/jdx/mise/pull/10848>.
+
+`mise-php` does not declare the full PHP source-build dependency set as required `PLUGIN.systemDependencies`. That metadata is plugin-level, while this plugin has several install paths: Windows uses prebuilt PHP binaries by default, Linux and macOS build from source by default, and prebuilt static PHP skips source-build tooling on all supported platforms. Marking Unix build dependencies as required would produce incorrect prompts or warnings for Windows and static installs.
+
+`bin/install-dependencies.sh` remains the authoritative source-build dependency installer. It is path-aware and can inspect the requested PHP version, custom configure options, requested PECL/PIE extensions, distro family, repository setup, and version-specific fallbacks such as newer `re2c` on older Enterprise Linux releases. Source-build verification and post-install tooling fail inside the plugin installer when required Composer, PIE, PECL, or extension setup fails.
+
 ### Prebuilt static PHP
 
 By default, Linux and macOS installs build PHP from source, while Windows uses the regular windows.php.net binary installer. If you prefer faster static builds and can accept a smaller version set, enable prebuilt static PHP binaries. When enabled, the default static-php-cli flavor uses the broadest available extension set for the current platform: `bulk` on Linux/macOS and `spc-max` on Windows.
@@ -357,6 +365,8 @@ PHP_PIE_EXTENSIONS="xdebug/xdebug" mise install php@8.5.0
 # One-time use (Windows PowerShell)
 $env:PHP_PIE_EXTENSIONS="xdebug/xdebug"; mise install php@8.5.0
 ```
+
+If one or more requested PIE extensions fail, PHP installation continues. The plugin prints the failed package names, debug log paths, and a retry command such as `mise exec -- pie install vendor/package`. Check that each package supports your operating system and PHP version, and that each package name is spelled correctly.
 
 You can also persist commonly used extensions so they are automatically installed whenever a new PHP version is installed:
 
@@ -587,7 +597,7 @@ The following options are additionally detected based on available libraries:
 ### Skip dependency installation
 
 By default, the plugin automatically installs required build dependencies before
-compiling PHP. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
+compiling PHP. This path-aware installer remains responsible for source builds until mise can scope `PLUGIN.systemDependencies` by platform and install path. Set `PHP_SKIP_DEPS=1` to skip this step entirely.
 
 ```sh
 # One-time use (Linux / macOS / Bash)
@@ -690,6 +700,51 @@ Then from Windows PowerShell:
 
 ```sh
 wsl --shutdown
+```
+
+### Extension builds require phpize and build tooling
+
+PECL extensions and PIE packages that build native code need the PHP build tools for the active PHP version, especially `phpize` and `php-config`. Source builds provide these tools. Prebuilt static PHP installs do not provide a normal source-build toolchain, so extension requests are skipped there.
+
+If an extension build fails, install the operating-system dependencies required by that extension and retry the failed package. The installer prints the debug log path for failed extension commands; set `PHP_VERBOSE=1` to include command output and concise failure summaries in the terminal.
+
+```sh
+PHP_VERBOSE=1 mise install php@8.4.3
+mise exec -- pie install vendor/package
+```
+
+On Windows, PIE packages must publish a matching prebuilt archive for the active PHP version, thread-safety mode, compiler, and CPU architecture. If no matching archive exists, retrying will keep failing until the package publishes one or you choose a compatible package/version.
+
+### PIE verification may fail or time out
+
+mise-php installs PIE for PHP versions that support it and verifies the wrapper by running `pie --version`. A verification failure means the downloaded PHAR, generated wrapper, PHP runtime, or platform environment could not run PIE successfully.
+
+Run the command manually with the installed PHP selected:
+
+```sh
+mise exec -- pie --version
+```
+
+If PIE still fails, rerun the install with verbose output and check the printed command output. Common causes are a failed PHAR download, a non-executable wrapper on Unix-like systems, a broken PHP runtime, or a platform/package issue in PIE itself.
+
+```sh
+PHP_VERBOSE=1 mise install php@8.4.3
+```
+
+### Composer verification may prompt when run as root
+
+Composer can behave differently when executed as root or in non-interactive CI environments. mise-php verifies Composer after installation; if verification fails, the Composer files may still exist, but the install is treated as incomplete because the runtime command could not be confirmed.
+
+Check Composer manually with the installed PHP selected:
+
+```sh
+mise exec -- composer --version
+```
+
+In containers or CI jobs that run as root, allow Composer's root mode explicitly when testing manually:
+
+```sh
+COMPOSER_ALLOW_SUPERUSER=1 mise exec -- composer --version
 ```
 
 ### PHP < 8.1 OpenSSL incompatibility (Linux and macOS only)

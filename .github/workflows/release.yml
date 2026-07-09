@@ -1,0 +1,291 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the leading v, for example 0.10.1 or 0.10.1-rc.1
+        required: true
+      prerelease:
+        description: Mark the GitHub release as a prerelease
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      PRERELEASE: ${{ inputs.prerelease }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ env.RELEASE_TOKEN }}
+
+      - name: Validate release input
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${VERSION}"
+
+          if [[ "${version}" == v* ]]; then
+            echo "Version input must not include the leading v: ${version}" >&2
+            exit 1
+          fi
+
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Version must be SemVer without a leading v, for example 0.10.1 or 0.10.1-rc.1." >&2
+            exit 1
+          fi
+
+          tag="v${version}"
+          branch="chore/release-${tag}"
+
+          git fetch origin --tags --force
+
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "Tag already exists: ${tag}" >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+            echo "Release branch already exists: ${branch}" >&2
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update metadata version
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          path = Path("metadata.lua")
+          version = os.environ["VERSION"]
+          text = path.read_text(encoding="utf-8")
+          updated, count = re.subn(
+              r'PLUGIN\.version\s*=\s*"[^"]*"',
+              f'PLUGIN.version = "{version}"',
+              text,
+              count=1,
+          )
+
+          if count != 1:
+              raise SystemExit("Could not find PLUGIN.version in metadata.lua")
+
+          if updated != text:
+              path.write_text(updated, encoding="utf-8")
+              print("changed=true")
+          else:
+              print("changed=false")
+          PY
+
+          if git diff --quiet -- metadata.lua; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Create release pull request
+        if: steps.metadata.outputs.changed == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.release.outputs.tag }}"
+          branch="${{ steps.release.outputs.branch }}"
+
+          git switch -c "${branch}"
+          git add metadata.lua
+          git commit -m "chore(release): ${tag}"
+          git push --set-upstream origin "${branch}"
+
+          pr_url="$(gh pr create \
+            --base "${DEFAULT_BRANCH}" \
+            --head "${branch}" \
+            --title "chore(release): ${tag}" \
+            --body "Prepare ${tag} release metadata.")"
+
+          pr_number="${pr_url##*/}"
+          echo "number=${pr_number}" >> "${GITHUB_OUTPUT}"
+          echo "url=${pr_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Squash merge release pull request
+        if: steps.metadata.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pr_number="${{ steps.pr.outputs.number }}"
+          tag="${{ steps.release.outputs.tag }}"
+
+          if ! gh pr merge "${pr_number}" \
+            --squash \
+            --delete-branch \
+            --subject "chore(release): ${tag}" \
+            --body ""; then
+            gh pr merge "${pr_number}" \
+              --squash \
+              --auto \
+              --delete-branch \
+              --subject "chore(release): ${tag}" \
+              --body ""
+          fi
+
+          for _ in $(seq 1 180); do
+            merged_at="$(gh pr view "${pr_number}" --json mergedAt --jq '.mergedAt // ""')"
+            state="$(gh pr view "${pr_number}" --json state --jq '.state')"
+
+            if [ -n "${merged_at}" ]; then
+              echo "Release PR merged at ${merged_at}."
+              exit 0
+            fi
+
+            if [ "${state}" = "CLOSED" ]; then
+              echo "Release PR was closed without being merged." >&2
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          echo "Timed out waiting for release PR to merge." >&2
+          exit 1
+
+      - name: Checkout release commit
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin "${DEFAULT_BRANCH}" --tags --force
+          git switch "${DEFAULT_BRANCH}"
+          git reset --hard "origin/${DEFAULT_BRANCH}"
+
+          sha="$(git rev-parse HEAD)"
+          echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
+          echo "Release commit: ${sha}"
+
+      - name: Create release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.release.outputs.tag }}"
+          sha="${{ steps.target.outputs.sha }}"
+
+          git tag "${tag}" "${sha}"
+          git push origin "refs/tags/${tag}"
+
+      - name: Set up Lua
+        uses: leafo/gh-actions-lua@v8
+        with:
+          luaVersion: '5.3.5'
+
+      - name: Install manifest dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y luarocks zip
+          sudo luarocks install dkjson
+
+      - name: Build release artifacts
+        id: artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          zip_file="${repo_name}-${VERSION}.zip"
+          git archive --format=zip --output "${zip_file}" HEAD
+
+          lua -e '
+          require("metadata")
+          local dkjson = require("dkjson")
+          PLUGIN.version = os.getenv("VERSION")
+          PLUGIN.downloadUrl = os.getenv("DOWNLOAD_URL")
+          print(dkjson.encode(PLUGIN))
+          ' > manifest.json
+
+          cat manifest.json
+
+          echo "zip=${zip_file}" >> "${GITHUB_OUTPUT}"
+        env:
+          DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/${{ github.event.repository.name }}-${{ inputs.version }}.zip
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.release.outputs.tag }}"
+          zip_file="${{ steps.artifacts.outputs.zip }}"
+          args=(release create "${tag}" "${zip_file}" manifest.json --title "${tag}" --generate-notes)
+
+          if [ "${PRERELEASE}" = "true" ]; then
+            args+=(--prerelease)
+          fi
+
+          gh "${args[@]}"
+
+      - name: Publish latest manifest asset
+        env:
+          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view manifest >/dev/null 2>&1; then
+            gh release upload manifest manifest.json --clobber
+            gh release edit manifest --prerelease
+          else
+            gh release create manifest manifest.json \
+              --title "manifest" \
+              --notes "Latest mise plugin manifest." \
+              --prerelease
+          fi
+
+      - name: Update latest tag
+        if: inputs.prerelease == false
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sha="${{ steps.target.outputs.sha }}"
+          git tag -f latest "${sha}"
+          git push origin refs/tags/latest --force

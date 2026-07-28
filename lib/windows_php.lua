@@ -5,6 +5,7 @@ local php_extensions = require("lib/php_extensions")
 local tools = require("lib/tools")
 
 local QUIET           = env.QUIET
+local WINDOWS_FORCE_EXTENSIONS = env.WINDOWS_FORCE_EXTENSIONS
 
 local M = {}
 
@@ -218,6 +219,10 @@ local function configure_php_ini(sdk_path, timezone)
         pdo_oci = true,
         snmp = true,
     }
+    local forced_extensions = {}
+    for _, extension in ipairs(WINDOWS_FORCE_EXTENSIONS) do
+        forced_extensions[extension] = true
+    end
     local enabled_extensions = {}
     local expected_extensions = {}
     php_extensions.add(expected_extensions, {
@@ -233,14 +238,18 @@ local function configure_php_ini(sdk_path, timezone)
 
     for _, extension in ipairs(extension_dlls) do
         local name = extension:lower()
-        if blacklist[name] then
+        if blacklist[name] and not forced_extensions[name] then
             print("Skipping " .. extension .. " - requires external dependencies")
         elseif set_contains(php_modules, name) then
             print("Skipping " .. extension .. " - already compiled statically")
         else
             enabled_extensions[name] = true
             php_extensions.add(expected_extensions, name)
-            print("Enabled " .. extension)
+            if blacklist[name] then
+                print("Forcing " .. extension .. " - enabled by PHP_WINDOWS_FORCE_EXTENSIONS")
+            else
+                print("Enabled " .. extension)
+            end
         end
     end
 

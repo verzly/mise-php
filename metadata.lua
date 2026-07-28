@@ -1,7 +1,7 @@
 PLUGIN = {}
 
 PLUGIN.name = "php"
-PLUGIN.version = "0.10.1"
+PLUGIN.version = "0.10.2"
 PLUGIN.homepage = "https://github.com/verzly/mise-php"
 PLUGIN.license = "AGPL-3.0"
 PLUGIN.description = "PHP version manager plugin for mise (by verzly)"

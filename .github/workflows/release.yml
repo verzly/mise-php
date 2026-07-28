@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: release-${{ inputs.version }}
@@ -118,11 +119,17 @@ jobs:
           git add metadata.lua
           git -c commit.gpgSign=false commit -m "chore(release): ${tag}"
 
-          git switch "${DEFAULT_BRANCH}"
-          git merge --squash "${branch}"
-          git -c commit.gpgSign=false commit -m "chore(release): ${tag}"
-          git push origin "HEAD:refs/heads/${DEFAULT_BRANCH}"
-          git branch -D "${branch}"
+          git push --set-upstream origin "${branch}"
+
+          export GH_TOKEN="${RELEASE_TOKEN}"
+          pr_url="$(gh pr create --base "${DEFAULT_BRANCH}" --head "${branch}" --title "chore(release): ${tag}" --body "Automated release preparation for ${tag}.")"
+          pr_number="$(gh pr view "${pr_url}" --json number --jq .number)"
+
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/merge" -f commit_title="chore(release): ${tag}" -f merge_method=squash
+
+          git fetch origin "${DEFAULT_BRANCH}" --force
+          git switch -C "${DEFAULT_BRANCH}" "origin/${DEFAULT_BRANCH}"
+          git push origin --delete "${branch}"
 
           sha="$(git rev-parse HEAD)"
           echo "sha=${sha}" >> "${GITHUB_OUTPUT}"

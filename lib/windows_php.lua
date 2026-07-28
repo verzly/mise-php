@@ -211,8 +211,11 @@ local function configure_php_ini(sdk_path, timezone)
         php_modules = tostring(output)
     end
 
+    -- Require external native dependencies not included with standard PHP packages.
     local blacklist = {
+        oci8_19 = true,
         pdo_firebird = true,
+        pdo_oci = true,
         snmp = true,
     }
     local enabled_extensions = {}

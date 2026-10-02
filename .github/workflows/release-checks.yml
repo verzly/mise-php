@@ -1,0 +1,30 @@
+name: Release checks
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/delete-release.yml
+      - .github/workflows/latest.yml
+      - .github/workflows/prepare-release.yml
+      - .github/workflows/publish.yaml
+      - .github/workflows/release.yml
+      - .github/workflows/release-checks.yml
+      - .github/scripts/generate-manifest.py
+      - .github/scripts/reconcile-shared-manifest.sh
+      - .github/scripts/release-version.py
+      - .github/scripts/test_release*.py
+      - .github/scripts/update-channel-tags.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run release automation tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .github/scripts -p 'test_release*.py'

@@ -1,0 +1,153 @@
+name: Prepare Release
+
+run-name: Prepare stable CalVer release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+    steps:
+      - name: Require default branch dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/${DEFAULT_BRANCH}" ]]; then
+            echo "Prepare Release must be dispatched from the default branch (${DEFAULT_BRANCH})." >&2
+            exit 1
+          fi
+
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Find existing release PR or prepare new one
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin "refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}" --tags
+          git switch --detach "origin/${DEFAULT_BRANCH}"
+
+          prs_file="$(mktemp)"
+          trap 'rm -f "${prs_file}" "${prs_file}.filtered"' EXIT
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=${DEFAULT_BRANCH}&per_page=100" \
+            > "${prs_file}"
+
+          python3 - "${prs_file}" "${GITHUB_REPOSITORY}" > "${prs_file}.filtered" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          repository = sys.argv[2]
+          branch_pattern = re.compile(r"^chore/release-v([1-9][0-9]{3})\.([1-9]|1[0-2])\.([1-9][0-9]*)$")
+          pages = payload if payload and isinstance(payload[0], list) else [payload]
+          pulls = [pull for page in pages for pull in page]
+          matches = []
+
+          for pull in pulls:
+              head = pull.get("head") or {}
+              head_repo = head.get("repo") or {}
+              branch = head.get("ref", "")
+              if head_repo.get("full_name") != repository or not branch.startswith("chore/release-"):
+                  continue
+              match = branch_pattern.fullmatch(branch)
+              if not match:
+                  raise SystemExit(
+                      f"Malformed release-prefixed pull request #{pull['number']}: {pull['html_url']} ({branch})"
+                  )
+              matches.append((pull["number"], pull["html_url"], branch, head.get("sha", ""), ".".join(match.groups())))
+
+          for row in matches:
+              print("\t".join(str(value) for value in row))
+          PY
+
+          mapfile -t open_release_prs < "${prs_file}.filtered"
+          if [ "${#open_release_prs[@]}" -gt 1 ]; then
+            echo "More than one valid release PR is open against ${DEFAULT_BRANCH}; close extras before preparing another." >&2
+            printf '%s\n' "${open_release_prs[@]}" >&2
+            exit 1
+          fi
+
+          if [ "${#open_release_prs[@]}" -eq 1 ]; then
+            IFS=$'\t' read -r number url branch head_sha version <<< "${open_release_prs[0]}"
+            git fetch --no-tags origin "refs/heads/${branch}"
+            fetched_sha="$(git rev-parse FETCH_HEAD)"
+            if [ "${fetched_sha}" != "${head_sha}" ]; then
+              echo "Release PR #${number} head changed while it was being checked; rerun preparation." >&2
+              exit 1
+            fi
+            git show "${head_sha}:metadata.lua" > "${RUNNER_TEMP}/release-pr-metadata.lua"
+            python3 .github/scripts/release-version.py validate "${version}" --metadata "${RUNNER_TEMP}/release-pr-metadata.lua"
+            {
+              echo "url=${url}"
+              echo "version=${version}"
+            } >> "${GITHUB_OUTPUT}"
+            echo "Reusing existing release PR unchanged: ${url}"
+            exit 0
+          fi
+
+          version="$(python3 .github/scripts/release-version.py next)"
+          if [[ ! "${version}" =~ ^[1-9][0-9]{3}\.([1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
+            echo "Version helper returned non-canonical CalVer: ${version}" >&2
+            exit 1
+          fi
+          tag="v${version}"
+          branch="chore/release-${tag}"
+
+          remote_branch_output="$(git ls-remote --heads origin "refs/heads/${branch}")"
+          remote_branch_sha=""
+          while IFS=$'\t' read -r remote_sha remote_ref; do
+            if [ "${remote_ref}" = "refs/heads/${branch}" ]; then
+              remote_branch_sha="${remote_sha}"
+            fi
+          done <<< "${remote_branch_output}"
+          if [ -n "${remote_branch_sha}" ]; then
+            git fetch --no-tags origin "refs/heads/${branch}"
+            git show "FETCH_HEAD:metadata.lua" > "${RUNNER_TEMP}/existing-release-branch-metadata.lua"
+            python3 .github/scripts/release-version.py validate "${version}" --metadata "${RUNNER_TEMP}/existing-release-branch-metadata.lua"
+          else
+            git switch --detach "origin/${DEFAULT_BRANCH}"
+            python3 .github/scripts/release-version.py prepare "${version}"
+            python3 .github/scripts/release-version.py validate "${version}"
+            git add -- metadata.lua
+            if [ "$(git diff --cached --name-only)" != "metadata.lua" ]; then
+              echo "Release preparation may commit metadata.lua only." >&2
+              exit 1
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git -c commit.gpgSign=false commit -m "chore(release): prepare ${tag}"
+            git push origin "HEAD:refs/heads/${branch}"
+          fi
+
+          url="$(gh pr create \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base "${DEFAULT_BRANCH}" \
+            --head "${branch}" \
+            --title "chore(release): prepare ${tag}" \
+            --body "Updates metadata.lua to ${version} for stable release ${tag}. Merge this PR to publish the release.")"
+          {
+            echo "url=${url}"
+            echo "version=${version}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Created release PR: ${url}"

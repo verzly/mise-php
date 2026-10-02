@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release version without the leading v, for example 0.10.1 or 0.10.1-rc.1
+        description: Release version without v, for example 2026.10.1 or legacy 0.10.1-rc.1
         required: true
       confirm:
         description: Confirm deletion of the GitHub release and tag
@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: delete-release-${{ inputs.version }}
+  group: release-publication
   cancel-in-progress: false
 
 jobs:
@@ -49,12 +49,12 @@ jobs:
           fi
 
           if [[ "${version}" == v* ]]; then
-            echo "Version input must not include the leading v: ${version}" >&2
+            echo "Version input must not include leading v: ${version}" >&2
             exit 1
           fi
 
           if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
-            echo "Version must be SemVer without a leading v, for example 0.10.1 or 0.10.1-rc.1." >&2
+            echo "Version must be CalVer or legacy SemVer without leading v, for example 2026.10.1 or 0.10.1-rc.1." >&2
             exit 1
           fi
 
@@ -63,11 +63,12 @@ jobs:
       - name: Delete GitHub release
         env:
           GH_TOKEN: ${{ env.RELEASE_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
 
-          tag="${{ steps.release.outputs.tag }}"
+          tag="${TAG}"
           error_file="$(mktemp)"
 
           if gh release view "${tag}" >/dev/null 2>"${error_file}"; then
@@ -81,11 +82,13 @@ jobs:
           fi
 
       - name: Delete git tag
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
 
-          tag="${{ steps.release.outputs.tag }}"
+          tag="${TAG}"
 
           set +e
           git ls-remote --exit-code --tags --refs origin "refs/tags/${tag}" >/dev/null 2>&1

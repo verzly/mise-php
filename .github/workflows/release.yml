@@ -1,227 +1,196 @@
 name: Release
 
-run-name: Release v${{ inputs.version }}
+run-name: Publish ${{ github.event.pull_request.head.ref }}
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Release version without the leading v, for example 0.10.1 or 0.10.1-rc.1
-        required: true
-      prerelease:
-        description: Mark the GitHub release as a prerelease
-        required: true
-        type: boolean
-        default: false
+  pull_request:
+    types: [closed]
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ inputs.version }}
+  group: release-publication
   cancel-in-progress: false
 
 jobs:
   release:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'chore/release-v')
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ inputs.version }}
-      PRERELEASE: ${{ inputs.prerelease }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      GH_TOKEN: ${{ github.token }}
+
     steps:
-      - name: Checkout repository
+      - name: Checkout exact merge commit
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
-          token: ${{ env.RELEASE_TOKEN }}
+          token: ${{ github.token }}
 
-      - name: Validate release input
+      - name: Validate merged release and prepare manifest
         id: release
         shell: bash
         run: |
           set -euo pipefail
 
-          version="${VERSION}"
-
-          if [[ "${version}" == v* ]]; then
-            echo "Version input must not include the leading v: ${version}" >&2
+          if [[ ! "${HEAD_REF}" =~ ^chore/release-v([1-9][0-9]{3})\.([1-9]|1[0-2])\.([1-9][0-9]*)$ ]]; then
+            echo "Merged release branch must match chore/release-vYEAR.MONTH.COUNTER with canonical positive values." >&2
             exit 1
           fi
-
-          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
-            echo "Version must be SemVer without a leading v, for example 0.10.1 or 0.10.1-rc.1." >&2
-            exit 1
-          fi
-
+          version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
           tag="v${version}"
-          branch="chore/release-${tag}"
-
-          git fetch origin --tags --force
-
-          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-            echo "Tag already exists: ${tag}" >&2
+          if [ -z "${MERGE_SHA}" ] || [ "$(git rev-parse HEAD)" != "${MERGE_SHA}" ]; then
+            echo "Checkout is not the pull request merge commit." >&2
             exit 1
           fi
 
-          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
-          echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
+          git fetch origin "refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}" --tags
+          if ! git merge-base --is-ancestor "${MERGE_SHA}" "origin/${DEFAULT_BRANCH}"; then
+            echo "Pull request merge commit is not an ancestor of ${DEFAULT_BRANCH}." >&2
+            exit 1
+          fi
 
-      - name: Configure git author
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python3 -m unittest discover -s .github/scripts -p 'test_release*.py'
+          python3 .github/scripts/release-version.py validate "${version}"
+          python3 .github/scripts/generate-manifest.py \
+            --metadata metadata.lua \
+            --version "${version}" \
+            --tag "${tag}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --output manifest.json
 
-      - name: Prepare release commit
-        id: target
+          release_exists=false
+          if gh release view "${tag}" --json isDraft,isPrerelease > "${RUNNER_TEMP}/existing-release.json" 2> "${RUNNER_TEMP}/existing-release-error.log"; then
+            python3 - "${RUNNER_TEMP}/existing-release.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          release = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if release.get("isDraft") or release.get("isPrerelease"):
+              raise SystemExit("Existing release is a draft or prerelease; refusing to repurpose it as a stable release.")
+          PY
+            release_exists=true
+          elif ! grep -qiE 'not found|HTTP 404' "${RUNNER_TEMP}/existing-release-error.log"; then
+            cat "${RUNNER_TEMP}/existing-release-error.log" >&2
+            exit 1
+          fi
+
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "release-exists=${release_exists}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Ensure immutable release tag points to merge commit
         shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
+          expected_sha="${MERGE_SHA}"
 
-          tag="${{ steps.release.outputs.tag }}"
-          branch="${{ steps.release.outputs.branch }}"
-
-          git fetch origin "${DEFAULT_BRANCH}" --tags --force
-          git switch -C "${DEFAULT_BRANCH}" "origin/${DEFAULT_BRANCH}"
-          git switch -C "${branch}"
-
-          python3 <<'PY'
-          from pathlib import Path
-          import os
-          import re
-
-          path = Path("metadata.lua")
-          version = os.environ["VERSION"]
-          text = path.read_text(encoding="utf-8")
-          updated, count = re.subn(
-              r'PLUGIN\.version\s*=\s*"[^"]*"',
-              f'PLUGIN.version = "{version}"',
-              text,
-              count=1,
-          )
-
-          if count != 1:
-              raise SystemExit("Could not find PLUGIN.version in metadata.lua")
-
-          path.write_text(updated, encoding="utf-8")
-          PY
-
-          if git diff --quiet -- metadata.lua; then
-            git switch "${DEFAULT_BRANCH}"
-            git branch -D "${branch}"
-            sha="$(git rev-parse HEAD)"
-            echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
-            echo "Metadata already prepared; using default branch commit: ${sha}"
+          remote_tag_output="$(git ls-remote --tags --refs origin "refs/tags/${TAG}")"
+          remote_tag=""
+          while IFS=$'\t' read -r remote_sha remote_ref; do
+            if [ "${remote_ref}" = "refs/tags/${TAG}" ]; then
+              remote_tag="${remote_sha}"
+            fi
+          done <<< "${remote_tag_output}"
+          if [ -n "${remote_tag}" ]; then
+            git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" --force
+            tag_sha="$(git rev-parse "${TAG}^{}")"
+            if [ "${tag_sha}" != "${expected_sha}" ]; then
+              echo "Tag ${TAG} already points to ${tag_sha}, not merged release commit ${expected_sha}." >&2
+              exit 1
+            fi
+            echo "Tag ${TAG} already points to expected commit ${expected_sha}."
             exit 0
           fi
 
-          git add metadata.lua
-          git -c commit.gpgSign=false commit -m "chore(release): ${tag}"
-
-          git switch "${DEFAULT_BRANCH}"
-          git merge --squash "${branch}"
-          git -c commit.gpgSign=false commit -m "chore(release): ${tag}"
-          git push origin "HEAD:refs/heads/${DEFAULT_BRANCH}"
-          git branch -D "${branch}"
-
-          sha="$(git rev-parse HEAD)"
-          echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
-          echo "Release commit: ${sha}"
-
-      - name: Create release tag
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          tag="${{ steps.release.outputs.tag }}"
-          sha="${{ steps.target.outputs.sha }}"
-
-          git -c tag.gpgSign=false tag "${tag}" "${sha}"
-          git push origin "refs/tags/${tag}"
-
-      - name: Generate manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          export TAG="${{ steps.release.outputs.tag }}"
-
-          python3 <<'PY'
-          from pathlib import Path
-          import json
-          import os
-          import re
-
-          metadata_path = Path(os.environ.get("METADATA_PATH", "metadata.lua"))
-          text = metadata_path.read_text(encoding="utf-8")
-
-          def string_field(name):
-              match = re.search(rf'PLUGIN\.{name}\s*=\s*"([^"]*)"', text)
-              if not match:
-                  raise SystemExit(f"Could not find PLUGIN.{name} in metadata.lua")
-              return match.group(1)
-
-          notes = []
-          notes_match = re.search(r'PLUGIN\.notes\s*=\s*\{(.*?)\}', text, re.S)
-          if notes_match:
-              notes = re.findall(r'"([^"]*)"', notes_match.group(1))
-
-          version = os.environ["VERSION"]
-          tag = os.environ.get("TAG", f"v{version}")
-          repo = os.environ["GITHUB_REPOSITORY"]
-
-          manifest = {
-              "name": string_field("name"),
-              "version": version,
-              "homepage": string_field("homepage"),
-              "license": string_field("license"),
-              "description": string_field("description"),
-              "minRuntimeVersion": string_field("minRuntimeVersion"),
-              "manifestUrl": string_field("manifestUrl"),
-              "downloadUrl": f"https://github.com/{repo}/archive/refs/tags/{tag}.zip",
-              "notes": notes,
-          }
-
-          Path("manifest.json").write_text(json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8")
-          PY
-
-          cat manifest.json
-
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          tag="${{ steps.release.outputs.tag }}"
-          args=(release create "${tag}" manifest.json --title "${tag}" --generate-notes)
-
-          if [ "${PRERELEASE}" = "true" ]; then
-            args+=(--prerelease)
+          if git show-ref --verify --quiet "refs/tags/${TAG}"; then
+            git tag -d "${TAG}" >/dev/null
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -c tag.gpgSign=false tag -a "${TAG}" "${expected_sha}" -m "${TAG}"
+          if git push origin "refs/tags/${TAG}"; then
+            exit 0
           fi
 
-          gh "${args[@]}"
+          git tag -d "${TAG}" >/dev/null
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          tag_sha="$(git rev-parse "${TAG}^{}")"
+          if [ "${tag_sha}" != "${expected_sha}" ]; then
+            echo "Tag ${TAG} was created concurrently at ${tag_sha}, not expected commit ${expected_sha}." >&2
+            exit 1
+          fi
+          echo "Concurrent tag creation matched expected commit ${expected_sha}."
 
-      - name: Publish latest manifest asset
+      - name: Create or repair stable release asset
         env:
-          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_EXISTS: ${{ steps.release.outputs.release-exists }}
         shell: bash
         run: |
           set -euo pipefail
-
-          if gh release view manifest >/dev/null 2>&1; then
-            gh release upload manifest manifest.json --clobber
-            gh release edit manifest --prerelease
-          else
-            gh release create manifest manifest.json \
-              --title "manifest" \
-              --notes "Latest mise plugin manifest." \
-              --prerelease
+          if [ "${RELEASE_EXISTS}" != "true" ]; then
+            gh release create "${TAG}" \
+              --title "${TAG}" \
+              --generate-notes \
+              --verify-tag \
+              --latest=false
           fi
+          gh release upload "${TAG}" manifest.json --clobber
+
+      - name: Reconcile shared manifest with newest stable release
+        shell: bash
+        run: bash .github/scripts/reconcile-shared-manifest.sh
 
       - name: Update channel tags
-        env:
-          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
         shell: bash
         run: bash .github/scripts/update-channel-tags.sh
+
+      - name: Delete merged release branch
+        if: success()
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${BRANCH}" =~ ^chore/release-v[1-9][0-9]{3}\.([1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
+            echo "Refusing to delete unexpected branch name: ${BRANCH}" >&2
+            exit 1
+          fi
+
+          remote_lines="$(git ls-remote --heads origin "refs/heads/${BRANCH}")"
+          remote_sha=""
+          while IFS=$'\t' read -r candidate_sha remote_ref; do
+            if [ "${remote_ref}" = "refs/heads/${BRANCH}" ]; then
+              remote_sha="${candidate_sha}"
+            fi
+          done <<< "${remote_lines}"
+          if [ -z "${remote_sha}" ]; then
+            echo "Release branch ${BRANCH} is already absent."
+            exit 0
+          fi
+          if [ "${remote_sha}" != "${EXPECTED_HEAD_SHA}" ]; then
+            echo "Warning: release branch ${BRANCH} moved to ${remote_sha}; retaining it instead of deleting unexpected content." >&2
+            exit 0
+          fi
+
+          if ! git push --force-with-lease="refs/heads/${BRANCH}:${EXPECTED_HEAD_SHA}" \
+            origin ":refs/heads/${BRANCH}"; then
+            echo "Warning: release branch ${BRANCH} changed during cleanup; retaining branch." >&2
+            exit 0
+          fi
+          echo "Deleted merged release branch ${BRANCH}."

@@ -33,6 +33,7 @@ Install multiple PHP versions side by side, each with its own isolated runtime, 
 - [Debugging](#debugging)
 - [Known Issues](#known-issues)
 - [Contributing](#contributing)
+- [Release](#release)
 
 Read on to learn why `verzly/mise-php` was created and what makes it work the way it does. Or jump straight to [Get started](#get-started) for quick installation steps, or to [Upgrade](#up-to-date) if you are already using the plugin.
 
@@ -791,6 +792,34 @@ mise config set env._.php-dev.verbose true
 
 # Test
 mise install php-dev@latest
+```
+
+## Release
+
+Dispatch **Prepare Release** (`.github/workflows/prepare-release.yml`) on `master`, the repository's default branch. It takes no version input:
+
+```sh
+gh workflow run prepare-release.yml --ref master
+```
+
+Release tags use UTC CalVer: `vYEAR.MONTH.COUNTER`, for example `v2026.10.1`. Month and counter have no leading zeros. Each month's counter starts at 1 and advances past the greatest counter in matching remote tags or the current default-branch metadata. Metadata reserves versions for merged releases awaiting publication. Existing SemVer tags remain usable.
+
+Prepare reuses an existing open release PR without changing it, including manual edits or a version from a previous month. Otherwise, it creates `chore/release-vYEAR.MONTH.COUNTER` and opens a PR that changes only `PLUGIN.version` in `metadata.lua`. Metadata stores `YEAR.MONTH.COUNTER` without `v`.
+
+Review and edit the release contents before merging. Keep `PLUGIN.version` equal to the branch's version suffix with the leading `v` removed. Merging a same-repository release PR into the default branch starts `.github/workflows/release.yml` at the exact merge SHA. Ordinary development PRs do not release; do not bump metadata during development.
+
+The release workflow generates `manifest.json`, publishes the version release and shared `manifest` asset, and updates `latest`, `next`, `vYEAR`, and `vYEAR.MONTH` channels. Year and month channels track releases in that calendar period; they do not promise compatibility. The workflow deletes the release branch only after successful publication, and only if it has not changed since the merge. GitHub's **Automatically delete head branches** setting can delete it earlier, at merge; disable that setting if the branch must remain until publication succeeds.
+
+Using `GITHUB_TOKEN` for Prepare Release requires **Allow GitHub Actions to create and approve pull requests** in the repository's Actions settings. PR workflows created with `GITHUB_TOKEN` require a maintainer to select **Approve workflows to run**. An optional `RELEASE_TOKEN` PAT allows the generated PR to trigger CI; repository approval rules still apply. Install smoke tests in `test.yml` require the `needs-ci` label or manual dispatch. Merge the release PR as a maintainer: a merge performed with `GITHUB_TOKEN` does not trigger the release workflow. Publication updates assets and channels directly, without relying on token-generated events.
+
+For a failed or cancelled merged-release workflow, rerun the original run; retries are safe. Publication and maintenance workflows share a lock that preserves a running workflow, but GitHub concurrency can replace a pending run. Rerun any cancelled or displaced run that is still needed.
+
+Use `.github/workflows/publish.yaml` only for manual repair of an existing tag and release, including legacy or prerelease recovery. Tag pushes no longer publish automatically. `.github/workflows/delete-release.yml` retains support for deleting historical releases and tags with explicit confirmation.
+
+`.github/workflows/release-checks.yml` runs offline release tests on relevant PRs without the `needs-ci` label. Run the same tests locally with:
+
+```sh
+python3 -m unittest discover -s .github/scripts -p 'test_release*.py'
 ```
 
 ## License & Acknowledgments

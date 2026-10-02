@@ -8,21 +8,23 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-publication
+  cancel-in-progress: false
+
 jobs:
   update-channel-tags:
     runs-on: ubuntu-latest
     env:
-      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Checkout repository with full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ env.RELEASE_TOKEN }}
+          token: ${{ github.token }}
 
       - name: Update channel tags
-        env:
-          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
         shell: bash
         run: bash .github/scripts/update-channel-tags.sh

@@ -507,6 +507,30 @@ The following installation options can be set through `mise config set env._.php
 | `configure_options` | `PHP_CONFIGURE_OPTIONS` | empty | Replace configure options entirely while preserving the install prefix. |
 | `pecl_extensions` | `PHP_PECL_EXTENSIONS` | empty | Install PECL extensions after source builds where PECL is available. |
 | `pie_extensions` | `PHP_PIE_EXTENSIONS` | empty | Install PIE extension packages after source builds where PIE is available. |
+| `windows_force_extensions` | `PHP_WINDOWS_FORCE_EXTENSIONS` | empty | Enable listed Windows extensions even when they are disabled by default because they require external native dependencies. |
+
+### Windows extensions with external dependencies
+
+Some PHP for Windows packages include extensions that need native dependencies not bundled with PHP. They are disabled by default so PHP installs work without those dependencies. To enable one explicitly, make its dependency available on `PATH` before installation.
+
+```powershell
+# One-time use (Windows / PowerShell)
+$env:PHP_WINDOWS_FORCE_EXTENSIONS="oci8_19 pdo_oci"; mise install php@8.3
+```
+
+To persist the setting in a project `mise.toml`, use either the mise CLI or the configuration file:
+
+```powershell
+mise config set env._.php.windows_force_extensions "oci8_19 pdo_oci"
+```
+
+```toml
+[env]
+_.php = { windows_force_extensions = "oci8_19 pdo_oci" }
+```
+
+PHP still verifies that forced extensions load successfully. For example, `oci8_19` and `pdo_oci` require Oracle Instant Client to be available on `PATH`.
+
 
 Static PHP flavor notes:
 

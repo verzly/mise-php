@@ -554,7 +554,9 @@ jobs:
 
       - name: Install mixed PIE extensions and verify diagnostics
         shell: pwsh
+        timeout-minutes: 30
         env:
+          PHP_VERBOSE: '1'
           PHP_PIE_EXTENSIONS: xdebug/xdebug imagick/imagick redis/phpredis verzly/not-a-real-pie-extension
         run: |
           $ErrorActionPreference = 'Stop'
@@ -564,13 +566,11 @@ jobs:
           $previousNativeCommandPreference = $PSNativeCommandUseErrorActionPreference
           $PSNativeCommandUseErrorActionPreference = $false
           try {
-            $installOutput = & mise use -g "php@${{ env.PHP_TEST_VERSION }}" *>&1
+            & mise use -g "php@${{ env.PHP_TEST_VERSION }}" *>&1 | Tee-Object -FilePath $outputFile
             $installExitCode = $LASTEXITCODE
           } finally {
             $PSNativeCommandUseErrorActionPreference = $previousNativeCommandPreference
           }
-
-          $installOutput | Tee-Object -FilePath $outputFile
 
           if ($installExitCode -ne 0) {
             Write-Error "Expected PHP install to continue when requested PIE extensions fail, got exit code ${installExitCode}."

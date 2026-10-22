@@ -205,8 +205,17 @@ scenario_build_failure() {
     fi
 
     link_plugin build "$workspace"
-    capture_install build env PHP_CONFIGURE_OPTIONS=--enable-fd-setsize=invalid \
-        mise install "php@$version"
+    local capture_file="$base/build/output.log"
+    mkdir -p "$(dirname "$capture_file")"
+    set +e
+    run_isolated build env PHP_SKIP_DEPS=1 PHP_CONFIGURE_OPTIONS=--enable-fd-setsize=invalid \
+        timeout 10m mise install "php@$version" 2>&1 | tee "$capture_file"
+    status=${PIPESTATUS[0]}
+    set -e
+    output="$(<"$capture_file")"
+    if [[ "$status" -eq 124 ]]; then
+        fail "PHP configure exceeded 10-minute timeout"
+    fi
     [[ "$status" -ne 0 ]] || fail "expected a nonzero exit code"
     expect_contains "Failed to configure PHP."
     expect_matches "mise-php-.*-configure-output\\.log"
@@ -214,7 +223,6 @@ scenario_build_failure() {
 
     local configure_log
     configure_log="$(printf '%s\n' "$output" | grep -oEm1 '/[^[:space:]]*mise-php-[^[:space:]]*-configure-output\.log' || true)"
-    show
     [[ -n "$configure_log" && -f "$configure_log" ]] || fail "configure output log is missing: $configure_log"
     grep -Fq 'Invalid value passed to --enable-fd-setsize!' "$configure_log" || fail "configure log is missing the root cause"
     pass

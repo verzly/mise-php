@@ -199,13 +199,15 @@ local function dependency_failure_message(command, result, version)
         "Command: \27[93m" .. command .. "\27[0m\n" ..
         "Exit code: " .. tostring(result.code) .. "\n"
 
-    local excerpt = tail_lines(result.output, DEPS_OUTPUT_TAIL_LINES, DEPS_OUTPUT_TAIL_CHARS)
-    if excerpt then
-        message = message ..
-            "\n----- dependency installer output -----\n" .. excerpt ..
-            "\n----- end dependency installer output -----\n"
-    else
-        message = message .. "\nThe dependency installer produced no output.\n"
+    if not VERBOSE then
+        local excerpt = tail_lines(result.output, DEPS_OUTPUT_TAIL_LINES, DEPS_OUTPUT_TAIL_CHARS)
+        if excerpt then
+            message = message ..
+                "\n----- dependency installer output -----\n" .. excerpt ..
+                "\n----- end dependency installer output -----\n"
+        else
+            message = message .. "\nThe dependency installer produced no output.\n"
+        end
     end
 
     message = message .. "\n"
@@ -215,7 +217,6 @@ local function dependency_failure_message(command, result, version)
 
     message = message ..
         "💡 Tip: \27[93mFix the reported dependency error above, then restart the installation.\27[0m\n" ..
-        "💡 Tip: \27[93mRe-run with live output:\27[0m PHP_VERBOSE=1 mise install php@" .. (version or "VERSION") .. "\n" ..
         "💡 Tip: \27[93mInstall the build dependencies manually:\27[0m https://github.com/verzly/mise-php/blob/master/bin/install-dependencies.sh\n"
 
     return message
@@ -224,6 +225,8 @@ end
 function install_dependencies(version)
     if not VERBOSE then
         print("\27[96mNote:\27[0m Dependency installation output is captured. Set PHP_VERBOSE=1 to stream it live. A full log is written if it fails.")
+    else
+        print("\27[96mNote:\27[0m Dependency installation output is streamed live. A full log is written if it fails.")
     end
 
     print("Installing dependencies...")

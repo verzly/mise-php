@@ -270,6 +270,8 @@ function packages.install_pie_for_unix(sdkPath, version)
     local php_bin = sdkPath .. "/bin/php"
     local pie_bin = sdkPath .. "/bin/pie"
     local pie_phar = sdkPath .. "/pie.phar"
+    local helper = join_path(RUNTIME.pluginDirPath, "lib", "pie-launcher.php")
+    local runtime_helper = sdkPath .. "/bin/pie-launcher.php"
 
     -- Download PIE PHAR
     local dl_cmd = "curl -fsSL https://github.com/php/pie/releases/latest/download/pie.phar -o " .. shell_quote(pie_phar) .. QUIET
@@ -277,6 +279,15 @@ function packages.install_pie_for_unix(sdkPath, version)
     if status ~= 0 and status ~= true then
         io.stderr:write(
             "\27[93mWarning:\27[0m Failed to download PIE.\n" ..
+            messages.verbose_tip(version) ..
+            messages.see("pie-verification-may-fail-or-time-out")
+        )
+        return false
+    end
+
+    if not tools.copy_file(helper, runtime_helper) then
+        io.stderr:write(
+            "\27[93mWarning:\27[0m Failed to install PIE launcher helper.\n" ..
             messages.verbose_tip(version) ..
             messages.see("pie-verification-may-fail-or-time-out")
         )
@@ -295,7 +306,10 @@ function packages.install_pie_for_unix(sdkPath, version)
     end
 
     wrapper:write("#!/usr/bin/env sh\n")
-    wrapper:write("exec " .. shell_quote(php_bin) .. " " .. shell_quote(pie_phar) .. " \"$@\"\n")
+    wrapper:write("SDK=" .. shell_quote(sdkPath) .. "\n")
+    wrapper:write("export PHPRC=\"$SDK\"\n")
+    wrapper:write("export PHP_INI_SCAN_DIR=\"$SDK/conf.d\"\n")
+    wrapper:write("exec " .. shell_quote(php_bin) .. " " .. shell_quote(runtime_helper) .. " \"$SDK\" \"$@\"\n")
     wrapper:close()
 
     -- Make PIE wrapper executable
@@ -418,13 +432,10 @@ function packages.install_pie_extensions(sdkPath, version)
 end
 
 function packages.install_pie_extensions_for_linux(sdkPath, version)
-    local php_bin = sdkPath .. "/bin/php"
-    local phpize = sdkPath .. "/bin/phpize"
-    local phpconfig = sdkPath .. "/bin/php-config"
-    local pie_phar = sdkPath .. "/pie.phar"
+    local pie_bin = sdkPath .. "/bin/pie"
     local log_id = create_log_id(version)
 
-    if not file_exists(pie_phar) then
+    if not file_exists(pie_bin) then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n" ..
             messages.verbose_tip(version) ..
@@ -440,16 +451,7 @@ function packages.install_pie_extensions_for_linux(sdkPath, version)
         print("Installing PIE extension: " .. pkg .. "...")
 
         local log_file = extension_log_path(log_id, pkg)
-        local command = string.format(
-            'PATH="%s/bin:$PATH" "%s" "%s" install --with-php-path="%s" --with-php-config="%s" --with-phpize-path="%s" "%s"',
-            sdkPath,
-            php_bin,
-            pie_phar,
-            php_bin,
-            phpconfig,
-            phpize,
-            pkg
-        )
+        local command = shell_quote(pie_bin) .. " install " .. shell_quote(pkg)
         write_log_header(log_file, "PIE extension " .. pkg, command, sdkPath)
 
         local cmd = command .. " >> " .. tools.shell_quote(log_file) .. " 2>&1"

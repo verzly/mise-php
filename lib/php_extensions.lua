@@ -17,12 +17,16 @@ local function normalize_name(value)
     return string.lower(value)
 end
 
-local function command_for(php_bin)
+local function command_for(php_bin, context)
     if tools.is_windows() then
         return tools.windows_cmd_quote(php_bin) .. " -m"
     end
 
-    return tools.shell_quote(php_bin) .. " -m"
+    local command = tools.shell_quote(php_bin) .. " -m"
+    if context then
+        command = "PHPRC=" .. tools.shell_quote(context) .. " PHP_INI_SCAN_DIR=" .. tools.shell_quote(context .. "/conf.d") .. " " .. command
+    end
+    return command
 end
 
 local function module_set(output)
@@ -99,13 +103,13 @@ function M.add(expected, value)
     return expected
 end
 
-function M.verify_loaded(php_bin, expected, version)
+function M.verify_loaded(php_bin, expected, version, context)
     local expected_extensions = unique_expected(expected)
     if #expected_extensions == 0 then
         return true
     end
 
-    local result = process.run(command_for(php_bin))
+    local result = process.run(command_for(php_bin, context))
     if not result.ok then
         error(
             "\n\nPHP extension verification failed: 'php -m' failed.\n\n" ..

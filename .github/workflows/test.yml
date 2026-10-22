@@ -236,10 +236,11 @@ jobs:
           fi
 
           if [ "${{ matrix.flavor.label }}" = "default" ]; then
-            # PHP 8.5.9 was released only in v3, so it checks discovery of the new source.
-            for version in 8.5.12 8.5.9 8.5.5; do
+            # 8.5.12 is the current v3 release, 8.5.9 exists only in v3, and 8.0.30
+            # exists only in the legacy static-php-cli (v2) listing.
+            for version in 8.5.12 8.5.9 8.0.30; do
               if ! grep -Fx "$version" static-versions.txt; then
-                echo "Expected current/legacy discovery probe PHP $version in static version list"
+                echo "Expected v3/legacy discovery probe PHP $version in static version list"
                 exit 1
               fi
             done
@@ -402,7 +403,7 @@ jobs:
             exit 1
           fi
 
-      - name: Verify current and legacy Ubuntu artifacts
+      - name: Verify v3 and legacy v2 Ubuntu artifacts
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
@@ -412,23 +413,23 @@ jobs:
             https://dl.static-php.dev/static-php-cli/bulk/ -o legacy-bulk.html
 
           current_artifact='href="/v3/php-bin/bulk/php-8.5.12-cli-linux-x86_64.tar.gz"'
-          legacy_artifact='href="/static-php-cli/bulk/php-8.5.5-cli-linux-x86_64.tar.gz"'
-          old_current_artifact='href="/v3/php-bin/bulk/php-8.5.5-cli-linux-x86_64.tar.gz"'
+          legacy_artifact='href="/static-php-cli/bulk/php-8.0.30-cli-linux-x86_64.tar.gz"'
+          old_current_artifact='href="/v3/php-bin/bulk/php-8.0.30-cli-linux-x86_64.tar.gz"'
 
           grep -Fq "$current_artifact" current-bulk.html || {
             echo 'Current v3 PHP 8.5.12 bulk artifact is missing'
             exit 1
           }
           grep -Fq "$legacy_artifact" legacy-bulk.html || {
-            echo 'Legacy PHP 8.5.5 bulk artifact is missing'
+            echo 'Legacy v2 PHP 8.0.30 bulk artifact is missing'
             exit 1
           }
           if grep -Fq "$old_current_artifact" current-bulk.html; then
-            echo 'PHP 8.5.5 also appears in current v3; legacy-only install probe is invalid'
+            echo 'PHP 8.0.30 also appears in current v3; legacy-only install probe is invalid'
             exit 1
           fi
 
-      - name: Install and verify current and legacy static PHP versions
+      - name: Install and verify v3 and legacy v2 static PHP versions
         if: matrix.os == 'ubuntu-latest'
         env:
           PHP_VERBOSE: '1'
@@ -447,7 +448,7 @@ jobs:
           }
 
           install_and_check_version 8.5.12
-          install_and_check_version 8.5.5
+          install_and_check_version 8.0.30
 
       - name: Install PHP via prebuilt static path
         env:
@@ -461,6 +462,22 @@ jobs:
           PHP_INSTALL_MODE: static
         shell: bash
         run: bash .github/scripts/check-php-install.sh static
+
+      - name: Install legacy v2 static PHP on macOS and Windows
+        if: runner.os != 'Linux'
+        env:
+          PHP_VERBOSE: '1'
+          PHP_PREBUILT_STATIC: '1'
+        shell: bash
+        run: |
+          mise use -g php@8.0.30
+          actual="$(mise exec -- php -r 'echo PHP_VERSION;')"
+          if [ "$actual" != "8.0.30" ]; then
+            echo "Expected legacy static PHP 8.0.30, got ${actual}"
+            exit 1
+          fi
+          echo "Verified legacy static PHP ${actual}"
+          bash .github/scripts/check-php-install.sh static
   ubuntu-install-pecl:
     name: Install PECL-capable source/default - Ubuntu
     needs: [check-label, ubuntu-install-source]

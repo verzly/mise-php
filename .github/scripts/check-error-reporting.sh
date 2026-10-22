@@ -50,6 +50,12 @@ expect_matches() {
     fi
 }
 
+# The point of these tests is that reviewers can read the message in the Actions
+# log, so the captured output is always printed, not only on failure.
+show() {
+    printf -- '--- captured output ---\n%s\n--- end captured output ---\n' "$output"
+}
+
 pass() {
     printf 'PASS [%s]\n' "$scenario"
 }
@@ -95,6 +101,7 @@ scenario_unknown_version() {
     capture_install unknown mise install "php@0.1.2"
     [[ "$status" -ne 0 ]] || fail "expected a nonzero exit code"
     expect_contains "Version not found: 0.1.2"
+    show
     pass
 }
 
@@ -113,37 +120,67 @@ scenario_unauthenticated_sudo() {
     set -e
     [[ "$status" -ne 0 ]] || fail "expected a nonzero exit code"
     expect_contains "Run 'sudo -v' manually first"
+    show
     pass
 }
 
-# 3. Dependency installer failure (issue #91). The stub stands in for a broken
-#    package manager, so this needs no root access and no real apt state.
+# 3. Dependency installer failure (issue #91). The real
+#    bin/install-dependencies.sh runs; only the package manager binary is
+#    shimmed, so the failure path is the same as a broken repository or a
+#    conflicting package. The sudo shim runs commands unprivileged and keeps the
+#    PATH shim visible, so no system package is ever touched.
 scenario_dependency_failure() {
     begin "dependency installer failure"
-    local plugin_copy="$base/plugin-dependency-failure"
-    mkdir -p "$plugin_copy"
-    tar -C "$workspace" --exclude=.git --exclude=.planning -cf - . | tar -C "$plugin_copy" -xf -
-    cat > "$plugin_copy/bin/install-dependencies.sh" <<'STUB'
+    local shim="$base/dependency-shim"
+    mkdir -p "$shim"
+
+    cat > "$shim/sudo" <<'SHIM'
 #!/bin/sh
-set -eu
-echo "Reading package lists..."
+# Satisfy mise's non-interactive probe, then run the command unprivileged so the
+# package manager shim on PATH is visible.
+if [ "$1" = "-n" ] && [ "$2" = "-v" ]; then
+    exit 0
+fi
+exec "$@"
+SHIM
+
+    local pm=""
+    local candidate
+    for candidate in apt-get dnf microdnf yum pacman apk; do
+        if command -v "$candidate" > /dev/null 2>&1; then
+            pm="$candidate"
+            break
+        fi
+    done
+    [[ -n "$pm" ]] || fail "no supported package manager found to shim"
+
+    cat > "$shim/$pm" <<'SHIM'
+#!/bin/sh
+# Read-only subcommands succeed so the installer reaches the install step.
+for arg in "$@"; do
+    case "$arg" in
+        update|config-manager|enable|group|groupinstall) exit 0 ;;
+    esac
+done
 echo "E: Unable to locate package libgd-dev" >&2
-echo "E: Unable to locate package libjpeg-dev" >&2
+echo "E: Package libjpeg-dev has no installation candidate" >&2
 exit 100
-STUB
-    chmod +x "$plugin_copy/bin/install-dependencies.sh"
-    link_plugin dependency "$plugin_copy"
-    capture_install dependency mise install "php@$version"
+SHIM
+    chmod +x "$shim/sudo" "$shim/$pm"
+
+    link_plugin dependency "$workspace"
+    capture_install dependency env PATH="$shim:$PATH" mise install "php@$version"
 
     [[ "$status" -ne 0 ]] || fail "expected a nonzero exit code"
     expect_contains "Failed to install PHP build dependencies."
     expect_contains "----- dependency installer output -----"
     expect_contains "E: Unable to locate package libgd-dev"
-    expect_contains "E: Unable to locate package libjpeg-dev"
+    expect_contains "E: Package libjpeg-dev has no installation candidate"
     expect_contains "Exit code: 100"
     expect_contains "PHP_BUILD_VERSION='$version'"
-    # mise runs the hook from its linked copy, not from the source checkout.
-    expect_contains "$base/dependency/data/plugins/php/bin/install-dependencies.sh"
+    # The real installer ran from mise's linked plugin copy.
+    expect_contains "plugins/php/bin/install-dependencies.sh"
+    expect_not_contains "plugin-dependency-failure"
     expect_contains "💡 Full log: "
     expect_not_contains "Check the output above"
 
@@ -152,27 +189,34 @@ STUB
     [[ -n "$log_path" ]] || fail "failure message did not include a log path"
     [[ -f "$log_path" ]] || fail "log file does not exist: $log_path"
     grep -Fq "E: Unable to locate package libgd-dev" "$log_path" || fail "log file is missing the package manager error"
-    grep -Fq "E: Unable to locate package libjpeg-dev" "$log_path" || fail "log file is missing the second package manager error"
+    grep -Fq "E: Package libjpeg-dev has no installation candidate" "$log_path" || fail "log file is missing the second package manager error"
+    show
     pass
 }
 
 # 4. Real PHP build failure: dependencies install normally, then configure
-#    rejects a bogus flag. This proves the end-to-end build error path is
-#    actionable without debug flags. Skipped when sudo is unavailable, because
-#    the dependency stage would fail first and the check would prove nothing.
+#    rejects an invalid fd-setsize. This proves the end-to-end build error path
+#    is actionable without debug flags. Missing sudo must fail, not skip a
+#    required CI scenario.
 scenario_build_failure() {
     begin "php build failure"
     if ! command -v sudo > /dev/null 2>&1 || ! sudo -n -v > /dev/null 2>&1; then
-        printf 'SKIP [%s] passwordless sudo is unavailable; cannot reach configure in CI\n' "$scenario"
-        return
+        fail "passwordless sudo is unavailable; cannot reach configure"
     fi
 
     link_plugin build "$workspace"
-    capture_install build env PHP_CONFIGURE_OPTIONS=--enable-mise-error-reporting-probe \
+    capture_install build env PHP_CONFIGURE_OPTIONS=--enable-fd-setsize=invalid \
         mise install "php@$version"
     [[ "$status" -ne 0 ]] || fail "expected a nonzero exit code"
     expect_contains "Failed to configure PHP."
     expect_matches "mise-php-.*-configure-output\\.log"
+    expect_contains "Invalid value passed to --enable-fd-setsize!"
+
+    local configure_log
+    configure_log="$(printf '%s\n' "$output" | grep -oEm1 '/[^[:space:]]*mise-php-[^[:space:]]*-configure-output\.log' || true)"
+    show
+    [[ -n "$configure_log" && -f "$configure_log" ]] || fail "configure output log is missing: $configure_log"
+    grep -Fq 'Invalid value passed to --enable-fd-setsize!' "$configure_log" || fail "configure log is missing the root cause"
     pass
 }
 

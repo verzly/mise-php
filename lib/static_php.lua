@@ -11,6 +11,7 @@ local PREBUILT_STATIC_FLAVOR = env.PREBUILT_STATIC_FLAVOR
 
 M.DEFAULT_FLAVOR = "bulk"
 M.DEFAULT_SAPI = "cli"
+-- Sources are checked in order; the first matching artifact wins.
 local SOURCES = {
     { url = "https://dl.static-php.dev/v3/php-bin", windows_prefix = "" },
     { url = "https://dl.static-php.dev/static-php-cli", windows_prefix = "windows/" },

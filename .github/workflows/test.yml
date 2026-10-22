@@ -41,6 +41,20 @@ env:
   PHP_PECL_TEST_VERSION: ${{ inputs.pecl_php_version || '8.4' }}
 
 jobs:
+  static-discovery-unit:
+    name: Static discovery regression tests
+    needs: check-label
+    if: needs.check-label.outputs.should-run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+      - name: Run mocked static discovery checks
+        run: lua5.4 tests/static_php_discovery.lua
+
   check-label:
     runs-on: ubuntu-latest
     outputs:
@@ -245,6 +259,15 @@ jobs:
           if ! grep -Fx "${PHP_TEST_VERSION}" static-versions.txt; then
             echo "Expected PHP ${PHP_TEST_VERSION} in static version list"
             exit 1
+          fi
+
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.flavor.label }}" = "default" ]; then
+            for version in 8.5.12 8.5.5; do
+              if ! grep -Fx "$version" static-versions.txt; then
+                echo "Expected current/legacy discovery probe PHP $version in static version list"
+                exit 1
+              fi
+            done
           fi
 
   install-source:

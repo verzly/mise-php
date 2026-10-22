@@ -15,6 +15,9 @@ local shell_quote = tools.shell_quote
 --- @return table Version and download information
 function PLUGIN:PreInstall(ctx)
     local version = ctx.version
+    -- Static installs list versions before selecting a URL for partial and exact requests (8, 8.0, or 8.0.1).
+    -- Exact versions could probe source URLs in priority order without listing,
+    -- but sharing this lookup keeps the flow shorter and consistent for now.
     local releases = self:Available(ctx or {})
 
     if not releases or #releases == 0 then

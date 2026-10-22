@@ -1,5 +1,9 @@
 # verzly/mise-php
 
+## Releases
+
+Dispatch `.github/workflows/release.yml` from the default branch and select patch, minor, major, or current recovery. New releases derive their version from `metadata.lua`. Use current only to repair assets and channel tags for an existing matching version tag; version tags are immutable and never moved. The prerelease input applies only when creating a release; recovery preserves existing prerelease status. The common manifest updates only for the newest stable release. Configure `RELEASE_TOKEN` with contents and workflows write permissions (classic PAT: `repo` and `workflow`): historical channel tags may point to workflow files. Configuration check cannot prove server-side permissions.
+
 > [!WARNING]
 > **PHP2Shell security updates (CVE-2026-109618 / CVE-2026-109619)**
 >

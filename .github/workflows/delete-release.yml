@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: delete-release-${{ inputs.version }}
+  group: release
   cancel-in-progress: false
 
 jobs:

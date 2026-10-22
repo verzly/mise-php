@@ -14,4 +14,4 @@ Choose relevant checks from `.github/workflows/test.yml`; CI smoke tests require
 
 ## Collaboration and releases
 Use professional English for code, comments, documentation, commit messages, issues, and PRs. Keep issue/PR descriptions brief: problem/change, rationale, validation; no templated filler.
-Manually dispatch `.github/workflows/release.yml` with `X.Y.Z`, without `v`. Automation updates `metadata.lua`, manages its release commit on the default branch, and publishes `vX.Y.Z`. Do not bump metadata during development or release automatically after PRs.
+Dispatch `.github/workflows/release.yml` from the default branch and choose patch, minor, major, or current recovery. Releases must not run automatically after PRs. Configure `RELEASE_TOKEN` with contents and workflows permissions to update historical channel tags that point to workflow files.

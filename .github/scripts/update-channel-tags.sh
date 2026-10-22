@@ -129,34 +129,34 @@ for channel in sorted(set(desired) | existing_channels, key=channel_sort_key):
     print(f"{channel}\t{desired.get(channel, '')}")
 PY
 
-remote_tag_exists() {
-  local tag="$1"
-  git ls-remote --exit-code --tags --refs origin "refs/tags/${tag}" >/dev/null 2>&1
-}
-
-update_channel_tag() {
-  local channel="$1"
-  local target="$2"
-
+declare -a refspecs=()
+declare -a leases=()
+declare -a updates=()
+while IFS=$'\t' read -r channel target; do
+  [ -n "${channel}" ] || continue
+  current_sha="$(awk -F '\t' -v ref="refs/tags/${channel}" '$2 == ref { print $1; exit }' "${refs_file}")"
   if [ -n "${target}" ]; then
     git fetch origin "refs/tags/${target}:refs/tags/${target}" --force
     target_sha="$(git rev-list -n 1 "${target}")"
+    if [ "${current_sha}" = "${target_sha}" ]; then
+      echo "${channel} already points to ${target} (${target_sha}); skipping."
+      continue
+    fi
     git -c tag.gpgSign=false tag -f "${channel}" "${target_sha}"
-    git push origin "refs/tags/${channel}" --force
-    echo "Updated ${channel} tag to ${target} (${target_sha})."
-    return
-  fi
-
-  if remote_tag_exists "${channel}"; then
-    git push origin ":refs/tags/${channel}"
+    refspecs+=("refs/tags/${channel}:refs/tags/${channel}")
+    updates+=("Updated ${channel} tag to ${target} (${target_sha}).")
+  elif [ -n "${current_sha}" ]; then
+    refspecs+=(":refs/tags/${channel}")
+    updates+=("Deleted ${channel} tag because no eligible release tag exists.")
     git tag -d "${channel}" >/dev/null 2>&1 || true
-    echo "Deleted ${channel} tag because no eligible release tag exists."
   else
     echo "${channel} tag does not exist and no eligible release tag exists."
+    continue
   fi
-}
-
-while IFS=$'\t' read -r channel target; do
-  [ -n "${channel}" ] || continue
-  update_channel_tag "${channel}" "${target}"
+  leases+=("--force-with-lease=refs/tags/${channel}:${current_sha}")
 done < "${channels_file}"
+
+if [ "${#refspecs[@]}" -gt 0 ]; then
+  git push --atomic "${leases[@]}" origin "${refspecs[@]}"
+  printf '%s\n' "${updates[@]}"
+fi

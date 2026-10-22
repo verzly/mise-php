@@ -72,6 +72,7 @@ jobs:
             git rev-parse -q --verify "refs/tags/${tag}" >/dev/null || { echo "Current-version recovery requires existing tag ${tag}." >&2; exit 1; }
             tagged_version="$(git show "${tag}:metadata.lua" | sed -nE 's/^PLUGIN\.version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p')"
             [[ "${tagged_version}" == "${version}" ]] || { echo "Tag metadata does not match ${tag}." >&2; exit 1; }
+          fi
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 

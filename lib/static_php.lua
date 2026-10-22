@@ -9,9 +9,14 @@ local M = {}
 local QUIET = env.QUIET
 local PREBUILT_STATIC_FLAVOR = env.PREBUILT_STATIC_FLAVOR
 
-M.BASE_URL = "https://dl.static-php.dev/static-php-cli"
 M.DEFAULT_FLAVOR = "bulk"
 M.DEFAULT_SAPI = "cli"
+-- Sources are checked in order; the first matching artifact wins.
+local SOURCES = {
+    { url = "https://dl.static-php.dev/v3/php-bin", windows_prefix = "" },
+    { url = "https://dl.static-php.dev/static-php-cli", windows_prefix = "windows/" },
+}
+local artifact_urls = {}
 
 local FLAVORS = {
     ["bulk"] = true,
@@ -155,7 +160,14 @@ function M.release_path(flavor)
 end
 
 function M.asset_url(version, flavor)
-    return M.BASE_URL .. "/" .. M.release_path(flavor) .. "/" .. M.asset_name(version, flavor)
+    local asset = M.asset_name(version, flavor)
+    local key = M.resolve_flavor(flavor)
+    if artifact_urls[key] and artifact_urls[key][asset] then
+        return artifact_urls[key][asset]
+    end
+    local source = SOURCES[#SOURCES]
+    local path = (is_windows() and source.windows_prefix or "") .. key
+    return source.url .. "/" .. path .. "/" .. asset
 end
 
 function M.available_versions(http, flavor, ctx)
@@ -166,19 +178,9 @@ function M.available_versions(http, flavor, ctx)
         return {}
     end
 
-    local resp, err = http.get({
-        url = M.BASE_URL .. "/" .. M.release_path(flavor) .. "/",
-        headers = {
-            ["User-Agent"] = "verzly-mise-php",
-        },
-    })
-
-    if err ~= nil or resp.status_code ~= 200 then
-        error("Failed to fetch static-php-cli prebuilt binaries: " .. tostring(err))
-    end
-
     local versions = {}
     local seen = {}
+    local resolved_urls = {}
     local pattern
 
     if is_windows() then
@@ -187,12 +189,34 @@ function M.available_versions(http, flavor, ctx)
         pattern = "php%-([0-9][0-9A-Za-z%.%-]*)%-" .. M.DEFAULT_SAPI .. "%-" .. os_name .. "%-" .. arch_name .. "%.tar%.gz"
     end
 
-    for version in resp.body:gmatch(pattern) do
-        if not seen[version] then
-            seen[version] = true
-            table.insert(versions, version)
+    local resolved_flavor = M.resolve_flavor(flavor)
+    local function fetch_versions(source)
+        local path = (is_windows() and source.windows_prefix or "") .. resolved_flavor
+        local url = source.url .. "/" .. path .. "/"
+        local resp, err = http.get({
+            url = url,
+            headers = { ["User-Agent"] = "verzly-mise-php" },
+        })
+        if err ~= nil or resp == nil or resp.status_code ~= 200 then
+            error("Failed to fetch static-php-cli prebuilt binaries: " .. tostring(err or (resp and resp.status_code)))
+        end
+        for href in (resp.body or ""):gmatch('[hH][rR][eE][fF]%s*=%s*["\']([^"\']+)["\']') do
+            local asset = href:match("([^/]+)$")
+            local version = asset and asset:match("^" .. pattern .. "$")
+            if version then
+                resolved_urls[asset] = resolved_urls[asset] or (source.url .. "/" .. path .. "/" .. asset)
+            end
+            if version and not seen[version] then
+                seen[version] = true
+                table.insert(versions, version)
+            end
         end
     end
+
+    for _, source in ipairs(SOURCES) do
+        fetch_versions(source)
+    end
+    artifact_urls[resolved_flavor] = resolved_urls
 
     table.sort(versions, php_versions.greater_than)
 

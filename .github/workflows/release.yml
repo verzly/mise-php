@@ -35,15 +35,8 @@ jobs:
       RELEASE_TYPE: ${{ inputs.release_type }}
       PRERELEASE: ${{ inputs.prerelease }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Check release token configuration
-        shell: bash
-        run: |
-          if [[ -z "${RELEASE_TOKEN}" ]]; then
-            echo "Configure RELEASE_TOKEN with Contents and Workflows write permission (classic PAT: repo and workflow). This check confirms configuration only; it cannot verify server-side permissions." >&2
-            exit 1
-          fi
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -76,15 +69,9 @@ jobs:
           esac
           tag="v${version}"
           if [[ "${RELEASE_TYPE}" == current ]]; then
-            git rev-parse -q --verify "refs/tags/${tag}" >/dev/null || { echo "Current-version recovery requires existing immutable tag ${tag}." >&2; exit 1; }
+            git rev-parse -q --verify "refs/tags/${tag}" >/dev/null || { echo "Current-version recovery requires existing tag ${tag}." >&2; exit 1; }
             tagged_version="$(git show "${tag}:metadata.lua" | sed -nE 's/^PLUGIN\.version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p')"
             [[ "${tagged_version}" == "${version}" ]] || { echo "Tag metadata does not match ${tag}." >&2; exit 1; }
-          else
-            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-              echo "Tag already exists: ${tag}; use current to recover it." >&2
-              exit 1
-            fi
-          fi
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
@@ -121,8 +108,11 @@ jobs:
             git add metadata.lua
             git -c commit.gpgSign=false commit -m "chore(release): ${tag}"
             sha="$(git rev-parse HEAD)"
-            git -c tag.gpgSign=false tag "${tag}" "${sha}"
-            git push --atomic origin "HEAD:refs/heads/${DEFAULT_BRANCH}" "refs/tags/${tag}"
+            git -c tag.gpgSign=false tag -f "${tag}" "${sha}"
+            version_ref="refs/tags/${tag}"
+            version_sha="$(git ls-remote origin "${version_ref}" | cut -f1)"
+            version_lease="--force-with-lease=${version_ref}:${version_sha}"
+            git push --atomic "${version_lease}" origin "HEAD:refs/heads/${DEFAULT_BRANCH}" "${version_ref}"
           fi
           echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
         env:

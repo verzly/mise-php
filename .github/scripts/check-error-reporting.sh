@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Every scenario below fails on purpose and asserts that the message a user sees
-# without PHP_VERBOSE explains what broke, which command ran, and where the log
+# explains what broke, which command ran, and where the log
 # is. Issue #91: dependency installer output used to be discarded, so the error
 # only said "check the output above" with no output.
 #
@@ -60,11 +60,14 @@ pass() {
     printf 'PASS [%s]\n' "$scenario"
 }
 
-# Isolated mise state per scenario. Debug env vars are cleared on purpose: the
-# whole point is that users see the cause without them.
+# Isolated mise state per scenario. No debug flag is set unless the caller
+# explicitly enables PHP_VERBOSE=1 or MISE_VERBOSE=1 for a local probe.
 run_isolated() {
     local name="$1"
     shift
+    local -a verbose=()
+    [[ "${PHP_VERBOSE:-}" == 1 ]] && verbose+=(PHP_VERBOSE=1)
+    [[ "${MISE_VERBOSE:-}" == 1 ]] && verbose+=(MISE_VERBOSE=1)
 
     env \
         -u PHP_VERBOSE \
@@ -73,7 +76,14 @@ run_isolated() {
         MISE_CONFIG_DIR="$base/$name/config" \
         MISE_STATE_DIR="$base/$name/state" \
         MISE_CACHE_DIR="$base/$name/cache" \
+        "${verbose[@]}" \
         "$@"
+}
+
+assert_no_redundant_verbose_tip() {
+    if [[ "${PHP_VERBOSE:-}" == 1 || "${MISE_VERBOSE:-}" == 1 ]]; then
+        expect_not_contains "Run 'PHP_VERBOSE=1 mise install"
+    fi
 }
 
 link_plugin() {
@@ -173,7 +183,9 @@ SHIM
 
     [[ "$status" -ne 0 ]] || fail "expected a nonzero exit code"
     expect_contains "Failed to install PHP build dependencies."
-    expect_contains "----- dependency installer output -----"
+    if [[ "${PHP_VERBOSE:-}" != 1 && "${MISE_VERBOSE:-}" != 1 ]]; then
+        expect_contains "----- dependency installer output -----"
+    fi
     expect_contains "E: Unable to locate package libgd-dev"
     expect_contains "E: Package libjpeg-dev has no installation candidate"
     expect_contains "Exit code: 100"
@@ -183,6 +195,7 @@ SHIM
     expect_not_contains "plugin-dependency-failure"
     expect_contains "💡 Full log: "
     expect_not_contains "Check the output above"
+    assert_no_redundant_verbose_tip
 
     local log_path
     log_path="$(printf '%s\n' "$output" | sed -n 's/.*Full log: \([^[:space:]]*\).*/\1/p' | head -n 1)"
@@ -194,21 +207,15 @@ SHIM
     pass
 }
 
-# 4. Real PHP build failure: dependencies install normally, then configure
-#    rejects an invalid fd-setsize. This proves the end-to-end build error path
-#    is actionable without debug flags. Missing sudo must fail, not skip a
-#    required CI scenario.
+# 4. Real PHP configure failure: reject an invalid host before optional build
+#    tools like re2c are checked. Normal Ubuntu source installs test dependencies.
 scenario_build_failure() {
     begin "php build failure"
-    if ! command -v sudo > /dev/null 2>&1 || ! sudo -n -v > /dev/null 2>&1; then
-        fail "passwordless sudo is unavailable; cannot reach configure"
-    fi
-
     link_plugin build "$workspace"
     local capture_file="$base/build/output.log"
     mkdir -p "$(dirname "$capture_file")"
     set +e
-    run_isolated build env PHP_SKIP_DEPS=1 PHP_CONFIGURE_OPTIONS=--enable-fd-setsize=invalid \
+    run_isolated build env PHP_SKIP_DEPS=1 PHP_CONFIGURE_OPTIONS=--host=invalid-target-for-ci \
         timeout 10m mise install "php@$version" 2>&1 | tee "$capture_file"
     status=${PIPESTATUS[0]}
     set -e
@@ -219,12 +226,13 @@ scenario_build_failure() {
     [[ "$status" -ne 0 ]] || fail "expected a nonzero exit code"
     expect_contains "Failed to configure PHP."
     expect_matches "mise-php-.*-configure-output\\.log"
-    expect_contains "Invalid value passed to --enable-fd-setsize!"
+    expect_contains "build/config.sub invalid-target-for-ci failed"
+    assert_no_redundant_verbose_tip
 
     local configure_log
     configure_log="$(printf '%s\n' "$output" | grep -oEm1 '/[^[:space:]]*mise-php-[^[:space:]]*-configure-output\.log' || true)"
     [[ -n "$configure_log" && -f "$configure_log" ]] || fail "configure output log is missing: $configure_log"
-    grep -Fq 'Invalid value passed to --enable-fd-setsize!' "$configure_log" || fail "configure log is missing the root cause"
+    grep -Fq "Invalid configuration 'invalid-target-for-ci'" "$configure_log" || fail "configure log is missing the root cause"
     pass
 }
 

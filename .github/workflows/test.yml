@@ -114,6 +114,138 @@ jobs:
           require_env PHP_PIE_EXTENSIONS amphp/ext-uv
 
           echo "env._.php options were exported correctly"
+
+  ubuntu-install-variants:
+    name: Install variants - Ubuntu
+    needs: [check-label, ubuntu-env-options]
+    if: needs.check-label.outputs.should-run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+
+      - name: Register plugin from PR source
+        run: mise plugin link php "${{ github.workspace }}"
+
+      # Prebuilt static installs keep this check short: the two projects share
+      # one download while still requiring distinct install identities.
+      - name: Verify tool options select separate install identities
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          projects="${RUNNER_TEMP}/php-variants"
+          variant_version="8.5.9"
+          mkdir -p "${projects}/with-extensions" "${projects}/without-extensions" "${projects}/invalid-option"
+
+          cat > "${projects}/with-extensions/mise.toml" <<TOML
+          [settings]
+          experimental = true
+          install_layout = "identity"
+
+          [tools.php]
+          version = "${variant_version}"
+          prebuilt_static = true
+          prebuilt_static_flavor = "common"
+          pie_extensions = "xdebug/xdebug"
+          TOML
+
+          cat > "${projects}/without-extensions/mise.toml" <<TOML
+          [settings]
+          experimental = true
+          install_layout = "identity"
+
+          [tools.php]
+          version = "${variant_version}"
+          prebuilt_static = true
+          prebuilt_static_flavor = "common"
+          pie_extensions = ""
+          TOML
+
+          cat > "${projects}/invalid-option/mise.toml" <<TOML
+          [settings]
+          experimental = true
+          install_layout = "identity"
+
+          [tools.php]
+          version = "${variant_version}"
+          skip_deps = {}
+          TOML
+
+          for project in with-extensions without-extensions invalid-option; do
+            mise trust "${projects}/${project}" >/dev/null 2>&1 || true
+          done
+
+          # Hostile ambient values must not override explicit tool options:
+          # the static mode and flavor above must win, and the empty
+          # pie_extensions string must clear the inherited request.
+          install_variant() {
+            project="$1"
+            log="${RUNNER_TEMP}/variant-${project}.log"
+            PHP_PREBUILT_STATIC=0 \
+              PHP_PREBUILT_STATIC_FLAVOR=minimal \
+              PHP_PIE_EXTENSIONS=xdebug/xdebug \
+              mise -C "${projects}/${project}" install php 2>&1 | tee "$log"
+          }
+
+          install_variant with-extensions
+          install_variant without-extensions
+
+          if grep -q "compiled from source" "${RUNNER_TEMP}/variant-with-extensions.log" "${RUNNER_TEMP}/variant-without-extensions.log"; then
+            echo "Tool static options did not override the ambient environment"
+            exit 1
+          fi
+
+          if ! grep -q "extension requests are skipped for prebuilt static PHP installs" "${RUNNER_TEMP}/variant-with-extensions.log"; then
+            echo "pie_extensions did not reach the installation"
+            exit 1
+          fi
+
+          if grep -q "extension requests are skipped" "${RUNNER_TEMP}/variant-without-extensions.log"; then
+            echo "Empty pie_extensions did not clear the inherited request"
+            exit 1
+          fi
+
+          with_path="$(mise -C "${projects}/with-extensions" where php)"
+          without_path="$(mise -C "${projects}/without-extensions" where php)"
+
+          if [ -z "$with_path" ] || [ "$with_path" = "$without_path" ]; then
+            echo "Expected separate install identities, got '${with_path}' and '${without_path}'"
+            exit 1
+          fi
+
+          for project in with-extensions without-extensions; do
+            if ! mise -C "${projects}/${project}" install -n 2>&1 | grep -q "all tools are installed"; then
+              echo "${project} was not reported as already installed"
+              exit 1
+            fi
+
+            actual="$(mise -C "${projects}/${project}" exec -- php -r 'echo PHP_VERSION;')"
+            if [ "$actual" != "${variant_version}" ]; then
+              echo "${project} ran PHP ${actual} instead of ${variant_version}"
+              exit 1
+            fi
+          done
+
+          if output="$(mise -C "${projects}/invalid-option" install php 2>&1)"; then
+            echo "An unsupported tool option type was accepted"
+            exit 1
+          fi
+
+          if ! printf '%s' "$output" | grep -q "skip_deps must be a boolean or string"; then
+            echo "Unexpected failure for an unsupported tool option type: ${output}"
+            exit 1
+          fi
+
+          echo "Tool options selected separate PHP install identities"
+
   ubuntu-list-source-versions:
     name: List source versions - Ubuntu
     needs: [check-label, ubuntu-env-options]
@@ -685,7 +817,7 @@ jobs:
     needs:
       - check-label
       - ubuntu-env-options
-      - ubuntu-list-source-versions
+      - ubuntu-install-variants
       - ubuntu-list-static-versions
       - ubuntu-install-source
       - ubuntu-install-static

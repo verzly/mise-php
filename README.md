@@ -409,7 +409,7 @@ _.php = { pie_extensions = "xdebug/xdebug" }
 
 #### Installing multiple PHP variants
 
-mise 2026.10.6 or newer can install different builds of the same PHP version when experimental identity layouts are enabled. This is an experimental mise feature. Put variant-affecting settings in `[tools.php.install_env]`; the existing `env._.php` option remains supported, but does not distinguish install identities. Avoid setting conflicting shell environment variables for these options.
+mise [v2026.10.6](https://github.com/jdx/mise/releases/tag/v2026.10.6) introduced the experimental identity-based install layout in [jdx/mise#13951](https://github.com/jdx/mise/pull/13951). It is still receiving fixes and may be unstable. Both projects must enable the layout; without it mise keeps one installation per PHP version and these options only change how that shared installation is built. Put variant-affecting options in `[tools.php]`; the existing `[env] _.php` option remains supported, but does not distinguish install identities. Explicit tool options override the corresponding `PHP_*` environment variables during installation, including empty strings and `false`; omitted options still use the environment. Avoid conflicting shell environment settings for omitted options.
 
 For example, these project configurations request the same PHP version with different source-build options and PIE packages:
 
@@ -421,10 +421,8 @@ install_layout = "identity"
 
 [tools.php]
 version = "8.5"
-
-[tools.php.install_env]
-PHP_EXTRA_CONFIGURE_OPTIONS = "--enable-debug"
-PHP_PIE_EXTENSIONS = "xdebug/xdebug"
+extra_configure_options = "--enable-debug"
+pie_extensions = "xdebug/xdebug"
 ```
 
 ```toml
@@ -435,10 +433,8 @@ install_layout = "identity"
 
 [tools.php]
 version = "8.5"
-
-[tools.php.install_env]
-PHP_EXTRA_CONFIGURE_OPTIONS = ""
-PHP_PIE_EXTENSIONS = ""
+extra_configure_options = ""
+pie_extensions = ""
 ```
 
 Run these commands in each project to install and inspect its selected build:
@@ -450,9 +446,9 @@ mise exec -- php -v
 mise exec -- php -m
 ```
 
-The identity uses the exact install-environment strings; it is not a reproducible-build guarantee or a lockfile. PIE extensions requested during installation apply only to source builds where PIE is available. Static builds ignore those requests. Configure options do not apply to Windows' prebuilt PHP installs. PIE is supported for PHP 8.1 and newer.
+The identity includes the tool options; it is not a reproducible-build guarantee or a lockfile. Other install-affecting options include `configure_options`, `pecl_extensions`, `prebuilt_static`, `prebuilt_static_flavor`, and `skip_deps`. PIE extensions requested during installation apply only to source builds where PIE is available. Static builds ignore those requests. Configure options do not apply to Windows' prebuilt PHP installs. PIE is supported for PHP 8.1 and newer.
 
-Existing legacy-layout PHP installations may be reused **even when `install_env` differs**. `mise install` can then report that both variants are installed while both projects still use the same old PHP. Check `mise where php` in each project before relying on a changed configuration. `mise install --force` can rebuild the shared legacy installation in place; it does not safely create two variants.
+Existing legacy-layout PHP installations may be reused **even when tool options differ**. `mise install` can then report that both variants are installed while both projects still use the same old PHP. Check `mise where php` in each project before relying on a changed configuration. `mise install --force` can rebuild the shared legacy installation in place; it does not safely create two variants.
 
 To migrate, first back up the legacy PHP directory and any manually installed extensions. Confirm its exact version and paths in both projects with `mise where php` and `mise exec -- php -v`. If both still point to the legacy directory, preview `mise uninstall -n php@8.5.5` (replace `8.5.5` with the installed version). After reviewing the removal, run `mise uninstall php@8.5.5`, then `mise install` in **each** project and verify their `mise where php` paths differ. Uninstall removes the old PHP for every project sharing it, including its extensions, until those projects reinstall. If removal is not acceptable, use a separate `MISE_DATA_DIR` instead; that also requires making plugins and other tools available in the new namespace.
 
@@ -573,7 +569,7 @@ This plugin sets the following environment variables:
 | `PATH` | macOS, Linux | `<install_dir>/bin`, `<install_dir>/sbin` |
 | `LD_LIBRARY_PATH` | Linux only | `<install_dir>/lib` |
 
-The following installation options can be set through `mise config set env._.php.<option> ...` or the `[env] _.php = { ... }` table in `mise.toml`:
+The following installation options can be set through `mise config set env._.php.<option> ...` or the `[env] _.php = { ... }` table in `mise.toml`. They can also be set as lowercase tool options in `[tools.php]`, which additionally separates installations in the identity layout; see [Installing multiple PHP variants](#installing-multiple-php-variants).
 
 | Option | Environment variable | Default | Description |
 |---|---|---|---|

@@ -7,7 +7,6 @@ local tools = require("lib/tools")
 
 local VERBOSE   = env.VERBOSE
 local QUIET     = env.QUIET
-local SKIP_DEPS = env.SKIP_DEPS
 
 local shell_quote = tools.shell_quote
 
@@ -16,6 +15,7 @@ local shell_quote = tools.shell_quote
 --- @param ctx {version: string, runtimeVersion: string} Context
 --- @return table Version and download information
 function PLUGIN:PreInstall(ctx)
+    local config = env.resolve(ctx)
     local version = ctx.version
     -- Static installs list versions before selecting a URL for partial and exact requests (8, 8.0, or 8.0.1).
     -- Exact versions could probe source URLs in priority order without listing,
@@ -36,9 +36,11 @@ function PLUGIN:PreInstall(ctx)
         error("Version not found: " .. tostring(version))
     end
 
-    if static_php.is_requested(ctx) and static_php.is_supported_platform() then
-        local flavor = static_php.requested_flavor(ctx)
-        return static_php.release(release.version, flavor)
+    if config.PREBUILT_STATIC then
+        if not static_php.is_supported_platform() then
+            error("PHP_PREBUILT_STATIC is enabled, but static PHP is not supported on this platform.")
+        end
+        return static_php.release(release.version, config.PREBUILT_STATIC_FLAVOR)
     end
 
     if RUNTIME.osType == "windows" then
@@ -54,10 +56,10 @@ function PLUGIN:PreInstall(ctx)
         "See: https://github.com/verzly/mise-php/blob/master/bin/install-dependencies.sh"
     )
 
-    if SKIP_DEPS then
+    if config.SKIP_DEPS then
         print("\27[96mNote:\27[0m Skipping dependency installation (PHP_SKIP_DEPS is set).")
     else
-        install_dependencies(release.version)
+        install_dependencies(release.version, config)
     end
 
     version_check_after_dependencies(release)
@@ -222,7 +224,7 @@ local function dependency_failure_message(command, result, version)
     return message
 end
 
-function install_dependencies(version)
+function install_dependencies(version, config)
     if not VERBOSE then
         print("\27[96mNote:\27[0m Dependency installation output is captured. Set PHP_VERBOSE=1 to stream it live. A full log is written if it fails.")
     else
@@ -258,7 +260,16 @@ function install_dependencies(version)
         version_prefix = 'PHP_BUILD_VERSION=' .. shell_quote(version) .. ' '
     end
 
-    local command = version_prefix .. 'sh ' .. shell_quote(path)
+    local assignments = {}
+    for _, field in ipairs({
+        { "PHP_CONFIGURE_OPTIONS", "CONFIGURE_OPTIONS" },
+        { "PHP_EXTRA_CONFIGURE_OPTIONS", "EXTRA_CONFIGURE_OPTIONS" },
+        { "PHP_PECL_EXTENSIONS", "PECL_EXTENSIONS_RAW" },
+        { "PHP_PIE_EXTENSIONS", "PIE_EXTENSIONS_RAW" },
+    }) do
+        assignments[#assignments + 1] = field[1] .. '=' .. shell_quote(config[field[2]] or '')
+    end
+    local command = version_prefix .. table.concat(assignments, ' ') .. ' sh ' .. shell_quote(path)
     local result = process.run(command, { quiet = "" })
     if result.ok then
         return

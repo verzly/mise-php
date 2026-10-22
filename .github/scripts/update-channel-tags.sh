@@ -24,9 +24,6 @@ import sys
 from pathlib import Path
 
 release_tag_re = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z][0-9A-Za-z.-]*))?$")
-channel_tag_re = re.compile(r"^v\d+(?:\.\d+)?$")
-
-
 def parse_identifier(value):
     return (0, int(value)) if value.isdigit() else (1, value)
 
@@ -61,15 +58,6 @@ def compare_version(left, right):
     return (len(left_parts) > len(right_parts)) - (len(left_parts) < len(right_parts))
 
 
-def channel_sort_key(tag):
-    if tag == "latest":
-        return (-2, 0, 0)
-    if tag == "next":
-        return (-1, 0, 0)
-    parts = tuple(int(part) for part in tag[1:].split("."))
-    return (len(parts), *parts)
-
-
 remote_tags = set()
 for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
     parts = line.split("\t", 1)
@@ -96,13 +84,8 @@ for line in Path(sys.argv[2]).read_text(encoding="utf-8").splitlines():
 
 sort_key = functools.cmp_to_key(compare_version)
 latest = max((release for release in releases if not release["github_prerelease"]), key=sort_key, default=None)
-next_release = max(releases, key=sort_key, default=None)
-
+latest_any = max(releases, key=sort_key, default=None)
 desired = {}
-if latest is not None:
-    desired["latest"] = latest["tag"]
-if next_release is not None:
-    desired["next"] = next_release["tag"]
 
 stable_releases = [release for release in releases if not release["github_prerelease"]]
 major_targets = {}
@@ -117,46 +100,43 @@ for release in stable_releases:
     if minor not in minor_targets or compare_version(release, minor_targets[minor]) > 0:
         minor_targets[minor] = release
 
-desired.update({channel: release["tag"] for channel, release in major_targets.items()})
-desired.update({channel: release["tag"] for channel, release in minor_targets.items()})
+if latest is not None:
+    desired["latest"] = latest["tag"]
+    active_major = f"v{latest['core'][0]}"
+    active_minor = f"v{latest['core'][0]}.{latest['core'][1]}"
+    desired[active_major] = major_targets[active_major]["tag"]
+    desired[active_minor] = minor_targets[active_minor]["tag"]
 
-existing_channels = {
-    tag for tag in remote_tags
-    if tag in {"latest", "next"} or channel_tag_re.match(tag)
-}
-
-for channel in sorted(set(desired) | existing_channels, key=channel_sort_key):
-    print(f"{channel}\t{desired.get(channel, '')}")
+if latest_any is not None:
+    desired["next"] = latest_any["tag"]
+for channel in sorted(desired):
+    print(f"{channel}\t{desired[channel]}")
 PY
 
-remote_tag_exists() {
-  local tag="$1"
-  git ls-remote --exit-code --tags --refs origin "refs/tags/${tag}" >/dev/null 2>&1
-}
-
-update_channel_tag() {
-  local channel="$1"
-  local target="$2"
-
+declare -a refspecs=()
+declare -a leases=()
+declare -a updates=()
+while IFS=$'\t' read -r channel target; do
+  [ -n "${channel}" ] || continue
+  current_sha="$(awk -F '\t' -v ref="refs/tags/${channel}" '$2 == ref { print $1; exit }' "${refs_file}")"
   if [ -n "${target}" ]; then
     git fetch origin "refs/tags/${target}:refs/tags/${target}" --force
     target_sha="$(git rev-list -n 1 "${target}")"
+    if [ "${current_sha}" = "${target_sha}" ]; then
+      echo "${channel} already points to ${target} (${target_sha}); skipping."
+      continue
+    fi
     git -c tag.gpgSign=false tag -f "${channel}" "${target_sha}"
-    git push origin "refs/tags/${channel}" --force
-    echo "Updated ${channel} tag to ${target} (${target_sha})."
-    return
-  fi
-
-  if remote_tag_exists "${channel}"; then
-    git push origin ":refs/tags/${channel}"
-    git tag -d "${channel}" >/dev/null 2>&1 || true
-    echo "Deleted ${channel} tag because no eligible release tag exists."
+    refspecs+=("refs/tags/${channel}:refs/tags/${channel}")
+    updates+=("Updated ${channel} tag to ${target} (${target_sha}).")
   else
-    echo "${channel} tag does not exist and no eligible release tag exists."
+    echo "${channel} tag does not exist and no eligible release tag exists; skipping."
+    continue
   fi
-}
-
-while IFS=$'\t' read -r channel target; do
-  [ -n "${channel}" ] || continue
-  update_channel_tag "${channel}" "${target}"
+  leases+=("--force-with-lease=refs/tags/${channel}:${current_sha}")
 done < "${channels_file}"
+
+if [ "${#refspecs[@]}" -gt 0 ]; then
+  git push --atomic "${leases[@]}" origin "${refspecs[@]}"
+  printf '%s\n' "${updates[@]}"
+fi

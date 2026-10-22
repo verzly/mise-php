@@ -1,4 +1,5 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
+local original_plugin_dir = STATIC_TEST_PLUGIN_DIR
 
 package.preload["lib/env"] = function() return { QUIET = "", PREBUILT_STATIC_FLAVOR = "bulk" } end
 package.preload["lib/messages"] = function() return {} end
@@ -126,5 +127,33 @@ assert(ok)
 equal(M.asset_url("8.5.12", "spc-max"), "https://dl.static-php.dev/v3/php-bin/spc-max/" .. win("8.5.12"), "Windows spc-max flavor")
 local unsupported = pcall(M.available_versions, { get = function() error("unexpected request") end }, "common", {})
 assert(not unsupported, "unsupported Windows flavor must fail")
+
+RUNTIME = { osType = "linux", archType = "x64" }
+local preinstall_http = { get = function(request)
+    if request.url == "https://dl.static-php.dev/v3/php-bin/bulk/" then
+        return { status_code = 200, body = hrefs({ linux("8.5.12") }) }
+    end
+    if request.url == "https://dl.static-php.dev/static-php-cli/bulk/" then
+        return { status_code = 200, body = hrefs({ linux("8.5.5") }) }
+    end
+    error("unexpected listing URL: " .. request.url)
+end }
+package.loaded["http"] = preinstall_http
+require("lib/env").PREBUILT_STATIC = true
+PLUGIN = {}
+local available = dofile(original_plugin_dir .. "/lib/test_available.lua")
+dofile(original_plugin_dir .. "/hooks/pre_install.lua")
+local preinstalled = PLUGIN:PreInstall({
+    version = "8.5.12",
+    prebuilt_static = true,
+    prebuilt_static_flavor = "bulk",
+})
+equal(preinstalled.url, "https://dl.static-php.dev/v3/php-bin/bulk/" .. linux("8.5.12"), "Available to PreInstall URL")
+local exact_ok, exact_error = pcall(PLUGIN.PreInstall, PLUGIN, {
+    version = "8.5.11",
+    prebuilt_static = true,
+    prebuilt_static_flavor = "bulk",
+})
+assert(not exact_ok and tostring(exact_error):find("Version not found: 8.5.11", 1, true), "missing patch must not resolve to older version")
 
 print("static PHP discovery regression checks passed")

@@ -41,20 +41,6 @@ env:
   PHP_PECL_TEST_VERSION: ${{ inputs.pecl_php_version || '8.4' }}
 
 jobs:
-  static-discovery-unit:
-    name: Static discovery regression tests
-    needs: check-label
-    if: needs.check-label.outputs.should-run == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Lua
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y lua5.4
-      - name: Run mocked static discovery checks
-        run: lua5.4 tests/static_php_discovery.lua
-
   check-label:
     runs-on: ubuntu-latest
     outputs:
@@ -93,6 +79,10 @@ jobs:
 
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
+
+      - name: Run static discovery regressions in mise runtime
+        shell: bash
+        run: bash .github/scripts/test-static-php.sh
 
       - name: Check env._.php options without installing PHP
         shell: bash

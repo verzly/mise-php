@@ -1,6 +1,8 @@
 local env = require("lib/env")
+local logs = require("lib/logs")
 local static_php = require("lib/static_php")
 local php_versions = require("lib/php_versions")
+local process = require("lib/process")
 local tools = require("lib/tools")
 
 local VERBOSE   = env.VERBOSE
@@ -151,9 +153,80 @@ function get_release_for_linux(release)
     }
 end
 
+local DEPS_OUTPUT_TAIL_LINES = 40
+local DEPS_OUTPUT_TAIL_CHARS = 4000
+
+-- Keep the most relevant failing lines without flooding the mise error output.
+local function tail_lines(output, max_lines, max_chars)
+    local lines = {}
+    for line in (tostring(output or "") .. "\n"):gmatch("([^\n]*)\n") do
+        lines[#lines + 1] = (line:gsub("\r$", ""))
+    end
+
+    while #lines > 0 and lines[1] == "" do
+        table.remove(lines, 1)
+    end
+
+    while #lines > 0 and lines[#lines] == "" do
+        table.remove(lines, #lines)
+    end
+
+    if #lines == 0 then
+        return nil
+    end
+
+    local excerpt = {}
+    for index = math.max(1, #lines - max_lines + 1), #lines do
+        excerpt[#excerpt + 1] = lines[index]
+    end
+
+    local text = table.concat(excerpt, "\n")
+    if #text > max_chars then
+        text = "... [truncated] ...\n" .. text:sub(#text - max_chars + 1)
+    end
+
+    return text
+end
+
+local function dependency_failure_message(command, result, version)
+    local log_path = logs.path(logs.create_id("dependencies-" .. (version or "unknown")), "install")
+    local written = logs.write_header(log_path, "dependency installation", command)
+    if written then
+        logs.append(log_path, result.output)
+    end
+
+    local message = "\n\nFailed to install PHP build dependencies.\n\n" ..
+        "Command: \27[93m" .. command .. "\27[0m\n" ..
+        "Exit code: " .. tostring(result.code) .. "\n"
+
+    if not VERBOSE then
+        local excerpt = tail_lines(result.output, DEPS_OUTPUT_TAIL_LINES, DEPS_OUTPUT_TAIL_CHARS)
+        if excerpt then
+            message = message ..
+                "\n----- dependency installer output -----\n" .. excerpt ..
+                "\n----- end dependency installer output -----\n"
+        else
+            message = message .. "\nThe dependency installer produced no output.\n"
+        end
+    end
+
+    message = message .. "\n"
+    if written then
+        message = message .. "💡 Full log: " .. log_path .. "\n"
+    end
+
+    message = message ..
+        "💡 Tip: \27[93mFix the reported dependency error above, then restart the installation.\27[0m\n" ..
+        "💡 Tip: \27[93mInstall the build dependencies manually:\27[0m https://github.com/verzly/mise-php/blob/master/bin/install-dependencies.sh\n"
+
+    return message
+end
+
 function install_dependencies(version)
     if not VERBOSE then
-        print("\27[96mNote:\27[0m Dependency installation output is hidden. Set PHP_VERBOSE=1 or use --verbose to see full output.")
+        print("\27[96mNote:\27[0m Dependency installation output is captured. Set PHP_VERBOSE=1 to stream it live. A full log is written if it fails.")
+    else
+        print("\27[96mNote:\27[0m Dependency installation output is streamed live. A full log is written if it fails.")
     end
 
     print("Installing dependencies...")
@@ -185,12 +258,11 @@ function install_dependencies(version)
         version_prefix = 'PHP_BUILD_VERSION=' .. shell_quote(version) .. ' '
     end
 
-    local status = os.execute(version_prefix .. 'sh ' .. shell_quote(path) .. QUIET)
-    if status ~= 0 and status ~= true then
-        error(
-            "\n\nFailed to install PHP build dependencies.\n\n" ..
-            "💡 Tip: \27[93mThe dependency installation command failed.\27[0m " ..
-            "Check the output above, fix the reported issue, and restart the installation.\n"
-        )
+    local command = version_prefix .. 'sh ' .. shell_quote(path)
+    local result = process.run(command, { quiet = "" })
+    if result.ok then
+        return
     end
+
+    error(dependency_failure_message(command, result, version))
 end

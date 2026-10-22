@@ -554,7 +554,9 @@ jobs:
 
       - name: Install mixed PIE extensions and verify diagnostics
         shell: pwsh
+        timeout-minutes: 30
         env:
+          PHP_VERBOSE: '1'
           PHP_PIE_EXTENSIONS: xdebug/xdebug imagick/imagick redis/phpredis verzly/not-a-real-pie-extension
         run: |
           $ErrorActionPreference = 'Stop'
@@ -564,13 +566,11 @@ jobs:
           $previousNativeCommandPreference = $PSNativeCommandUseErrorActionPreference
           $PSNativeCommandUseErrorActionPreference = $false
           try {
-            $installOutput = & mise use -g "php@${{ env.PHP_TEST_VERSION }}" *>&1
+            & mise use -g "php@${{ env.PHP_TEST_VERSION }}" *>&1 | Tee-Object -FilePath $outputFile
             $installExitCode = $LASTEXITCODE
           } finally {
             $PSNativeCommandUseErrorActionPreference = $previousNativeCommandPreference
           }
-
-          $installOutput | Tee-Object -FilePath $outputFile
 
           if ($installExitCode -ne 0) {
             Write-Error "Expected PHP install to continue when requested PIE extensions fail, got exit code ${installExitCode}."
@@ -658,6 +658,28 @@ jobs:
           mkdir -p "$MISE_DATA_DIR" "$MISE_CONFIG_DIR" "$MISE_STATE_DIR"
           mise plugin link php "${{ github.workspace }}"
           bash .github/scripts/check-pie-managed-registration.sh "${PHP_TEST_VERSION}" "${RUNNER_TEMP}/hostile-php-scan"
+
+  ubuntu-error-reporting:
+    name: Error reporting - Ubuntu
+    needs: [check-label, ubuntu-env-options]
+    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+
+      # Fails on purpose: proves dependency and build failures are explained
+      # without PHP_VERBOSE. See issue #91.
+      - name: Verify failure messages are actionable without debug flags
+        shell: bash
+        run: bash .github/scripts/check-error-reporting.sh "${PHP_TEST_VERSION}"
+
   ubuntu-gate:
     name: Ubuntu logic checks
     needs:
@@ -669,6 +691,7 @@ jobs:
       - ubuntu-install-static
       - ubuntu-install-pecl
       - ubuntu-pie-diagnostics
+      - ubuntu-error-reporting
     if: always() && needs.check-label.outputs.should-run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5

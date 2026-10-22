@@ -37,6 +37,7 @@ required = {
     "ubuntu-install-static": "success" if static_expected else "skipped",
     "ubuntu-install-pecl": "success" if tool_expected else "skipped",
     "ubuntu-pie-diagnostics": "success" if tool_expected else "skipped",
+    "ubuntu-error-reporting": "success" if tool_expected else "skipped",
 }
 
 failed = False

@@ -4,7 +4,7 @@ local M = {}
 
 function M.verbose_tip(version)
     if env.VERBOSE then
-        return "💡 Verbose mode is enabled; relevant commands and failure output will be shown.\n"
+        return ""
     end
 
     return "💡 Tip: \27[93mRun 'PHP_VERBOSE=1 mise install php@" .. (version or "VERSION") .. "'\27[0m to show commands and failure summaries.\n"

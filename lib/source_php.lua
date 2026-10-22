@@ -632,11 +632,9 @@ function source_php.install(sdkPath, version)
         write_log_header(dst_log, "configure config.log", envPrefix .. "./configure " .. configureOptions, sdkPath)
         local append_status = append_file(src_log, dst_log)
         if append_status == 0 or append_status == true then
-            if VERBOSE then
-                print_configure_failure_excerpt(dst_log)
-            end
+            print_configure_failure_excerpt(dst_log)
             saved_log = saved_log .. print_file_tip(dst_log, "configure config.log")
-        elseif VERBOSE then
+        else
             os.remove(dst_log)
             print_configure_failure_excerpt(configureOutputLog)
         end

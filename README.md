@@ -653,6 +653,8 @@ Useful when dependencies are already present or managed externally
 
 By default, dependency, build, and extension installer output is captured to temporary log files to keep installation output readable. When a failure occurs, mise-php prints the relevant full log path even without `PHP_VERBOSE=1`. Set `PHP_VERBOSE=1` to show commands and concise failure summaries as well.
 
+If build dependency installation fails, mise-php prints the failing command, its exit code, the last lines of the installer output, and the full log path. This works without `PHP_VERBOSE=1`, so package conflicts and missing packages are visible immediately. Set `PHP_VERBOSE=1` to stream the installer output live instead of capturing it.
+
 `buildconf`, `configure`, `make`, and extension installer output is written to timestamped files under the system temporary directory. Files from the same source build share the same log id, for example `mise-php-8.5.5-20260525T075628Z-configure-output.log` and `mise-php-8.5.5-20260525T075628Z-make.log`. When a failure occurs, mise-php prints the relevant error context directly in the terminal and includes the full log path for deeper debugging.
 
 ```sh

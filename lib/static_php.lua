@@ -9,11 +9,13 @@ local M = {}
 local QUIET = env.QUIET
 local PREBUILT_STATIC_FLAVOR = env.PREBUILT_STATIC_FLAVOR
 
-M.BASE_URL = "https://dl.static-php.dev/static-php-cli"
-M.V3_BASE_URL = "https://dl.static-php.dev/v3/php-bin"
 M.DEFAULT_FLAVOR = "bulk"
 M.DEFAULT_SAPI = "cli"
-local current_artifacts = {}
+local SOURCES = {
+    { url = "https://dl.static-php.dev/v3/php-bin", windows_prefix = "" },
+    { url = "https://dl.static-php.dev/static-php-cli", windows_prefix = "windows/" },
+}
+local artifact_urls = {}
 
 local FLAVORS = {
     ["bulk"] = true,
@@ -156,17 +158,15 @@ function M.release_path(flavor)
     return flavor
 end
 
-local function current_listing_path(flavor)
-    return M.resolve_flavor(flavor)
-end
-
 function M.asset_url(version, flavor)
     local asset = M.asset_name(version, flavor)
-    local key = current_listing_path(flavor)
-    if current_artifacts[key] and current_artifacts[key][asset] then
-        return M.V3_BASE_URL .. "/" .. key .. "/" .. asset
+    local key = M.resolve_flavor(flavor)
+    if artifact_urls[key] and artifact_urls[key][asset] then
+        return artifact_urls[key][asset]
     end
-    return M.BASE_URL .. "/" .. M.release_path(flavor) .. "/" .. asset
+    local source = SOURCES[#SOURCES]
+    local path = (is_windows() and source.windows_prefix or "") .. key
+    return source.url .. "/" .. path .. "/" .. asset
 end
 
 function M.available_versions(http, flavor, ctx)
@@ -179,7 +179,7 @@ function M.available_versions(http, flavor, ctx)
 
     local versions = {}
     local seen = {}
-    local current_members = {}
+    local resolved_urls = {}
     local pattern
 
     if is_windows() then
@@ -188,9 +188,10 @@ function M.available_versions(http, flavor, ctx)
         pattern = "php%-([0-9][0-9A-Za-z%.%-]*)%-" .. M.DEFAULT_SAPI .. "%-" .. os_name .. "%-" .. arch_name .. "%.tar%.gz"
     end
 
-    local current_path = current_listing_path(flavor)
-
-    local function fetch_versions(url, legacy)
+    local resolved_flavor = M.resolve_flavor(flavor)
+    local function fetch_versions(source)
+        local path = (is_windows() and source.windows_prefix or "") .. resolved_flavor
+        local url = source.url .. "/" .. path .. "/"
         local resp, err = http.get({
             url = url,
             headers = { ["User-Agent"] = "verzly-mise-php" },
@@ -201,8 +202,8 @@ function M.available_versions(http, flavor, ctx)
         for href in (resp.body or ""):gmatch('[hH][rR][eE][fF]%s*=%s*["\']([^"\']+)["\']') do
             local asset = href:match("([^/]+)$")
             local version = asset and asset:match("^" .. pattern .. "$")
-            if version and not legacy then
-                current_members[asset] = true
+            if version then
+                resolved_urls[asset] = resolved_urls[asset] or (source.url .. "/" .. path .. "/" .. asset)
             end
             if version and not seen[version] then
                 seen[version] = true
@@ -211,9 +212,10 @@ function M.available_versions(http, flavor, ctx)
         end
     end
 
-    fetch_versions(M.V3_BASE_URL .. "/" .. current_path .. "/", false)
-    fetch_versions(M.BASE_URL .. "/" .. M.release_path(flavor) .. "/", true)
-    current_artifacts[current_path] = current_members
+    for _, source in ipairs(SOURCES) do
+        fetch_versions(source)
+    end
+    artifact_urls[resolved_flavor] = resolved_urls
 
     table.sort(versions, php_versions.greater_than)
 

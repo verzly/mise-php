@@ -791,9 +791,6 @@ mise config set env._.php-dev.verbose true
 
 # Test
 mise install php-dev@latest
-
-# Run offline static-discovery regression checks in mise's Lua runtime
-bash .github/scripts/test-static-php.sh
 ```
 
 ## License & Acknowledgments

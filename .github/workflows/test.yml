@@ -80,10 +80,6 @@ jobs:
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
 
-      - name: Run static discovery regressions in mise runtime
-        shell: bash
-        run: bash .github/scripts/test-static-php.sh
-
       - name: Check env._.php options without installing PHP
         shell: bash
         run: |

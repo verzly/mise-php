@@ -41,6 +41,27 @@ env:
   PHP_PECL_TEST_VERSION: ${{ inputs.pecl_php_version || '8.4' }}
 
 jobs:
+  static-regressions:
+    name: Static discovery regressions - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache: false
+
+      - name: Test static discovery with mocked HTTP
+        shell: bash
+        run: bash .github/scripts/test-static-php.sh
+
   check-label:
     runs-on: ubuntu-latest
     outputs:
@@ -676,4 +697,3 @@ jobs:
 
           # GitHub's pwsh wrapper can propagate a stale native command exit code.
           $global:LASTEXITCODE = 0
-

@@ -33,7 +33,7 @@ function PLUGIN:PreInstall(ctx)
 
     if static_php.is_requested(ctx) and static_php.is_supported_platform() then
         local flavor = static_php.requested_flavor(ctx)
-        return static_php.release(release.version, flavor)
+        return static_php.release(release.version, flavor, require("http"))
     end
 
     if RUNTIME.osType == "windows" then

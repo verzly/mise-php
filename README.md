@@ -201,6 +201,10 @@ The list of version numbers is not gathered directly from [`php/php-src`](https:
 
 When prebuilt static PHP is enabled, version listing switches to the available static-php-cli binaries for the current operating system, CPU architecture, and selected flavor.
 
+Static version discovery combines the [current distribution](https://dl.static-php.dev/v3/php-bin/) with the [legacy distribution](https://dl.static-php.dev/static-php-cli/) so older binaries remain available. Installation prefers the current distribution and falls back to legacy only when the exact same version, platform, and flavor artifact returns HTTP 404. Network, server, download, and verification failures remain errors; the plugin never substitutes an older patch version. Discovery also fails on non-404 feed errors rather than returning a potentially outdated partial list.
+
+If an updated plugin still shows an outdated list, run `mise cache clear php`, then `mise ls-remote --no-versions-host php` with prebuilt static PHP enabled.
+
 ### Source build dependencies
 
 Source builds need native system packages for the selected PHP version, configure options, and requested PECL/PIE extensions. By default, `mise-php` detects the current platform and installs the matching dependency set automatically.
@@ -230,7 +234,8 @@ mise config set env._.php.prebuilt_static true
 # Optional: choose a different static-php-cli binary flavor
 # Default: bulk on Linux/macOS, spc-max on Windows
 # Cross-platform supported: bulk, minimal
-# Linux/macOS only: common, gnu-bulk
+# Linux/macOS only: common
+# Linux only: gnu-bulk
 # Windows aliases: spc-max, spc-min
 mise config set env._.php.prebuilt_static_flavor minimal
 
@@ -251,7 +256,7 @@ Available flavors:
 |---|---|---|---|
 | `bulk` | `bulk` | `spc-max` | Default. Largest available prebuilt extension set. |
 | `common` | `common` | not supported | Medium Linux/macOS build. |
-| `gnu-bulk` | `gnu-bulk` | not supported | Linux/macOS GNU-oriented bulk build. |
+| `gnu-bulk` | Linux only | not supported | GNU-oriented bulk build. |
 | `minimal` | `minimal` | `spc-min` | Smaller prebuilt build. |
 | `spc-max` | alias of `bulk` | `spc-max` | Explicit Windows maximum build. |
 | `spc-min` | alias of `minimal` | `spc-min` | Explicit Windows minimum build. |
@@ -788,6 +793,9 @@ mise plugin link php-dev /path/to/verzly/mise-php
 
 # Enable force PHP verbose
 mise config set env._.php-dev.verbose true
+
+# Test static discovery and URL selection with mocked HTTP (no PHP downloads)
+bash .github/scripts/test-static-php.sh
 
 # Test
 mise install php-dev@latest

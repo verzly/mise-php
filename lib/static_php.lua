@@ -9,7 +9,8 @@ local M = {}
 local QUIET = env.QUIET
 local PREBUILT_STATIC_FLAVOR = env.PREBUILT_STATIC_FLAVOR
 
-M.BASE_URL = "https://dl.static-php.dev/static-php-cli"
+M.BASE_URL = "https://dl.static-php.dev/v3/php-bin"
+M.LEGACY_BASE_URL = "https://dl.static-php.dev/static-php-cli"
 M.DEFAULT_FLAVOR = "bulk"
 M.DEFAULT_SAPI = "cli"
 
@@ -144,18 +145,41 @@ function M.asset_name(version, flavor)
     return "php-" .. version .. "-" .. M.DEFAULT_SAPI .. "-" .. os_name .. "-" .. arch_name .. ".tar.gz"
 end
 
-function M.release_path(flavor)
+function M.release_path(flavor, base_url)
     flavor = M.resolve_flavor(flavor)
 
-    if is_windows() then
+    if is_windows() and base_url == M.LEGACY_BASE_URL then
         return "windows/" .. flavor
     end
 
     return flavor
 end
 
-function M.asset_url(version, flavor)
-    return M.BASE_URL .. "/" .. M.release_path(flavor) .. "/" .. M.asset_name(version, flavor)
+function M.asset_url(version, flavor, base_url)
+    base_url = base_url or M.BASE_URL
+    return base_url .. "/" .. M.release_path(flavor, base_url) .. "/" .. M.asset_name(version, flavor)
+end
+
+local function request(http, method, url)
+    local resp, err = http[method]({
+        url = url,
+        headers = {
+            ["User-Agent"] = "verzly-mise-php",
+        },
+    })
+
+    if err ~= nil or resp == nil or (resp.status_code ~= 200 and resp.status_code ~= 404) then
+        error(
+            "Failed to " .. string.upper(method) .. " static PHP URL " .. url .. ": " ..
+            (err ~= nil and tostring(err) or "HTTP " .. tostring(resp and resp.status_code))
+        )
+    end
+
+    if resp.status_code == 404 then
+        return nil
+    end
+
+    return resp
 end
 
 function M.available_versions(http, flavor, ctx)
@@ -164,17 +188,6 @@ function M.available_versions(http, flavor, ctx)
 
     if os_name == nil or (not is_windows() and arch_name == "") then
         return {}
-    end
-
-    local resp, err = http.get({
-        url = M.BASE_URL .. "/" .. M.release_path(flavor) .. "/",
-        headers = {
-            ["User-Agent"] = "verzly-mise-php",
-        },
-    })
-
-    if err ~= nil or resp.status_code ~= 200 then
-        error("Failed to fetch static-php-cli prebuilt binaries: " .. tostring(err))
     end
 
     local versions = {}
@@ -187,10 +200,17 @@ function M.available_versions(http, flavor, ctx)
         pattern = "php%-([0-9][0-9A-Za-z%.%-]*)%-" .. M.DEFAULT_SAPI .. "%-" .. os_name .. "%-" .. arch_name .. "%.tar%.gz"
     end
 
-    for version in resp.body:gmatch(pattern) do
-        if not seen[version] then
-            seen[version] = true
-            table.insert(versions, version)
+    for _, base_url in ipairs({ M.BASE_URL, M.LEGACY_BASE_URL }) do
+        local url = base_url .. "/" .. M.release_path(flavor, base_url) .. "/"
+        local resp = request(http, "get", url)
+
+        if resp ~= nil then
+            for version in resp.body:gmatch(pattern) do
+                if not seen[version] then
+                    seen[version] = true
+                    table.insert(versions, version)
+                end
+            end
         end
     end
 
@@ -206,11 +226,22 @@ function M.available_versions(http, flavor, ctx)
     return php_versions.append_aliases(result, all_versions)
 end
 
-function M.release(version, flavor)
-    return {
-        version = version,
-        url = M.asset_url(version, flavor),
-    }
+function M.release(version, flavor, http)
+    for _, base_url in ipairs({ M.BASE_URL, M.LEGACY_BASE_URL }) do
+        local url = M.asset_url(version, flavor, base_url)
+        if request(http, "head", url) ~= nil then
+            return {
+                version = version,
+                url = url,
+            }
+        end
+    end
+
+    error(
+        "Prebuilt static PHP artifact not found: " .. M.asset_name(version, flavor) ..
+        " (flavor: " .. M.resolve_flavor(flavor) .. "). Tried " ..
+        M.asset_url(version, flavor) .. " and " .. M.asset_url(version, flavor, M.LEGACY_BASE_URL)
+    )
 end
 
 local function find_prebuilt_php_binary(sdkPath)

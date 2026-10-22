@@ -14,4 +14,4 @@ Choose relevant checks from `.github/workflows/test.yml`; CI smoke tests require
 
 ## Collaboration and releases
 Use professional English for code, comments, documentation, commit messages, issues, and PRs. Keep issue/PR descriptions brief: problem/change, rationale, validation; no templated filler.
-Dispatch `.github/workflows/release.yml` from the default branch and choose patch, minor, major, or current recovery. Releases must not run automatically after PRs. Each release updates full `vX.Y.Z` tag and active `vX`/`vX.Y` aliases; existing historical aliases remain unchanged. Release workflow uses `GITHUB_TOKEN` by default.
+Dispatch `.github/workflows/release.yml` from the default branch and choose patch, minor, major, or current recovery. Releases must not run automatically after PRs. Each release updates full `vX.Y.Z` tag and active `vX`/`vX.Y` aliases. `latest` points to latest stable GitHub release; `next` points to latest GitHub release, including prereleases. Existing historical aliases remain unchanged. Release workflow uses `GITHUB_TOKEN` by default.

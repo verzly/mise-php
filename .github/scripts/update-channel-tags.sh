@@ -84,6 +84,7 @@ for line in Path(sys.argv[2]).read_text(encoding="utf-8").splitlines():
 
 sort_key = functools.cmp_to_key(compare_version)
 latest = max((release for release in releases if not release["github_prerelease"]), key=sort_key, default=None)
+latest_any = max(releases, key=sort_key, default=None)
 desired = {}
 
 stable_releases = [release for release in releases if not release["github_prerelease"]]
@@ -100,13 +101,14 @@ for release in stable_releases:
         minor_targets[minor] = release
 
 if latest is not None:
+    desired["latest"] = latest["tag"]
     active_major = f"v{latest['core'][0]}"
     active_minor = f"v{latest['core'][0]}.{latest['core'][1]}"
     desired[active_major] = major_targets[active_major]["tag"]
     desired[active_minor] = minor_targets[active_minor]["tag"]
 
-if latest is not None:
-    print(f"{latest['tag']}\t{latest['tag']}")
+if latest_any is not None:
+    desired["next"] = latest_any["tag"]
 for channel in sorted(desired):
     print(f"{channel}\t{desired[channel]}")
 PY

@@ -1,5 +1,22 @@
 # verzly/mise-php
 
+> [!WARNING]
+> **PHP2Shell security updates (CVE-2026-109618 / CVE-2026-109619)**
+>
+> Update PHP promptly, especially on servers reachable by external parties. These critical vulnerabilities can allow unauthenticated remote code execution when PHP serves web requests. PHP identifies updates as the only complete fix: use PHP **8.5.12, 8.4.27, 8.3.36, 8.2.35**, or a later security release in a supported branch.
+>
+> You are responsible for testing and applying updates in your environment; do not leave exposed servers unpatched. Update every deployed PHP runtime, restart PHP workers/services, and verify the running versions. For unsupported PHP branches, upgrade or obtain verified security backports from your vendor.
+>
+> For prebuilt StaticPHP installations, use the current **v3** distribution rather than relying on legacy artifacts for security updates. StaticPHP has added official minimal backports for PHP 7.4, 8.0, and 8.1; patched PHP 8.2+ releases include the upstream fix. A version number alone does not prove an older runtime has received backports: verify the artifact's patch provenance.
+>
+> References, with primary sources first:
+> - [PHP official security announcement](https://www.php.net/archive/2026.php#2026-10-21-5)
+> - [StaticPHP security backport commit](https://github.com/crazywhalecc/static-php-cli/commit/9cef67374a0fb8a957bc8b94dad47ca0be53b595)
+> - [Laravel response and update guidance](https://laravel.com/blog/php-critical-vulnerability-response-updates)
+> - [PHP2Shell research site](https://www.php2shell.com/)
+> - [Wikipedia overview](https://en.wikipedia.org/wiki/PHP2Shell)
+> - [Meta Stack Overflow community discussion](https://meta.stackoverflow.com/q/440576/15167500)
+
 ![verzly-mise-php-example](https://github.com/user-attachments/assets/c57759f1-0ffc-4175-b96a-ca259a9c814d)
 
 `verzly/mise-php` is a [jdx/mise](https://github.com/jdx/mise) plugin for installing and managing PHP on Linux, macOS, and Windows.

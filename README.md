@@ -351,6 +351,8 @@ PIE can be used with PHP 8.1 and newer, and on PHP 8.5 and newer it is the recom
 
 Each PHP version has its own dedicated PIE executable, which always operates on the currently active PHP runtime managed by `mise`.
 
+On Unix, the launcher pins PIE to managed PHP and isolates `PHPRC`, `PHP_INI_SCAN_DIR`, `PHP_INI_DIR`, `PHP_BINARY`, and PIE's working directory. It uses managed `conf.d` without adding ambient scan directories. PIE 1.5.2 or newer is required for native extension registration; successful installs enable extensions through PIE's own installer. Explicit `--skip-enable-extension` disables PIE's registration.
+
 > [!NOTE]
 > Installed packages are stored in a central location, but they are handled separately for each PHP version based on the detected PHP runtime.
 >
@@ -384,6 +386,14 @@ $env:PHP_PIE_EXTENSIONS="xdebug/xdebug"; mise install php@8.5.0
 ```
 
 If one or more requested PIE extensions fail, PHP installation continues. The plugin prints the failed package names, debug log paths, and a retry command such as `mise exec -- pie install vendor/package`. Check that each package supports your operating system and PHP version, and that each package name is spelled correctly.
+
+Retry a failed extension with the managed PIE launcher:
+
+```sh
+mise exec -- pie install --force vendor/package
+```
+
+Use `--force` when an extension is already installed but not enabled. An ordinary `mise install` does not retry extensions for an already installed PHP runtime. Reinstall that runtime with `mise install --force php@VERSION` to rerun configured extensions.
 
 You can also persist commonly used extensions so they are automatically installed whenever a new PHP version is installed:
 

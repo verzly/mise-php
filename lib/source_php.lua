@@ -687,7 +687,7 @@ function source_php.install(sdkPath, version)
 
     -- Verify PHP installation
     local php_bin = sdkPath .. "/bin/php"
-    local ok, why, code = os.execute(shell_quote(php_bin) .. " --version > /dev/null 2>&1")
+    local ok, why, code = os.execute("PHPRC=" .. shell_quote(sdkPath) .. " PHP_INI_SCAN_DIR=" .. shell_quote(sdkPath .. "/conf.d") .. " " .. shell_quote(php_bin) .. " -n --version > /dev/null 2>&1")
     if not ok or (why and (why ~= "exit" or code ~= 0)) or ok == nil then
         error(
             "\n\nPHP installation appears to be broken: 'php --version' failed.\n\n" ..
@@ -696,7 +696,7 @@ function source_php.install(sdkPath, version)
         )
     end
 
-    php_extensions.verify_loaded(php_bin, expectedExtensions, version)
+    php_extensions.verify_loaded(php_bin, expectedExtensions, version, sdkPath)
 
     print("PHP installation complete!")
 

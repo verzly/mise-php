@@ -736,3 +736,14 @@ jobs:
           # GitHub's pwsh wrapper can propagate a stale native command exit code.
           $global:LASTEXITCODE = 0
 
+      - name: Verify managed PIE registration and ambient config
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          MISE_DATA_DIR: ${{ runner.temp }}/pie-registration/mise-data
+          MISE_CONFIG_DIR: ${{ runner.temp }}/pie-registration/mise-config
+          MISE_STATE_DIR: ${{ runner.temp }}/pie-registration/mise-state
+        run: |
+          mkdir -p "$MISE_DATA_DIR" "$MISE_CONFIG_DIR" "$MISE_STATE_DIR"
+          mise plugin link php "${{ github.workspace }}"
+          bash .github/scripts/check-pie-managed-registration.sh "${PHP_TEST_VERSION}" "${RUNNER_TEMP}/hostile-php-scan"

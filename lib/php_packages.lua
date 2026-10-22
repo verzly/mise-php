@@ -283,6 +283,12 @@ function packages.install_pie_for_unix(sdkPath, version)
         return false
     end
 
+    status = os.execute("mkdir -p " .. shell_quote(sdkPath .. "/conf.d"))
+    if status ~= 0 and status ~= true then
+        io.stderr:write("\27[93mWarning:\27[0m Failed to create managed PHP configuration directory.\n")
+        return false
+    end
+
     -- Create PIE wrapper
     local wrapper = io.open(pie_bin, "w")
     if not wrapper then
@@ -294,8 +300,39 @@ function packages.install_pie_for_unix(sdkPath, version)
         return false
     end
 
-    wrapper:write("#!/usr/bin/env sh\n")
-    wrapper:write("exec " .. shell_quote(php_bin) .. " " .. shell_quote(pie_phar) .. " \"$@\"\n")
+    wrapper:write([=[#!/usr/bin/env sh
+SDK=]=] .. shell_quote(sdkPath) .. "\n" .. [=[
+export PATH="$SDK/bin${PATH:+:$PATH}"
+export PHPRC="$SDK"
+export PHP_INI_SCAN_DIR="$SDK/conf.d"
+export PHP_INI_DIR="$SDK"
+export PHP_BINARY=]=] .. shell_quote(php_bin) .. "\n" .. [=[
+export PIE_WORKING_DIRECTORY="$SDK/.pie"
+command= help= options=1
+for arg do
+  if [ -n "$options" ]; then
+    case "$arg" in --) options=; continue ;; --help|-h|--version|-V) help=1 ;; esac
+    case "$arg" in -*) continue ;; esac
+  fi
+  [ -n "$command" ] || command=$arg
+done
+if [ "$command" != _complete ]; then
+  for arg do
+    [ "$arg" = -- ] && break
+    case "$arg" in --with-php-path|--with-php-path=*|--with-php-config|--with-php-config=*|--with-phpize-path|--with-phpize-path=*) echo 'PIE target override is not allowed' >&2; exit 2 ;; esac
+  done
+fi
+if [ -z "$help" ]; then
+  case "$command" in ''|help|list|info|show|search|completion|_complete|self-update|self-verify) ;;
+    *)
+      [ -x "$SDK/bin/php-config" ] && { [ "$command" = uninstall ] || [ -x "$SDK/bin/phpize" ]; } || { echo 'Managed phpize/php-config toolchain required for PIE extension operations' >&2; exit 2; }
+      set -- "--with-php-config=$SDK/bin/php-config" "$@"
+      [ "$command" = uninstall ] || set -- "--with-phpize-path=$SDK/bin/phpize" "$@"
+      ;;
+  esac
+fi
+exec ]=] .. shell_quote(php_bin) .. " " .. shell_quote(pie_phar) .. [=[ "$@"
+]=])
     wrapper:close()
 
     -- Make PIE wrapper executable
@@ -312,7 +349,7 @@ function packages.install_pie_for_unix(sdkPath, version)
     -- Verify PIE installation
     local result = process.run(
         process.unix_timeout_command({ pie_bin, "--version" }, 20),
-        { quiet = " > /dev/null 2>&1" }
+        { quiet = "" }
     )
 
     if result.code == 124 then
@@ -328,6 +365,20 @@ function packages.install_pie_for_unix(sdkPath, version)
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE verification failed.\n" ..
             messages.manual_tip("pie --version") ..
+            messages.see("pie-verification-may-fail-or-time-out")
+        )
+        return false
+    end
+
+    local pie_version = ("\n" .. (result.output or "")):match("\n🥧 PHP Installer for Extensions %(PIE%) (%d+%.%d+%.%d+)")
+    local major, minor, patch
+    if pie_version then
+        major, minor, patch = pie_version:match("^(%d+)%.(%d+)%.(%d+)$")
+    end
+    if not major or tonumber(major) < 1 or (tonumber(major) == 1 and (tonumber(minor) < 5 or (tonumber(minor) == 5 and tonumber(patch) < 2))) then
+        io.stderr:write(
+            "\27[93mWarning:\27[0m PIE 1.5.2 or newer is required for safe managed extension registration.\n" ..
+            messages.verbose_tip(version) ..
             messages.see("pie-verification-may-fail-or-time-out")
         )
         return false
@@ -418,18 +469,21 @@ function packages.install_pie_extensions(sdkPath, version)
 end
 
 function packages.install_pie_extensions_for_linux(sdkPath, version)
-    local php_bin = sdkPath .. "/bin/php"
+    local pie_bin = sdkPath .. "/bin/pie"
     local phpize = sdkPath .. "/bin/phpize"
     local phpconfig = sdkPath .. "/bin/php-config"
-    local pie_phar = sdkPath .. "/pie.phar"
     local log_id = create_log_id(version)
 
-    if not file_exists(pie_phar) then
+    if not file_exists(pie_bin) then
         io.stderr:write(
             "\27[93mWarning:\27[0m PIE not found, skipping PIE extensions.\n" ..
             messages.verbose_tip(version) ..
             messages.see("extension-builds-require-phpize-and-build-tooling")
         )
+        return false, { "all requested PIE extensions" }
+    end
+    if not file_exists(phpize) or not file_exists(phpconfig) then
+        io.stderr:write("\27[93mWarning:\27[0m Managed phpize/php-config toolchain not found; PIE extensions were not installed.\n")
         return false, { "all requested PIE extensions" }
     end
 
@@ -440,16 +494,7 @@ function packages.install_pie_extensions_for_linux(sdkPath, version)
         print("Installing PIE extension: " .. pkg .. "...")
 
         local log_file = extension_log_path(log_id, pkg)
-        local command = string.format(
-            'PATH="%s/bin:$PATH" "%s" "%s" install --with-php-path="%s" --with-php-config="%s" --with-phpize-path="%s" "%s"',
-            sdkPath,
-            php_bin,
-            pie_phar,
-            php_bin,
-            phpconfig,
-            phpize,
-            pkg
-        )
+        local command = shell_quote(pie_bin) .. " install " .. shell_quote(pkg)
         write_log_header(log_file, "PIE extension " .. pkg, command, sdkPath)
 
         local cmd = command .. " >> " .. tools.shell_quote(log_file) .. " 2>&1"

@@ -39,6 +39,7 @@ Install multiple PHP versions side by side, each with its own isolated runtime, 
   - [Upgrade](#up-to-date)
 - [Usage](#usage)
   - [PHP](#php)
+  - [PHP variants](#php-variants)
   - [Source build dependencies](#source-build-dependencies)
   - [Prebuilt static PHP](#prebuilt-static-php)
   - [Composer](#composer-for-php)
@@ -218,6 +219,49 @@ pecl version
 The list of version numbers is not gathered directly from [`php/php-src`](https://github.com/php/php-src/releases), because the GitHub API enforces rate limiting after a certain number of requests. Instead, we update our `versions.txt` file from a `cache` branch once per day, so it's possible that a release may only be installable via the `verzly/mise-php` plugin with a one-day delay, or may require a manual update.
 
 When prebuilt static PHP is enabled, version listing switches to the available static-php-cli binaries for the current operating system, CPU architecture, and selected flavor.
+
+### PHP variants
+
+Use the same PHP version with different extensions or build flags in separate projects.
+
+> [!IMPORTANT]
+> Enable identity layout in **each** project and put install-affecting options under `[tools.php]`. `[env] _.php` cannot select variants.
+
+> [!WARNING]
+> Identity layout is experimental ([mise v2026.10.6](https://github.com/jdx/mise/releases/tag/v2026.10.6), [mise#13951](https://github.com/jdx/mise/pull/13951)). It is still receiving fixes and may be unstable.
+
+Project A (`mise.toml`):
+
+```toml
+[settings]
+experimental = true
+install_layout = "identity"
+
+[tools.php]
+version = "8.5"
+extra_configure_options = "--enable-debug"
+pie_extensions = "xdebug/xdebug"
+```
+
+Project B uses the same settings and PHP version, but selects a plain build:
+
+```toml
+[settings]
+experimental = true
+install_layout = "identity"
+
+[tools.php]
+version = "8.5"
+extra_configure_options = ""
+pie_extensions = ""
+```
+
+In each project, run `mise install` and `mise where php`, then check `mise exec -- php -v` and `mise exec -- php -m`. The paths should differ. Empty tool options override inherited `PHP_*` settings; omitted options still use them. Without identity layout, both projects share one install.
+
+> [!WARNING]
+> mise may reuse an existing legacy PHP install even after you enable identity layout. `mise install --force` can overwrite that shared install. Back it up first, including manually installed extensions. Check `mise where php` in both projects; if they still share a path, preview `mise uninstall -n php@8.5.5` (use your installed version). Only after reviewing the removal, uninstall it and run `mise install` in **each** project. This interrupts all projects sharing the old PHP. Alternatively, use a separate `MISE_DATA_DIR`, which also isolates plugins and other tools.
+
+Tool options distinguish install requests, not locked artifacts or PIE package versions. PIE requires a supported source build (PHP 8.1+); static PHP ignores extension requests. Source configure flags do not apply to Windows binaries.
 
 ### Source build dependencies
 
@@ -411,53 +455,6 @@ version = "8.4"
 pie_extensions = "xdebug/xdebug"
 ```
 
-#### Installing multiple PHP variants
-
-mise [v2026.10.6](https://github.com/jdx/mise/releases/tag/v2026.10.6) introduced the experimental identity-based install layout in [jdx/mise#13951](https://github.com/jdx/mise/pull/13951). It is still receiving fixes and may be unstable. Both projects must enable the layout; without it mise keeps one installation per PHP version and these options only change how that shared installation is built. Put variant-affecting options in `[tools.php]`; the existing `[env] _.php` form remains supported (prefer it for `skip_deps` and `verbose`), but it does not distinguish install identities. Explicit tool options override the corresponding `PHP_*` environment variables during installation, including empty strings and `false`; omitted options still use the environment. Avoid conflicting shell environment settings for omitted options.
-
-For example, these project configurations request the same PHP version with different source-build options and PIE packages:
-
-```toml
-# Project A: mise.toml
-[settings]
-experimental = true
-install_layout = "identity"
-
-[tools.php]
-version = "8.5"
-extra_configure_options = "--enable-debug"
-pie_extensions = "xdebug/xdebug"
-```
-
-```toml
-# Project B: mise.toml
-[settings]
-experimental = true
-install_layout = "identity"
-
-[tools.php]
-version = "8.5"
-extra_configure_options = ""
-pie_extensions = ""
-```
-
-Run these commands in each project to install and inspect its selected build:
-
-```sh
-mise install
-mise where php
-mise exec -- php -v
-mise exec -- php -m
-```
-
-The identity includes the tool options; it is not a reproducible-build guarantee or a lockfile. Other install-affecting tool options include `configure_options`, `pecl_extensions`, `prebuilt_static`, and `prebuilt_static_flavor`. PIE extensions requested during installation apply only to source builds where PIE is available. Static builds ignore those requests. Configure options do not apply to Windows' prebuilt PHP installs. PIE is supported for PHP 8.1 and newer.
-
-Existing legacy-layout PHP installations may be reused **even when tool options differ**. `mise install` can then report that both variants are installed while both projects still use the same old PHP. Check `mise where php` in each project before relying on a changed configuration. `mise install --force` can rebuild the shared legacy installation in place; it does not safely create two variants.
-
-To migrate, first back up the legacy PHP directory and any manually installed extensions. Confirm its exact version and paths in both projects with `mise where php` and `mise exec -- php -v`. If both still point to the legacy directory, preview `mise uninstall -n php@8.5.5` (replace `8.5.5` with the installed version). After reviewing the removal, run `mise uninstall php@8.5.5`, then `mise install` in **each** project and verify their `mise where php` paths differ. Uninstall removes the old PHP for every project sharing it, including its extensions, until those projects reinstall. If removal is not acceptable, use a separate `MISE_DATA_DIR` instead; that also requires making plugins and other tools available in the new namespace.
-
-The identity layout does not lock PIE package versions. Manually changing extensions with PIE can also make an installation differ from its requested configuration.
-
 Within a given PHP version, you can install a specific PIE version or update it to the latest version, similar to Composer.
 
 ```sh
@@ -574,7 +571,10 @@ This plugin sets the following environment variables:
 | `PATH` | macOS, Linux | `<install_dir>/bin`, `<install_dir>/sbin` |
 | `LD_LIBRARY_PATH` | Linux only | `<install_dir>/lib` |
 
-Set options that change the installed PHP as lowercase tool options, for example `mise config set tools.php.<option> ...` or the `[tools.php]` table in `mise.toml`. In the identity layout those options also select separate installations; see [Installing multiple PHP variants](#installing-multiple-php-variants). `skip_deps` and `verbose` do not change the installed PHP, so they can also be set through `mise config set env._.php.<option> ...` or the `[env] _.php = { ... }` table; prefer that form for them to avoid creating a needless separate installation.
+Set options that change PHP under `[tools.php]` or with `mise config set tools.php.<option> ...`. In identity mode, they select separate installations; see [PHP variants](#php-variants).
+
+> [!NOTE]
+> Through v0.10.4, the docs used `[env] _.php` for build, static, PECL, and PIE settings. Starting with v0.11.0, that form is **deprecated for those settings but still supported**. It cannot select variants. Keep `skip_deps` and `verbose` under `[env] _.php`: they do not change PHP and are **not deprecated** there. Quiet output is controlled by `verbose` (or mise's `MISE_QUIET`); the plugin has no `quiet` option.
 
 | Option | Environment variable | Default | Description |
 |---|---|---|---|

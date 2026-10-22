@@ -57,7 +57,7 @@ jobs:
             echo "should-run=false" >> "$GITHUB_OUTPUT"
           fi
   ubuntu-env-options:
-    name: Env options - Ubuntu
+    name: Tool and legacy env options - Ubuntu
     needs: check-label
     if: needs.check-label.outputs.should-run == 'true'
     runs-on: ubuntu-latest
@@ -75,9 +75,50 @@ jobs:
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
 
-      - name: Check env._.php options without installing PHP
+      - name: Check tool options and legacy env compatibility without installing PHP
         shell: bash
         run: |
+          set -euo pipefail
+
+          cat > mise.toml <<'TOML'
+          [tools.php]
+          version = "8.5.9"
+          prebuilt_static = true
+          prebuilt_static_flavor = "minimal"
+          configure_options = "--disable-all"
+          extra_configure_options = "--enable-option-checking=fatal"
+          pecl_extensions = "redis,xdebug"
+          pie_extensions = "amphp/ext-uv"
+
+          [env._.php]
+          skip_deps = true
+          verbose = true
+          TOML
+
+          mise trust "${{ github.workspace }}" || true
+          for option in prebuilt_static prebuilt_static_flavor configure_options extra_configure_options pecl_extensions pie_extensions; do
+            case "$option" in
+              prebuilt_static) expected=true ;;
+              prebuilt_static_flavor) expected=minimal ;;
+              configure_options) expected=--disable-all ;;
+              extra_configure_options) expected=--enable-option-checking=fatal ;;
+              pecl_extensions) expected=redis,xdebug ;;
+              pie_extensions) expected=amphp/ext-uv ;;
+            esac
+            actual="$(mise config get "tools.php.${option}")"
+            if [ "$actual" != "$expected" ]; then
+              echo "tools.php.${option}: expected '${expected}', got '${actual}'"
+              exit 1
+            fi
+          done
+
+          mise env --dotenv | tee mise-env.out
+          if grep -Eq '^PHP_(PREBUILT_STATIC|PREBUILT_STATIC_FLAVOR|CONFIGURE_OPTIONS|EXTRA_CONFIGURE_OPTIONS|PECL_EXTENSIONS|PIE_EXTENSIONS)=' mise-env.out; then
+            echo "Tool options were unexpectedly exported as PHP_* environment variables"
+            exit 1
+          fi
+
+          # Legacy installation options must remain accepted through env._.php.
           cat > mise.toml <<'TOML'
           [env._.php]
           skip_deps = true
@@ -90,7 +131,6 @@ jobs:
           pie_extensions = "amphp/ext-uv"
           TOML
 
-          mise trust "${{ github.workspace }}" || true
           mise env --dotenv | tee mise-env.out
 
           require_env() {
@@ -113,7 +153,7 @@ jobs:
           require_env PHP_PECL_EXTENSIONS redis,xdebug
           require_env PHP_PIE_EXTENSIONS amphp/ext-uv
 
-          echo "env._.php options were exported correctly"
+          echo "Tool options and legacy env._.php compatibility verified"
 
   ubuntu-install-variants:
     name: Install variants - Ubuntu

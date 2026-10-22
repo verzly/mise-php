@@ -734,24 +734,14 @@ jobs:
           # GitHub's pwsh wrapper can propagate a stale native command exit code.
           $global:LASTEXITCODE = 0
 
-  pie-managed-registration:
-    name: PIE managed registration and ambient config
-    needs: [check-label, list-source-versions]
-    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install mise
-        uses: jdx/mise-action@v4
-        with:
-          install: false
-          cache: false
-
-      - name: Register plugin from PR source
-        run: mise plugin link php "${{ github.workspace }}"
-
-      - name: Verify source isolation, native normal/Zend registration, and force retry
+      - name: Verify managed PIE registration and ambient config
+        if: runner.os == 'Linux'
         shell: bash
-        run: bash .github/scripts/check-pie-managed-registration.sh "${PHP_TEST_VERSION}" "${RUNNER_TEMP}/hostile-php-scan"
+        env:
+          MISE_DATA_DIR: ${{ runner.temp }}/pie-registration/mise-data
+          MISE_CONFIG_DIR: ${{ runner.temp }}/pie-registration/mise-config
+          MISE_STATE_DIR: ${{ runner.temp }}/pie-registration/mise-state
+        run: |
+          mkdir -p "$MISE_DATA_DIR" "$MISE_CONFIG_DIR" "$MISE_STATE_DIR"
+          mise plugin link php "${{ github.workspace }}"
+          bash .github/scripts/check-pie-managed-registration.sh "${PHP_TEST_VERSION}" "${RUNNER_TEMP}/hostile-php-scan"

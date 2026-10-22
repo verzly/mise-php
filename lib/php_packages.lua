@@ -300,38 +300,39 @@ function packages.install_pie_for_unix(sdkPath, version)
         return false
     end
 
-    wrapper:write("#!/usr/bin/env sh\n")
-    wrapper:write("SDK=" .. shell_quote(sdkPath) .. "\n")
-    wrapper:write("export PATH=\"$SDK/bin${PATH:+:$PATH}\"\n")
-    wrapper:write("export PHPRC=\"$SDK\"\n")
-    wrapper:write("export PHP_INI_SCAN_DIR=\"$SDK/conf.d\"\n")
-    wrapper:write("export PHP_INI_DIR=\"$SDK\"\n")
-    wrapper:write("export PHP_BINARY=" .. shell_quote(php_bin) .. "\n")
-    wrapper:write("export PIE_WORKING_DIRECTORY=\"$SDK/.pie\"\n")
-    wrapper:write("command= help= options=1\n")
-    wrapper:write("for arg do\n")
-    wrapper:write("  if [ -n \"$options\" ]; then\n")
-    wrapper:write("    case \"$arg\" in --) options=; continue ;; --help|-h|--version|-V) help=1 ;; esac\n")
-    wrapper:write("    case \"$arg\" in -*) continue ;; esac\n")
-    wrapper:write("  fi\n")
-    wrapper:write("  [ -n \"$command\" ] || command=$arg\n")
-    wrapper:write("done\n")
-    wrapper:write("if [ \"$command\" != _complete ]; then\n")
-    wrapper:write("  for arg do\n")
-    wrapper:write("    [ \"$arg\" = -- ] && break\n")
-    wrapper:write("    case \"$arg\" in --with-php-path|--with-php-path=*|--with-php-config|--with-php-config=*|--with-phpize-path|--with-phpize-path=*) echo 'PIE target override is not allowed' >&2; exit 2 ;; esac\n")
-    wrapper:write("  done\n")
-    wrapper:write("fi\n")
-    wrapper:write("if [ -z \"$help\" ]; then\n")
-    wrapper:write("  case \"$command\" in ''|help|list|info|show|search|completion|_complete|self-update|self-verify) ;;\n")
-    wrapper:write("    *)\n")
-    wrapper:write("      [ -x \"$SDK/bin/php-config\" ] && { [ \"$command\" = uninstall ] || [ -x \"$SDK/bin/phpize\" ]; } || { echo 'Managed phpize/php-config toolchain required for PIE extension operations' >&2; exit 2; }\n")
-    wrapper:write("      set -- \"--with-php-config=$SDK/bin/php-config\" \"$@\"\n")
-    wrapper:write("      [ \"$command\" = uninstall ] || set -- \"--with-phpize-path=$SDK/bin/phpize\" \"$@\"\n")
-    wrapper:write("      ;;\n")
-    wrapper:write("  esac\n")
-    wrapper:write("fi\n")
-    wrapper:write("exec " .. shell_quote(php_bin) .. " " .. shell_quote(pie_phar) .. " \"$@\"\n")
+    wrapper:write([=[#!/usr/bin/env sh
+SDK=]=] .. shell_quote(sdkPath) .. "\n" .. [=[
+export PATH="$SDK/bin${PATH:+:$PATH}"
+export PHPRC="$SDK"
+export PHP_INI_SCAN_DIR="$SDK/conf.d"
+export PHP_INI_DIR="$SDK"
+export PHP_BINARY=]=] .. shell_quote(php_bin) .. "\n" .. [=[
+export PIE_WORKING_DIRECTORY="$SDK/.pie"
+command= help= options=1
+for arg do
+  if [ -n "$options" ]; then
+    case "$arg" in --) options=; continue ;; --help|-h|--version|-V) help=1 ;; esac
+    case "$arg" in -*) continue ;; esac
+  fi
+  [ -n "$command" ] || command=$arg
+done
+if [ "$command" != _complete ]; then
+  for arg do
+    [ "$arg" = -- ] && break
+    case "$arg" in --with-php-path|--with-php-path=*|--with-php-config|--with-php-config=*|--with-phpize-path|--with-phpize-path=*) echo 'PIE target override is not allowed' >&2; exit 2 ;; esac
+  done
+fi
+if [ -z "$help" ]; then
+  case "$command" in ''|help|list|info|show|search|completion|_complete|self-update|self-verify) ;;
+    *)
+      [ -x "$SDK/bin/php-config" ] && { [ "$command" = uninstall ] || [ -x "$SDK/bin/phpize" ]; } || { echo 'Managed phpize/php-config toolchain required for PIE extension operations' >&2; exit 2; }
+      set -- "--with-php-config=$SDK/bin/php-config" "$@"
+      [ "$command" = uninstall ] || set -- "--with-phpize-path=$SDK/bin/phpize" "$@"
+      ;;
+  esac
+fi
+exec ]=] .. shell_quote(php_bin) .. " " .. shell_quote(pie_phar) .. [=[ "$@"
+]=])
     wrapper:close()
 
     -- Make PIE wrapper executable

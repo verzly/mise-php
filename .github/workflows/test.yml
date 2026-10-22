@@ -115,8 +115,8 @@ jobs:
 
           echo "env._.php options were exported correctly"
 
-  ubuntu-install-variants-source:
-    name: Install source variants - Ubuntu
+  ubuntu-install-variants:
+    name: Install variants - Ubuntu
     needs: [check-label, ubuntu-env-options]
     if: needs.check-label.outputs.should-run == 'true'
     runs-on: ubuntu-latest
@@ -134,124 +134,37 @@ jobs:
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
 
-      - name: Verify source and PIE variants stay isolated
+      # One source build with PIE plus two prebuilt flavors of another PHP
+      # version keep this check short while still proving that tool options
+      # select isolated installations. PIE is not requested for prebuilt
+      # static PHP: those binaries ship a fixed extension set.
+      - name: Verify source, PIE and prebuilt variants stay isolated
         shell: bash
         run: |
           set -euo pipefail
 
-          projects="${RUNNER_TEMP}/php-variants-source"
-          version="${PHP_TEST_VERSION}"
-          mkdir -p "${projects}/plain" "${projects}/with-pie"
+          source_projects="${RUNNER_TEMP}/php-variants-source"
+          static_projects="${RUNNER_TEMP}/php-variants-static"
+          source_version="${PHP_TEST_VERSION}"
+          static_version="8.5.9"
+          mkdir -p "${source_projects}/with-pie" \
+            "${static_projects}/bulk" \
+            "${static_projects}/common" \
+            "${static_projects}/invalid-option"
 
-          write_config() {
-            dir="$1"
-            pie="$2"
-            cat > "${dir}/mise.toml" <<TOML
+          write_source_config() {
+            cat > "${source_projects}/with-pie/mise.toml" <<TOML
           [settings]
           experimental = true
           install_layout = "identity"
 
           [tools.php]
-          version = "${version}"
-          pie_extensions = "${pie}"
+          version = "${source_version}"
+          pie_extensions = "xdebug/xdebug"
           TOML
           }
 
-          write_config "${projects}/plain" ""
-          write_config "${projects}/with-pie" "xdebug/xdebug"
-
-          for project in plain with-pie; do
-            mise trust "${projects}/${project}" >/dev/null 2>&1 || true
-          done
-
-          install_variant() {
-            project="$1"
-            log="${RUNNER_TEMP}/variant-source-${project}.log"
-            mise -C "${projects}/${project}" install php 2>&1 | tee "$log"
-          }
-
-          install_variant plain
-          install_variant with-pie
-
-          for project in plain with-pie; do
-            log="${RUNNER_TEMP}/variant-source-${project}.log"
-
-            if ! grep -q "compiled from source" "$log"; then
-              echo "${project} did not build PHP from source"
-              exit 1
-            fi
-
-            if ! mise -C "${projects}/${project}" install -n 2>&1 | grep -q "all tools are installed"; then
-              echo "${project} was not reported as already installed"
-              exit 1
-            fi
-          done
-
-          plain_path="$(mise -C "${projects}/plain" where php)"
-          pie_path="$(mise -C "${projects}/with-pie" where php)"
-
-          if [ -z "$plain_path" ] || [ -z "$pie_path" ] || [ "$plain_path" = "$pie_path" ]; then
-            echo "Expected separate source install identities, got '${plain_path}' and '${pie_path}'"
-            exit 1
-          fi
-
-          plain_state="$(mise -C "${projects}/plain" exec -- php -r 'echo PHP_VERSION, " debug=", PHP_DEBUG ? "yes" : "no", " xdebug=", extension_loaded("xdebug") ? "yes" : "no";')"
-          if [ "$plain_state" != "${version} debug=no xdebug=no" ]; then
-            echo "Unexpected plain source runtime: ${plain_state}"
-            exit 1
-          fi
-
-          pie_state="$(mise -C "${projects}/with-pie" exec -- php -r 'echo PHP_VERSION, " debug=", PHP_DEBUG ? "yes" : "no", " xdebug=", extension_loaded("xdebug") ? "yes" : "no", " version=", extension_loaded("xdebug") ? phpversion("xdebug") : "none";')"
-          case "$pie_state" in
-            "${version} debug=no xdebug=yes version="*) ;;
-            *)
-              echo "Expected a loaded PIE Xdebug in the source variant, got: ${pie_state}"
-              exit 1
-              ;;
-          esac
-
-          # Switching back must return the non-PIE runtime, not the other install.
-          repeat_state="$(mise -C "${projects}/plain" exec -- php -r 'echo extension_loaded("xdebug") ? "yes" : "no";')"
-          if [ "$repeat_state" != "no" ]; then
-            echo "The plain source project picked up the PIE install"
-            exit 1
-          fi
-
-          echo "Source variant: ${plain_state} (${plain_path})"
-          echo "PIE variant: ${pie_state} (${pie_path})"
-
-  ubuntu-install-variants-static:
-    name: Install static variants - Ubuntu
-    needs: [check-label, ubuntu-env-options]
-    if: needs.check-label.outputs.should-run == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install mise
-        uses: jdx/mise-action@v4
-        with:
-          install: false
-          cache: false
-
-      - name: Register plugin from PR source
-        run: mise plugin link php "${{ github.workspace }}"
-
-      # Two prebuilt flavors of one PHP version must coexist and keep their
-      # own extension sets. PIE is deliberately not requested here: prebuilt
-      # static PHP ships a fixed extension set and skips extension installs.
-      - name: Verify prebuilt flavor variants stay isolated
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          projects="${RUNNER_TEMP}/php-variants-static"
-          version="8.5.9"
-          mkdir -p "${projects}/bulk" "${projects}/common" "${projects}/invalid-option"
-
-          write_config() {
+          write_static_config() {
             dir="$1"
             flavor="$2"
             cat > "${dir}/mise.toml" <<TOML
@@ -260,43 +173,70 @@ jobs:
           install_layout = "identity"
 
           [tools.php]
-          version = "${version}"
+          version = "${static_version}"
           prebuilt_static = true
           prebuilt_static_flavor = "${flavor}"
           TOML
           }
 
-          write_config "${projects}/bulk" "bulk"
-          write_config "${projects}/common" "common"
+          write_source_config
+          write_static_config "${static_projects}/bulk" "bulk"
+          write_static_config "${static_projects}/common" "common"
 
-          cat > "${projects}/invalid-option/mise.toml" <<TOML
+          cat > "${static_projects}/invalid-option/mise.toml" <<TOML
           [settings]
           experimental = true
           install_layout = "identity"
 
           [tools.php]
-          version = "${version}"
+          version = "${static_version}"
           prebuilt_static = true
           skip_deps = {}
           TOML
 
-          for project in bulk common invalid-option; do
-            mise trust "${projects}/${project}" >/dev/null 2>&1 || true
+          for project in "${source_projects}/with-pie" \
+            "${static_projects}/bulk" \
+            "${static_projects}/common" \
+            "${static_projects}/invalid-option"; do
+            mise trust "$project" >/dev/null 2>&1 || true
           done
+
+          mise -C "${source_projects}/with-pie" install php 2>&1 | tee "${RUNNER_TEMP}/variant-source-pie.log"
 
           # Hostile ambient values must not override explicit tool options.
           PHP_PREBUILT_STATIC=0 \
             PHP_PREBUILT_STATIC_FLAVOR=minimal \
-            mise -C "${projects}/bulk" install php 2>&1 | tee "${RUNNER_TEMP}/variant-static-bulk.log"
-          mise -C "${projects}/common" install php 2>&1 | tee "${RUNNER_TEMP}/variant-static-common.log"
+            mise -C "${static_projects}/bulk" install php 2>&1 | tee "${RUNNER_TEMP}/variant-static-bulk.log"
+          mise -C "${static_projects}/common" install php 2>&1 | tee "${RUNNER_TEMP}/variant-static-common.log"
+
+          if ! grep -q "compiled from source" "${RUNNER_TEMP}/variant-source-pie.log"; then
+            echo "The source variant did not build PHP from source"
+            exit 1
+          fi
 
           if grep -q "compiled from source" "${RUNNER_TEMP}/variant-static-bulk.log" "${RUNNER_TEMP}/variant-static-common.log"; then
             echo "A prebuilt variant fell back to a source build"
             exit 1
           fi
 
-          bulk_path="$(mise -C "${projects}/bulk" where php)"
-          common_path="$(mise -C "${projects}/common" where php)"
+          for project in "${source_projects}/with-pie" "${static_projects}/bulk" "${static_projects}/common"; do
+            if ! mise -C "$project" install -n 2>&1 | grep -q "all tools are installed"; then
+              echo "${project} was not reported as already installed"
+              exit 1
+            fi
+          done
+
+          pie_state="$(mise -C "${source_projects}/with-pie" exec -- php -r 'echo PHP_VERSION, " debug=", PHP_DEBUG ? "yes" : "no", " xdebug=", extension_loaded("xdebug") ? "yes" : "no", " version=", extension_loaded("xdebug") ? phpversion("xdebug") : "none";')"
+          case "$pie_state" in
+            "${source_version} debug=no xdebug=yes version="*) ;;
+            *)
+              echo "Expected a loaded PIE Xdebug in the source variant, got: ${pie_state}"
+              exit 1
+              ;;
+          esac
+
+          bulk_path="$(mise -C "${static_projects}/bulk" where php)"
+          common_path="$(mise -C "${static_projects}/common" where php)"
 
           if [ -z "$bulk_path" ] || [ -z "$common_path" ] || [ "$bulk_path" = "$common_path" ]; then
             echo "Expected separate static install identities, got '${bulk_path}' and '${common_path}'"
@@ -304,26 +244,21 @@ jobs:
           fi
 
           for project in bulk common; do
-            if ! mise -C "${projects}/${project}" install -n 2>&1 | grep -q "all tools are installed"; then
-              echo "${project} was not reported as already installed"
+            actual="$(mise -C "${static_projects}/${project}" exec -- php -r 'echo PHP_VERSION;')"
+            if [ "$actual" != "${static_version}" ]; then
+              echo "${project} ran PHP ${actual} instead of ${static_version}"
               exit 1
             fi
 
-            actual="$(mise -C "${projects}/${project}" exec -- php -r 'echo PHP_VERSION;')"
-            if [ "$actual" != "${version}" ]; then
-              echo "${project} ran PHP ${actual} instead of ${version}"
-              exit 1
-            fi
-
-            state="$(mise -C "${projects}/${project}" exec -- php -r 'echo "xdebug=", extension_loaded("xdebug") ? "yes" : "no";')"
+            state="$(mise -C "${static_projects}/${project}" exec -- php -r 'echo "xdebug=", extension_loaded("xdebug") ? "yes" : "no";')"
             if [ "$state" != "xdebug=no" ]; then
               echo "${project} unexpectedly loaded an extension: ${state}"
               exit 1
             fi
           done
 
-          mise -C "${projects}/bulk" exec -- php -m | sort > "${RUNNER_TEMP}/modules-bulk.txt"
-          mise -C "${projects}/common" exec -- php -m | sort > "${RUNNER_TEMP}/modules-common.txt"
+          mise -C "${static_projects}/bulk" exec -- php -m | sort > "${RUNNER_TEMP}/modules-bulk.txt"
+          mise -C "${static_projects}/common" exec -- php -m | sort > "${RUNNER_TEMP}/modules-common.txt"
 
           for modules in bulk common; do
             if ! grep -qx "openssl" "${RUNNER_TEMP}/modules-${modules}.txt"; then
@@ -337,10 +272,7 @@ jobs:
             exit 1
           fi
 
-          echo "bulk modules: $(wc -l < "${RUNNER_TEMP}/modules-bulk.txt"), common modules: $(wc -l < "${RUNNER_TEMP}/modules-common.txt")"
-          echo "Static variant paths: ${bulk_path} ${common_path}"
-
-          if output="$(mise -C "${projects}/invalid-option" install php 2>&1)"; then
+          if output="$(mise -C "${static_projects}/invalid-option" install php 2>&1)"; then
             echo "An unsupported tool option type was accepted"
             exit 1
           fi
@@ -350,7 +282,10 @@ jobs:
             exit 1
           fi
 
-          echo "Prebuilt flavor variants stay isolated"
+          echo "Source PIE variant: ${pie_state}"
+          echo "Static variant paths: ${bulk_path} ${common_path}"
+          echo "bulk modules: $(wc -l < "${RUNNER_TEMP}/modules-bulk.txt"), common modules: $(wc -l < "${RUNNER_TEMP}/modules-common.txt")"
+          echo "PHP installation variants stay isolated"
 
   ubuntu-list-source-versions:
     name: List source versions - Ubuntu
@@ -923,8 +858,7 @@ jobs:
     needs:
       - check-label
       - ubuntu-env-options
-      - ubuntu-install-variants-source
-      - ubuntu-install-variants-static
+      - ubuntu-install-variants
       - ubuntu-list-static-versions
       - ubuntu-install-source
       - ubuntu-install-static

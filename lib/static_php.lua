@@ -10,8 +10,10 @@ local QUIET = env.QUIET
 local PREBUILT_STATIC_FLAVOR = env.PREBUILT_STATIC_FLAVOR
 
 M.BASE_URL = "https://dl.static-php.dev/static-php-cli"
+M.V3_BASE_URL = "https://dl.static-php.dev/v3/php-bin"
 M.DEFAULT_FLAVOR = "bulk"
 M.DEFAULT_SAPI = "cli"
+local current_artifacts = {}
 
 local FLAVORS = {
     ["bulk"] = true,
@@ -154,8 +156,17 @@ function M.release_path(flavor)
     return flavor
 end
 
+local function current_listing_path(flavor)
+    return M.resolve_flavor(flavor)
+end
+
 function M.asset_url(version, flavor)
-    return M.BASE_URL .. "/" .. M.release_path(flavor) .. "/" .. M.asset_name(version, flavor)
+    local asset = M.asset_name(version, flavor)
+    local key = current_listing_path(flavor)
+    if current_artifacts[key] and current_artifacts[key][asset] then
+        return M.V3_BASE_URL .. "/" .. key .. "/" .. asset
+    end
+    return M.BASE_URL .. "/" .. M.release_path(flavor) .. "/" .. asset
 end
 
 function M.available_versions(http, flavor, ctx)
@@ -166,19 +177,9 @@ function M.available_versions(http, flavor, ctx)
         return {}
     end
 
-    local resp, err = http.get({
-        url = M.BASE_URL .. "/" .. M.release_path(flavor) .. "/",
-        headers = {
-            ["User-Agent"] = "verzly-mise-php",
-        },
-    })
-
-    if err ~= nil or resp.status_code ~= 200 then
-        error("Failed to fetch static-php-cli prebuilt binaries: " .. tostring(err))
-    end
-
     local versions = {}
     local seen = {}
+    local current_members = {}
     local pattern
 
     if is_windows() then
@@ -187,12 +188,32 @@ function M.available_versions(http, flavor, ctx)
         pattern = "php%-([0-9][0-9A-Za-z%.%-]*)%-" .. M.DEFAULT_SAPI .. "%-" .. os_name .. "%-" .. arch_name .. "%.tar%.gz"
     end
 
-    for version in resp.body:gmatch(pattern) do
-        if not seen[version] then
-            seen[version] = true
-            table.insert(versions, version)
+    local current_path = current_listing_path(flavor)
+
+    local function fetch_versions(url, legacy)
+        local resp, err = http.get({
+            url = url,
+            headers = { ["User-Agent"] = "verzly-mise-php" },
+        })
+        if err ~= nil or resp == nil or resp.status_code ~= 200 then
+            error("Failed to fetch static-php-cli prebuilt binaries: " .. tostring(err or (resp and resp.status_code)))
+        end
+        for href in (resp.body or ""):gmatch('[hH][rR][eE][fF]%s*=%s*["\']([^"\']+)["\']') do
+            local asset = href:match("([^/]+)$")
+            local version = asset and asset:match("^" .. pattern .. "$")
+            if version and not legacy then
+                current_members[asset] = true
+            end
+            if version and not seen[version] then
+                seen[version] = true
+                table.insert(versions, version)
+            end
         end
     end
+
+    fetch_versions(M.V3_BASE_URL .. "/" .. current_path .. "/", false)
+    fetch_versions(M.BASE_URL .. "/" .. M.release_path(flavor) .. "/", true)
+    current_artifacts[current_path] = current_members
 
     table.sort(versions, php_versions.greater_than)
 

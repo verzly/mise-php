@@ -243,7 +243,7 @@ mise install php@latest
 _.php = { prebuilt_static = true, prebuilt_static_flavor = "bulk" }
 ```
 
-Available versions are filtered to binaries that exist for your current platform and selected flavor. If a PHP version exists in `php/php-src` but no matching static-php-cli binary exists yet, it will not be listed while this option is enabled.
+Available versions merge matching artifacts from current v3 and legacy listings, filtered to your platform and selected flavor. Downloads use current v3 artifacts when listed, with legacy URLs only for versions absent from that listing.
 
 Available flavors:
 

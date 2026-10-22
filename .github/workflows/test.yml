@@ -452,6 +452,8 @@ jobs:
     if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_static_installs)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    env:
+      PHP_STATIC_TEST_VERSION: '8.5.9'
     strategy:
       fail-fast: false
       matrix:
@@ -499,8 +501,8 @@ jobs:
             exit 1
           fi
 
-          if ! grep -Fx "${PHP_TEST_VERSION}" static-install-versions.txt; then
-            echo "Expected PHP ${PHP_TEST_VERSION} in static version list before install"
+          if ! grep -Fx "${PHP_STATIC_TEST_VERSION}" static-install-versions.txt; then
+            echo "Expected PHP ${PHP_STATIC_TEST_VERSION} in static version list before install"
             exit 1
           fi
 
@@ -556,7 +558,7 @@ jobs:
           PHP_VERBOSE: '1'
           PHP_PREBUILT_STATIC: '1'
         shell: bash
-        run: bash .github/scripts/run-install-and-check-output.sh mise use -g "php@${PHP_TEST_VERSION}"
+        run: bash .github/scripts/run-install-and-check-output.sh mise use -g "php@${PHP_STATIC_TEST_VERSION}"
 
       - name: Check installed static PHP tools
         env:

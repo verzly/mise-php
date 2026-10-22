@@ -351,7 +351,7 @@ PIE can be used with PHP 8.1 and newer, and on PHP 8.5 and newer it is the recom
 
 Each PHP version has its own dedicated PIE executable, which always operates on the currently active PHP runtime managed by `mise`.
 
-On Unix, this launcher pins PIE to that managed PHP and isolates `PHPRC`, `PHP_INI_SCAN_DIR`, and PIE's working directory. Successful extension installs register verified PIE binaries in that PHP version's `conf.d`; ambient PHP configuration is not used. The launcher supports documented common commands and rejects unsupported commands or target overrides. Explicit `--skip-enable-extension` leaves registration to the caller.
+On Unix, the launcher pins PIE to managed PHP and isolates `PHPRC`, `PHP_INI_SCAN_DIR`, `PHP_INI_DIR`, `PHP_BINARY`, and PIE's working directory. It uses managed `conf.d` without adding ambient scan directories. PIE 1.5.2 or newer is required for native extension registration; successful installs enable extensions through PIE's own installer. Explicit `--skip-enable-extension` disables PIE's registration.
 
 > [!NOTE]
 > Installed packages are stored in a central location, but they are handled separately for each PHP version based on the detected PHP runtime.
@@ -390,10 +390,10 @@ If one or more requested PIE extensions fail, PHP installation continues. The pl
 Retry a failed extension with the managed PIE launcher:
 
 ```sh
-mise exec -- pie install vendor/package
+mise exec -- pie install --force vendor/package
 ```
 
-An ordinary `mise install` does not retry extensions for an already installed PHP runtime. Reinstall that runtime with `mise install --force php@VERSION` to rerun configured extensions.
+Use `--force` when an extension is already installed but not enabled. An ordinary `mise install` does not retry extensions for an already installed PHP runtime. Reinstall that runtime with `mise install --force php@VERSION` to rerun configured extensions.
 
 You can also persist commonly used extensions so they are automatically installed whenever a new PHP version is installed:
 

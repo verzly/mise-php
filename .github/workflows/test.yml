@@ -77,83 +77,7 @@ jobs:
 
       - name: Check tool options and legacy env compatibility without installing PHP
         shell: bash
-        run: |
-          set -euo pipefail
-
-          cat > mise.toml <<'TOML'
-          [tools.php]
-          version = "8.5.9"
-          prebuilt_static = true
-          prebuilt_static_flavor = "minimal"
-          configure_options = "--disable-all"
-          extra_configure_options = "--enable-option-checking=fatal"
-          pecl_extensions = "redis,xdebug"
-          pie_extensions = "amphp/ext-uv"
-
-          [env._.php]
-          skip_deps = true
-          verbose = true
-          TOML
-
-          mise trust "${{ github.workspace }}" || true
-          for option in prebuilt_static prebuilt_static_flavor configure_options extra_configure_options pecl_extensions pie_extensions; do
-            case "$option" in
-              prebuilt_static) expected=true ;;
-              prebuilt_static_flavor) expected=minimal ;;
-              configure_options) expected=--disable-all ;;
-              extra_configure_options) expected=--enable-option-checking=fatal ;;
-              pecl_extensions) expected=redis,xdebug ;;
-              pie_extensions) expected=amphp/ext-uv ;;
-            esac
-            actual="$(mise config get "tools.php.${option}")"
-            if [ "$actual" != "$expected" ]; then
-              echo "tools.php.${option}: expected '${expected}', got '${actual}'"
-              exit 1
-            fi
-          done
-
-          mise env --dotenv | tee mise-env.out
-          if grep -Eq '^PHP_(PREBUILT_STATIC|PREBUILT_STATIC_FLAVOR|CONFIGURE_OPTIONS|EXTRA_CONFIGURE_OPTIONS|PECL_EXTENSIONS|PIE_EXTENSIONS)=' mise-env.out; then
-            echo "Tool options were unexpectedly exported as PHP_* environment variables"
-            exit 1
-          fi
-
-          # Legacy installation options must remain accepted through env._.php.
-          cat > mise.toml <<'TOML'
-          [env._.php]
-          skip_deps = true
-          verbose = true
-          prebuilt_static = true
-          prebuilt_static_flavor = "minimal"
-          configure_options = "--disable-all"
-          extra_configure_options = "--enable-option-checking=fatal"
-          pecl_extensions = "redis,xdebug"
-          pie_extensions = "amphp/ext-uv"
-          TOML
-
-          mise env --dotenv | tee mise-env.out
-
-          require_env() {
-            key="$1"
-            expected="$2"
-            actual="$(grep -E "^${key}=" mise-env.out | tail -n 1 | cut -d= -f2- | sed "s/^['\"]//; s/['\"]$//")"
-
-            if [ "$actual" != "$expected" ]; then
-              echo "${key}: expected '${expected}', got '${actual}'"
-              exit 1
-            fi
-          }
-
-          require_env PHP_SKIP_DEPS 1
-          require_env PHP_VERBOSE 1
-          require_env PHP_PREBUILT_STATIC 1
-          require_env PHP_PREBUILT_STATIC_FLAVOR minimal
-          require_env PHP_CONFIGURE_OPTIONS --disable-all
-          require_env PHP_EXTRA_CONFIGURE_OPTIONS --enable-option-checking=fatal
-          require_env PHP_PECL_EXTENSIONS redis,xdebug
-          require_env PHP_PIE_EXTENSIONS amphp/ext-uv
-
-          echo "Tool options and legacy env._.php compatibility verified"
+        run: bash .github/scripts/ci-verify-tool-options.sh
 
   ubuntu-install-variants:
     name: Install variants - Ubuntu
@@ -180,152 +104,7 @@ jobs:
       # static PHP: those binaries ship a fixed extension set.
       - name: Verify source, PIE and prebuilt variants stay isolated
         shell: bash
-        run: |
-          set -euo pipefail
-
-          source_projects="${RUNNER_TEMP}/php-variants-source"
-          static_projects="${RUNNER_TEMP}/php-variants-static"
-          source_version="${PHP_TEST_VERSION}"
-          static_version="8.5.9"
-          mkdir -p "${source_projects}/with-pie" \
-            "${static_projects}/bulk" \
-            "${static_projects}/common" \
-            "${static_projects}/invalid-option"
-
-          write_source_config() {
-            cat > "${source_projects}/with-pie/mise.toml" <<TOML
-          [settings]
-          experimental = true
-          install_layout = "identity"
-
-          [tools.php]
-          version = "${source_version}"
-          pie_extensions = "xdebug/xdebug"
-          TOML
-          }
-
-          write_static_config() {
-            dir="$1"
-            flavor="$2"
-            cat > "${dir}/mise.toml" <<TOML
-          [settings]
-          experimental = true
-          install_layout = "identity"
-
-          [tools.php]
-          version = "${static_version}"
-          prebuilt_static = true
-          prebuilt_static_flavor = "${flavor}"
-          TOML
-          }
-
-          write_source_config
-          write_static_config "${static_projects}/bulk" "bulk"
-          write_static_config "${static_projects}/common" "common"
-
-          cat > "${static_projects}/invalid-option/mise.toml" <<TOML
-          [settings]
-          experimental = true
-          install_layout = "identity"
-
-          [tools.php]
-          version = "${static_version}"
-          prebuilt_static = true
-          skip_deps = {}
-          TOML
-
-          for project in "${source_projects}/with-pie" \
-            "${static_projects}/bulk" \
-            "${static_projects}/common" \
-            "${static_projects}/invalid-option"; do
-            mise trust "$project" >/dev/null 2>&1 || true
-          done
-
-          mise -C "${source_projects}/with-pie" install php 2>&1 | tee "${RUNNER_TEMP}/variant-source-pie.log"
-
-          # Hostile ambient values must not override explicit tool options.
-          PHP_PREBUILT_STATIC=0 \
-            PHP_PREBUILT_STATIC_FLAVOR=minimal \
-            mise -C "${static_projects}/bulk" install php 2>&1 | tee "${RUNNER_TEMP}/variant-static-bulk.log"
-          mise -C "${static_projects}/common" install php 2>&1 | tee "${RUNNER_TEMP}/variant-static-common.log"
-
-          if ! grep -q "compiled from source" "${RUNNER_TEMP}/variant-source-pie.log"; then
-            echo "The source variant did not build PHP from source"
-            exit 1
-          fi
-
-          if grep -q "compiled from source" "${RUNNER_TEMP}/variant-static-bulk.log" "${RUNNER_TEMP}/variant-static-common.log"; then
-            echo "A prebuilt variant fell back to a source build"
-            exit 1
-          fi
-
-          for project in "${source_projects}/with-pie" "${static_projects}/bulk" "${static_projects}/common"; do
-            if ! mise -C "$project" install -n 2>&1 | grep -q "all tools are installed"; then
-              echo "${project} was not reported as already installed"
-              exit 1
-            fi
-          done
-
-          pie_state="$(mise -C "${source_projects}/with-pie" exec -- php -r 'echo PHP_VERSION, " debug=", PHP_DEBUG ? "yes" : "no", " xdebug=", extension_loaded("xdebug") ? "yes" : "no", " version=", extension_loaded("xdebug") ? phpversion("xdebug") : "none";')"
-          case "$pie_state" in
-            "${source_version} debug=no xdebug=yes version="*) ;;
-            *)
-              echo "Expected a loaded PIE Xdebug in the source variant, got: ${pie_state}"
-              exit 1
-              ;;
-          esac
-
-          bulk_path="$(mise -C "${static_projects}/bulk" where php)"
-          common_path="$(mise -C "${static_projects}/common" where php)"
-
-          if [ -z "$bulk_path" ] || [ -z "$common_path" ] || [ "$bulk_path" = "$common_path" ]; then
-            echo "Expected separate static install identities, got '${bulk_path}' and '${common_path}'"
-            exit 1
-          fi
-
-          for project in bulk common; do
-            actual="$(mise -C "${static_projects}/${project}" exec -- php -r 'echo PHP_VERSION;')"
-            if [ "$actual" != "${static_version}" ]; then
-              echo "${project} ran PHP ${actual} instead of ${static_version}"
-              exit 1
-            fi
-
-            state="$(mise -C "${static_projects}/${project}" exec -- php -r 'echo "xdebug=", extension_loaded("xdebug") ? "yes" : "no";')"
-            if [ "$state" != "xdebug=no" ]; then
-              echo "${project} unexpectedly loaded an extension: ${state}"
-              exit 1
-            fi
-          done
-
-          mise -C "${static_projects}/bulk" exec -- php -m | sort > "${RUNNER_TEMP}/modules-bulk.txt"
-          mise -C "${static_projects}/common" exec -- php -m | sort > "${RUNNER_TEMP}/modules-common.txt"
-
-          for modules in bulk common; do
-            if ! grep -qx "openssl" "${RUNNER_TEMP}/modules-${modules}.txt"; then
-              echo "The ${modules} prebuilt flavor is missing openssl"
-              exit 1
-            fi
-          done
-
-          if diff -q "${RUNNER_TEMP}/modules-bulk.txt" "${RUNNER_TEMP}/modules-common.txt"; then
-            echo "Both prebuilt flavors produced the same extension set"
-            exit 1
-          fi
-
-          if output="$(mise -C "${static_projects}/invalid-option" install php 2>&1)"; then
-            echo "An unsupported tool option type was accepted"
-            exit 1
-          fi
-
-          if ! printf '%s' "$output" | grep -q "skip_deps must be a boolean or string"; then
-            echo "Unexpected failure for an unsupported tool option type: ${output}"
-            exit 1
-          fi
-
-          echo "Source PIE variant: ${pie_state}"
-          echo "Static variant paths: ${bulk_path} ${common_path}"
-          echo "bulk modules: $(wc -l < "${RUNNER_TEMP}/modules-bulk.txt"), common modules: $(wc -l < "${RUNNER_TEMP}/modules-common.txt")"
-          echo "PHP installation variants stay isolated"
+        run: bash .github/scripts/ci-verify-php-variants.sh
 
   ubuntu-list-source-versions:
     name: List source versions - Ubuntu
@@ -348,60 +127,11 @@ jobs:
 
       - name: Check default/source version listing
         shell: bash
-        run: |
-          mise cache clean || true
-          mise ls-remote --no-versions-host php | tee source-versions.txt
-
-          if [ ! -s source-versions.txt ]; then
-            echo "No source versions were returned"
-            exit 1
-          fi
-
-          if ! grep -Fx "${PHP_TEST_VERSION}" source-versions.txt; then
-            echo "Expected PHP ${PHP_TEST_VERSION} in source version list"
-            exit 1
-          fi
-
-          if awk '/^[0-9]/ && $0 !~ /^[0-9]+[.][0-9]+[.][0-9]+$/ { print; found = 1 } END { exit found ? 0 : 1 }' source-versions.txt; then
-            echo "Default source version list must not include prerelease versions"
-            exit 1
-          fi
-
-          expected_aliases=$'stable\nlatest\nprerelease'
-          actual_aliases="$(tail -n 3 source-versions.txt | tr -d '\r')"
-          if [ "$actual_aliases" != "$expected_aliases" ]; then
-            echo "Expected source aliases at the end of the list:"
-            printf '%s\n' "$expected_aliases"
-            echo "Actual tail:"
-            printf '%s\n' "$actual_aliases"
-            exit 1
-          fi
+        run: bash .github/scripts/ci-list-source-versions.sh
 
       - name: Check source prerelease version listing
         shell: bash
-        run: |
-          mise cache clean || true
-          mise ls-remote --no-versions-host --prerelease php | tee source-prerelease-versions.txt
-
-          if ! awk '/^[0-9]/ && $0 !~ /^[0-9]+[.][0-9]+[.][0-9]+$/ { found = 1 } END { exit found ? 0 : 1 }' source-prerelease-versions.txt; then
-            echo "Prerelease source version list must include at least one prerelease version"
-            exit 1
-          fi
-
-          if ! grep -Fx '8.5.8RC1' source-prerelease-versions.txt; then
-            echo "Prerelease source version list must include 8.5.8RC1"
-            exit 1
-          fi
-
-          expected_aliases=$'stable\nlatest\nprerelease'
-          actual_aliases="$(tail -n 3 source-prerelease-versions.txt | tr -d '\r')"
-          if [ "$actual_aliases" != "$expected_aliases" ]; then
-            echo "Expected source prerelease aliases at the end of the list:"
-            printf '%s\n' "$expected_aliases"
-            echo "Actual tail:"
-            printf '%s\n' "$actual_aliases"
-            exit 1
-          fi
+        run: bash .github/scripts/ci-list-prerelease-versions.sh
   ubuntu-list-static-versions:
     name: List static versions - Ubuntu - ${{ matrix.flavor.label }}
     needs: [check-label, ubuntu-env-options]
@@ -434,30 +164,8 @@ jobs:
         env:
           PHP_PREBUILT_STATIC: '1'
           PHP_PREBUILT_STATIC_FLAVOR: ${{ matrix.flavor.value }}
-        run: |
-          mise cache clean || true
-          mise ls-remote --no-versions-host php | tee static-versions.txt
-
-          if [ ! -s static-versions.txt ]; then
-            echo "No static versions were returned"
-            exit 1
-          fi
-
-          if ! grep -Fx "${PHP_TEST_VERSION}" static-versions.txt; then
-            echo "Expected PHP ${PHP_TEST_VERSION} in static version list"
-            exit 1
-          fi
-
-          if [ "${{ matrix.flavor.label }}" = "default" ]; then
-            # 8.5.12 is the current v3 release, 8.5.9 exists only in v3, and 8.0.30
-            # exists only in the legacy static-php-cli (v2) listing.
-            for version in 8.5.12 8.5.9 8.0.30; do
-              if ! grep -Fx "$version" static-versions.txt; then
-                echo "Expected v3/legacy discovery probe PHP $version in static version list"
-                exit 1
-              fi
-            done
-          fi
+          FLAVOR_LABEL: ${{ matrix.flavor.label }}
+        run: bash .github/scripts/ci-list-static-versions.sh
   ubuntu-install-source:
     name: Install source/default - Ubuntu hosted
     needs: [check-label, ubuntu-env-options, ubuntu-list-source-versions]
@@ -484,19 +192,7 @@ jobs:
       - name: Configure spaced mise directories on Windows
         if: matrix.target.kind == 'hosted' && runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $dirs = @{
-            MISE_DATA_DIR = Join-Path $env:RUNNER_TEMP 'mise data dir'
-            MISE_CACHE_DIR = Join-Path $env:RUNNER_TEMP 'mise cache dir'
-            MISE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'mise config dir'
-            MISE_STATE_DIR = Join-Path $env:RUNNER_TEMP 'mise state dir'
-            MISE_TMP_DIR = Join-Path $env:RUNNER_TEMP 'mise tmp dir'
-          }
-
-          foreach ($item in $dirs.GetEnumerator()) {
-            New-Item -ItemType Directory -Force -Path $item.Value | Out-Null
-            "$($item.Key)=$($item.Value)" >> $env:GITHUB_ENV
-          }
+        run: '& ./.github/scripts/ci-setup-windows-paths.ps1'
 
       - name: Register plugin from PR source
         if: matrix.target.kind == 'hosted'
@@ -520,43 +216,7 @@ jobs:
         env:
           DISTRO_IMAGE: ${{ matrix.target.image }}
           PHP_VERBOSE: '1'
-        run: |
-          docker run --rm \
-            -v "${PWD}:/workspace" \
-            -w /workspace \
-            -e PHP_TEST_VERSION \
-            -e PHP_VERBOSE \
-            "$DISTRO_IMAGE" \
-            sh -lc '
-              set -eux
-
-              if command -v apt-get >/dev/null 2>&1; then
-                export DEBIAN_FRONTEND=noninteractive
-                apt-get update -q
-                apt-get install -q -y --no-install-recommends bash ca-certificates curl git tar gzip xz-utils unzip sudo findutils
-              elif command -v dnf >/dev/null 2>&1; then
-                dnf install -y --allowerasing --nobest bash ca-certificates curl git tar gzip xz unzip sudo findutils which
-              elif command -v microdnf >/dev/null 2>&1; then
-                microdnf install -y bash ca-certificates curl git tar gzip xz unzip sudo findutils which
-              elif command -v yum >/dev/null 2>&1; then
-                yum install -y bash ca-certificates curl git tar gzip xz unzip sudo findutils which
-              elif command -v apk >/dev/null 2>&1; then
-                apk add --no-cache bash ca-certificates curl git tar gzip xz unzip sudo findutils which gcompat libstdc++
-              elif command -v pacman >/dev/null 2>&1; then
-                pacman -Syu --noconfirm --needed bash ca-certificates curl git tar gzip xz unzip sudo which
-              else
-                echo "Unsupported container package manager"
-                exit 1
-              fi
-
-              curl https://mise.run | sh
-              export PATH="$HOME/.local/bin:$HOME/.local/share/mise/bin:$HOME/.local/share/mise/shims:$PATH"
-              mise --version
-              mise plugin link php /workspace
-              mise cache clean || true
-              bash .github/scripts/run-install-and-check-output.sh mise use -g "php@$PHP_TEST_VERSION"
-              bash .github/scripts/check-php-install.sh source
-            '
+        run: bash .github/scripts/ci-install-source-container.sh
   ubuntu-install-static:
     name: Install static prebuilt - Ubuntu
     needs: [check-label, ubuntu-env-options, ubuntu-list-static-versions]
@@ -581,19 +241,7 @@ jobs:
       - name: Configure spaced mise directories on Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $dirs = @{
-            MISE_DATA_DIR = Join-Path $env:RUNNER_TEMP 'mise data dir'
-            MISE_CACHE_DIR = Join-Path $env:RUNNER_TEMP 'mise cache dir'
-            MISE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'mise config dir'
-            MISE_STATE_DIR = Join-Path $env:RUNNER_TEMP 'mise state dir'
-            MISE_TMP_DIR = Join-Path $env:RUNNER_TEMP 'mise tmp dir'
-          }
-
-          foreach ($item in $dirs.GetEnumerator()) {
-            New-Item -ItemType Directory -Force -Path $item.Value | Out-Null
-            "$($item.Key)=$($item.Value)" >> $env:GITHUB_ENV
-          }
+        run: '& ./.github/scripts/ci-setup-windows-paths.ps1'
 
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
@@ -602,45 +250,12 @@ jobs:
         shell: bash
         env:
           PHP_PREBUILT_STATIC: '1'
-        run: |
-          mise cache clean || true
-          mise ls-remote --no-versions-host php | tee static-install-versions.txt
-
-          if [ ! -s static-install-versions.txt ]; then
-            echo "No static versions were returned before install"
-            exit 1
-          fi
-
-          if ! grep -Fx "${PHP_STATIC_TEST_VERSION}" static-install-versions.txt; then
-            echo "Expected PHP ${PHP_STATIC_TEST_VERSION} in static version list before install"
-            exit 1
-          fi
+        run: bash .github/scripts/ci-list-before-static-install.sh
 
       - name: Verify v3 and legacy v2 Ubuntu artifacts
         if: matrix.os == 'ubuntu-latest'
         shell: bash
-        run: |
-          curl -fsSL -H 'User-Agent: verzly-mise-php' \
-            https://dl.static-php.dev/v3/php-bin/bulk/ -o current-bulk.html
-          curl -fsSL -H 'User-Agent: verzly-mise-php' \
-            https://dl.static-php.dev/static-php-cli/bulk/ -o legacy-bulk.html
-
-          current_artifact='href="/v3/php-bin/bulk/php-8.5.12-cli-linux-x86_64.tar.gz"'
-          legacy_artifact='href="/static-php-cli/bulk/php-8.0.30-cli-linux-x86_64.tar.gz"'
-          old_current_artifact='href="/v3/php-bin/bulk/php-8.0.30-cli-linux-x86_64.tar.gz"'
-
-          grep -Fq "$current_artifact" current-bulk.html || {
-            echo 'Current v3 PHP 8.5.12 bulk artifact is missing'
-            exit 1
-          }
-          grep -Fq "$legacy_artifact" legacy-bulk.html || {
-            echo 'Legacy v2 PHP 8.0.30 bulk artifact is missing'
-            exit 1
-          }
-          if grep -Fq "$old_current_artifact" current-bulk.html; then
-            echo 'PHP 8.0.30 also appears in current v3; legacy-only install probe is invalid'
-            exit 1
-          fi
+        run: bash .github/scripts/ci-check-static-artifacts.sh
 
       - name: Install and verify v3 and legacy v2 static PHP versions
         if: matrix.os == 'ubuntu-latest'
@@ -648,20 +263,7 @@ jobs:
           PHP_VERBOSE: '1'
           PHP_PREBUILT_STATIC: '1'
         shell: bash
-        run: |
-          install_and_check_version() {
-            expected="$1"
-            mise use -g "php@${expected}"
-            actual="$(mise exec -- php -r 'echo PHP_VERSION;')"
-            if [ "$actual" != "$expected" ]; then
-              echo "Expected static PHP ${expected}, got ${actual}"
-              exit 1
-            fi
-            echo "Verified static PHP ${actual}"
-          }
-
-          install_and_check_version 8.5.12
-          install_and_check_version 8.0.30
+        run: bash .github/scripts/ci-install-static-versions.sh
 
       - name: Install PHP via prebuilt static path
         env:
@@ -682,15 +284,7 @@ jobs:
           PHP_VERBOSE: '1'
           PHP_PREBUILT_STATIC: '1'
         shell: bash
-        run: |
-          mise use -g php@8.0.30
-          actual="$(mise exec -- php -r 'echo PHP_VERSION;')"
-          if [ "$actual" != "8.0.30" ]; then
-            echo "Expected legacy static PHP 8.0.30, got ${actual}"
-            exit 1
-          fi
-          echo "Verified legacy static PHP ${actual}"
-          bash .github/scripts/check-php-install.sh static
+        run: bash .github/scripts/ci-install-legacy-static.sh
   ubuntu-install-pecl:
     name: Install PECL-capable source/default - Ubuntu
     needs: [check-label, ubuntu-install-source]
@@ -748,19 +342,7 @@ jobs:
       - name: Configure spaced mise directories on Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $dirs = @{
-            MISE_DATA_DIR = Join-Path $env:RUNNER_TEMP 'mise data dir'
-            MISE_CACHE_DIR = Join-Path $env:RUNNER_TEMP 'mise cache dir'
-            MISE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'mise config dir'
-            MISE_STATE_DIR = Join-Path $env:RUNNER_TEMP 'mise state dir'
-            MISE_TMP_DIR = Join-Path $env:RUNNER_TEMP 'mise tmp dir'
-          }
-
-          foreach ($item in $dirs.GetEnumerator()) {
-            New-Item -ItemType Directory -Force -Path $item.Value | Out-Null
-            "$($item.Key)=$($item.Value)" >> $env:GITHUB_ENV
-          }
+        run: '& ./.github/scripts/ci-setup-windows-paths.ps1'
 
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"
@@ -771,94 +353,7 @@ jobs:
         env:
           PHP_VERBOSE: '1'
           PHP_PIE_EXTENSIONS: xdebug/xdebug imagick/imagick redis/phpredis verzly/not-a-real-pie-extension
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $outputFile = Join-Path $env:RUNNER_TEMP 'pie-extension-diagnostics.out'
-
-          $previousNativeCommandPreference = $PSNativeCommandUseErrorActionPreference
-          $PSNativeCommandUseErrorActionPreference = $false
-          try {
-            & mise use -g "php@${{ env.PHP_TEST_VERSION }}" *>&1 | Tee-Object -FilePath $outputFile
-            $installExitCode = $LASTEXITCODE
-          } finally {
-            $PSNativeCommandUseErrorActionPreference = $previousNativeCommandPreference
-          }
-
-          if ($installExitCode -ne 0) {
-            Write-Error "Expected PHP install to continue when requested PIE extensions fail, got exit code ${installExitCode}."
-          }
-
-          $output = Get-Content -LiteralPath $outputFile -Raw
-
-          function Require-Output {
-            param(
-              [string] $Pattern,
-              [string] $Message
-            )
-
-            if ($output -notmatch $Pattern) {
-              Write-Error $Message
-            }
-          }
-
-          Require-Output 'PIE extension installed: xdebug/xdebug' 'xdebug/xdebug should be reported as installed.'
-          Require-Output 'PIE extension installed: imagick/imagick' 'imagick/imagick should be reported as installed.'
-          Require-Output 'One or more PIE extensions failed to install\.' 'The final PIE failure summary should be shown.'
-          Require-Output 'Failed PIE extension packages: redis/phpredis, verzly/not-a-real-pie-extension\.' 'Only the two failing PIE packages should be listed.'
-          Require-Output 'PHP installation continued, but the failed PIE extensions were not installed\.' 'The install should continue after PIE extension failures.'
-          Require-Output 'Check that each package supports your operating system and PHP version, and that each package name is spelled correctly\.' 'The warning should explain how to validate failed package requests.'
-          Require-Output 'Retry failed PIE extensions with .*mise exec -- pie install redis/phpredis verzly/not-a-real-pie-extension' 'The warning should include a retry command for failed packages.'
-          Require-Output 'Debug log: .+ \(redis/phpredis\)' 'redis/phpredis should include a debug log path.'
-          Require-Output 'Debug log: .+ \(verzly/not-a-real-pie-extension\)' 'The nonexistent package should include a debug log path.'
-
-          if ($output -match 'Failed PIE extension packages: .*xdebug/xdebug') {
-            Write-Error 'xdebug/xdebug must not be listed as failed.'
-          }
-
-          if ($output -match 'Failed PIE extension packages: .*imagick/imagick') {
-            Write-Error 'imagick/imagick must not be listed as failed.'
-          }
-
-          if ($output -match 'Debug log: .+ \(xdebug/xdebug\)') {
-            Write-Error 'xdebug/xdebug must not include a failure debug log path.'
-          }
-
-          if ($output -match 'Debug log: .+ \(imagick/imagick\)') {
-            Write-Error 'imagick/imagick must not include a failure debug log path.'
-          }
-
-          if ($output -match 'PIE extension installation failed') {
-            Write-Error 'PIE extension failures should not abort PHP installation.'
-          }
-
-          if ($output -match 'stack traceback') {
-            Write-Error 'PIE extension diagnostics must not include a Lua stack traceback.'
-          }
-
-          $logMatches = [regex]::Matches($output, 'Debug log: (?<path>.+?) \((?<package>.+?)\)')
-
-          if ($logMatches.Count -ne 2) {
-            Write-Error "Expected exactly 2 failed extension debug log paths, got $($logMatches.Count)."
-          }
-
-          foreach ($match in $logMatches) {
-            $path = $match.Groups['path'].Value
-            $package = $match.Groups['package'].Value
-
-            if (-not (Test-Path -LiteralPath $path)) {
-              Write-Error "Expected debug log to exist for ${package}: ${path}"
-            }
-
-            $log = Get-Content -LiteralPath $path -Raw
-
-            if ($log -notmatch [regex]::Escape($package)) {
-              Write-Error "Expected debug log for ${package} to contain the package name."
-            }
-          }
-
-          # GitHub's pwsh wrapper can propagate a stale native command exit code.
-          $global:LASTEXITCODE = 0
+        run: '& ./.github/scripts/ci-check-windows-pie-diagnostics.ps1'
 
       - name: Verify managed PIE registration and ambient config
         if: runner.os == 'Linux'
@@ -899,6 +394,7 @@ jobs:
       - check-label
       - ubuntu-env-options
       - ubuntu-install-variants
+      - ubuntu-list-source-versions
       - ubuntu-list-static-versions
       - ubuntu-install-source
       - ubuntu-install-static
@@ -918,7 +414,7 @@ jobs:
           SOURCE_EXPECTED: ${{ github.event_name != 'workflow_dispatch' || inputs.run_source_installs }}
           STATIC_EXPECTED: ${{ github.event_name != 'workflow_dispatch' || inputs.run_static_installs }}
           TOOL_EXPECTED: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tool_installs }}
-        run: bash .github/scripts/check-required-results.sh
+        run: python3 .github/scripts/check-required-results.py
   platform-install-source:
     name: Install source/default - ${{ matrix.target.label }}
     needs: ubuntu-gate
@@ -1066,43 +562,7 @@ jobs:
         env:
           DISTRO_IMAGE: ${{ matrix.target.image }}
           PHP_VERBOSE: '1'
-        run: |
-          docker run --rm \
-            -v "${PWD}:/workspace" \
-            -w /workspace \
-            -e PHP_PECL_TEST_VERSION \
-            -e PHP_VERBOSE \
-            "$DISTRO_IMAGE" \
-            sh -lc '
-              set -eux
-
-              if command -v apt-get >/dev/null 2>&1; then
-                export DEBIAN_FRONTEND=noninteractive
-                apt-get update -q
-                apt-get install -q -y --no-install-recommends bash ca-certificates curl git tar gzip xz-utils unzip sudo findutils
-              elif command -v dnf >/dev/null 2>&1; then
-                dnf install -y --allowerasing --nobest bash ca-certificates curl git tar gzip xz unzip sudo findutils which
-              elif command -v microdnf >/dev/null 2>&1; then
-                microdnf install -y bash ca-certificates curl git tar gzip xz unzip sudo findutils which
-              elif command -v yum >/dev/null 2>&1; then
-                yum install -y bash ca-certificates curl git tar gzip xz unzip sudo findutils which
-              elif command -v apk >/dev/null 2>&1; then
-                apk add --no-cache bash ca-certificates curl git tar gzip xz unzip sudo findutils which gcompat libstdc++
-              elif command -v pacman >/dev/null 2>&1; then
-                pacman -Syu --noconfirm --needed bash ca-certificates curl git tar gzip xz unzip sudo which
-              else
-                echo "Unsupported container package manager"
-                exit 1
-              fi
-
-              curl https://mise.run | sh
-              export PATH="$HOME/.local/bin:$HOME/.local/share/mise/bin:$HOME/.local/share/mise/shims:$PATH"
-              mise --version
-              mise plugin link php /workspace
-              mise cache clean || true
-              bash .github/scripts/run-install-and-check-output.sh mise use -g "php@$PHP_PECL_TEST_VERSION"
-              bash .github/scripts/check-php-install.sh source 1
-            '
+        run: bash .github/scripts/ci-install-pecl-container.sh
   platform-pie-diagnostics:
     name: PIE extension install - ${{ matrix.os }}
     needs: ubuntu-gate
@@ -1126,19 +586,7 @@ jobs:
       - name: Configure spaced mise directories on Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $dirs = @{
-            MISE_DATA_DIR = Join-Path $env:RUNNER_TEMP 'mise data dir'
-            MISE_CACHE_DIR = Join-Path $env:RUNNER_TEMP 'mise cache dir'
-            MISE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'mise config dir'
-            MISE_STATE_DIR = Join-Path $env:RUNNER_TEMP 'mise state dir'
-            MISE_TMP_DIR = Join-Path $env:RUNNER_TEMP 'mise tmp dir'
-          }
-
-          foreach ($item in $dirs.GetEnumerator()) {
-            New-Item -ItemType Directory -Force -Path $item.Value | Out-Null
-            "$($item.Key)=$($item.Value)" >> $env:GITHUB_ENV
-          }
+        run: '& ./.github/scripts/ci-setup-windows-paths.ps1'
 
       - name: Register plugin from PR source
         run: mise plugin link php "${{ github.workspace }}"

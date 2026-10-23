@@ -1,14 +1,3 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Fails unless every Ubuntu logic job produced its required result. Jobs that a
-# disabled manual-dispatch selector intentionally skipped are allowed to be
-# skipped; each one reports its result so a real failure is obvious.
-#
-# Expected: RESULTS (JSON from toJSON(needs)), SOURCE_EXPECTED, STATIC_EXPECTED,
-# TOOL_EXPECTED (true/false).
-
-python3 - <<'PY'
 import json
 import os
 import sys
@@ -50,4 +39,3 @@ for job, expected in required.items():
 if failed:
     print("Ubuntu logic stage did not pass; platform compatibility jobs stay blocked.")
     sys.exit(1)
-PY

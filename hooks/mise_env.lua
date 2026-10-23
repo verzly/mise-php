@@ -56,5 +56,10 @@ function PLUGIN:MiseEnv(ctx)
         set_env(env_vars, "PHP_PIE_EXTENSIONS", pie_extensions)
     end
 
+    local windows_force_extensions = options.get(ctx, "windows_force_extensions")
+    if windows_force_extensions ~= nil and windows_force_extensions ~= "" and windows_force_extensions ~= false then
+        set_env(env_vars, "PHP_WINDOWS_FORCE_EXTENSIONS", windows_force_extensions)
+    end
+
     return env_vars
 end

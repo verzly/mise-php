@@ -70,11 +70,23 @@ local function parse_pie_extensions()
     return extensions
 end
 
+local function parse_windows_force_extensions()
+    local val = os.getenv("PHP_WINDOWS_FORCE_EXTENSIONS")
+    if val == nil or val == "" then return {} end
+    local extensions = {}
+    for ext in val:gmatch("[^,%s]+") do
+        validate_package_token("PHP_WINDOWS_FORCE_EXTENSIONS", ext, false)
+        table.insert(extensions, ext:lower())
+    end
+    return extensions
+end
+
 local VERBOSE         = is_verbose()
 local QUIET           = quiet_redirect()
 local SKIP_DEPS       = is_enabled("PHP_SKIP_DEPS")
 local PECL_EXTENSIONS = parse_pecl_extensions()
 local PIE_EXTENSIONS  = parse_pie_extensions()
+local WINDOWS_FORCE_EXTENSIONS = parse_windows_force_extensions()
 local PREBUILT_STATIC = is_enabled("PHP_PREBUILT_STATIC")
 local PREBUILT_STATIC_FLAVOR = os.getenv("PHP_PREBUILT_STATIC_FLAVOR") or ""
 
@@ -84,6 +96,7 @@ return {
     SKIP_DEPS       = SKIP_DEPS,
     PECL_EXTENSIONS = PECL_EXTENSIONS,
     PIE_EXTENSIONS  = PIE_EXTENSIONS,
+    WINDOWS_FORCE_EXTENSIONS = WINDOWS_FORCE_EXTENSIONS,
     PREBUILT_STATIC = PREBUILT_STATIC,
     PREBUILT_STATIC_FLAVOR = PREBUILT_STATIC_FLAVOR,
 }

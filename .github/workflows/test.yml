@@ -2,7 +2,7 @@ name: Test PHP Plugin
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, labeled]
+    types: [opened, reopened, synchronize]
   workflow_dispatch:
     inputs:
       php_version:
@@ -35,31 +35,53 @@ concurrency:
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 env:
   PHP_TEST_VERSION: ${{ inputs.php_version || '8.5.5' }}
   PHP_PECL_TEST_VERSION: ${{ inputs.pecl_php_version || '8.4' }}
 
 jobs:
-  check-label:
+  check-approval:
+    name: Approval gate
     runs-on: ubuntu-latest
     outputs:
       should-run: ${{ steps.check.outputs.should-run }}
     steps:
+      - name: Read trusted approval helper
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
       - id: check
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should-run=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ contains(github.event.pull_request.labels.*.name, 'needs-ci') }}" = "true" ]; then
-            echo "should-run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should-run=false" >> "$GITHUB_OUTPUT"
-          fi
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.setOutput('should-run', 'false');
+            if (context.eventName === 'workflow_dispatch') {
+              core.setOutput('should-run', 'true');
+              return;
+            }
+            let hasApproval;
+            try {
+              ({ hasApproval } = require('./.github/scripts/test-approval.cjs'));
+            } catch {
+              const message = 'The trusted approval helper is not deployed on the default branch yet, so approval cannot be verified and tests stay skipped. Deploy the approval workflow and helpers first.';
+              core.setFailed(message);
+              return;
+            }
+            if (!await hasApproval(github, context.repo, context.payload.pull_request.number)) {
+              const message = 'Do not merge before tests: a repository write/maintain/admin collaborator must post a standalone /approve comment.';
+              core.setFailed(message);
+              return;
+            }
+            core.setOutput('should-run', 'true');
   ubuntu-env-options:
     name: Tool and legacy env options - Ubuntu
-    needs: check-label
-    if: needs.check-label.outputs.should-run == 'true'
+    needs: check-approval
+    if: needs.check-approval.outputs.should-run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -81,8 +103,8 @@ jobs:
 
   ubuntu-install-variants:
     name: Install variants - Ubuntu
-    needs: [check-label, ubuntu-env-options]
-    if: needs.check-label.outputs.should-run == 'true'
+    needs: [check-approval, ubuntu-env-options]
+    if: needs.check-approval.outputs.should-run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -108,8 +130,8 @@ jobs:
 
   ubuntu-list-source-versions:
     name: List source versions - Ubuntu
-    needs: [check-label, ubuntu-env-options]
-    if: needs.check-label.outputs.should-run == 'true'
+    needs: [check-approval, ubuntu-env-options]
+    if: needs.check-approval.outputs.should-run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -134,8 +156,8 @@ jobs:
         run: bash .github/scripts/ci-list-prerelease-versions.sh
   ubuntu-list-static-versions:
     name: List static versions - Ubuntu - ${{ matrix.flavor.label }}
-    needs: [check-label, ubuntu-env-options]
-    if: needs.check-label.outputs.should-run == 'true'
+    needs: [check-approval, ubuntu-env-options]
+    if: needs.check-approval.outputs.should-run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -168,8 +190,8 @@ jobs:
         run: bash .github/scripts/ci-list-static-versions.sh
   ubuntu-install-source:
     name: Install source/default - Ubuntu hosted
-    needs: [check-label, ubuntu-env-options, ubuntu-list-source-versions]
-    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_source_installs)
+    needs: [check-approval, ubuntu-env-options, ubuntu-list-source-versions]
+    if: needs.check-approval.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_source_installs)
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -219,8 +241,8 @@ jobs:
         run: bash .github/scripts/ci-install-source-container.sh
   ubuntu-install-static:
     name: Install static prebuilt - Ubuntu
-    needs: [check-label, ubuntu-env-options, ubuntu-list-static-versions]
-    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_static_installs)
+    needs: [check-approval, ubuntu-env-options, ubuntu-list-static-versions]
+    if: needs.check-approval.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_static_installs)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -287,8 +309,8 @@ jobs:
         run: bash .github/scripts/ci-install-legacy-static.sh
   ubuntu-install-pecl:
     name: Install PECL-capable source/default - Ubuntu
-    needs: [check-label, ubuntu-install-source]
-    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
+    needs: [check-approval, ubuntu-install-source]
+    if: needs.check-approval.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -321,8 +343,8 @@ jobs:
         run: bash .github/scripts/check-php-install.sh source 1
   ubuntu-pie-diagnostics:
     name: PIE extension diagnostics - Ubuntu
-    needs: [check-label, ubuntu-install-source]
-    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
+    needs: [check-approval, ubuntu-install-source]
+    if: needs.check-approval.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -369,8 +391,8 @@ jobs:
 
   ubuntu-error-reporting:
     name: Error reporting - Ubuntu
-    needs: [check-label, ubuntu-env-options]
-    if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
+    needs: [check-approval, ubuntu-env-options]
+    if: needs.check-approval.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_tool_installs)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -391,7 +413,7 @@ jobs:
   ubuntu-gate:
     name: Ubuntu logic checks
     needs:
-      - check-label
+      - check-approval
       - ubuntu-env-options
       - ubuntu-install-variants
       - ubuntu-list-source-versions
@@ -401,7 +423,7 @@ jobs:
       - ubuntu-install-pecl
       - ubuntu-pie-diagnostics
       - ubuntu-error-reporting
-    if: always() && needs.check-label.outputs.should-run == 'true'
+    if: always() && needs.check-approval.outputs.should-run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -67,15 +67,13 @@ jobs:
             try {
               ({ hasApproval } = require('./.github/scripts/test-approval.cjs'));
             } catch {
-              const message = 'The trusted approval helper is not deployed on the default branch yet, so tests stay skipped. Deploy the approval workflow and helpers first.';
-              core.notice(message);
-              await core.summary.addHeading('Tests not approved').addRaw(message).write();
+              const message = 'The trusted approval helper is not deployed on the default branch yet, so approval cannot be verified and tests stay skipped. Deploy the approval workflow and helpers first.';
+              core.setFailed(message);
               return;
             }
             if (!await hasApproval(github, context.repo, context.payload.pull_request.number)) {
-              const message = 'Tests are required before merge. A repository write/maintain/admin collaborator must post a standalone /test comment. The required Test approval check blocks merge until approval exists.';
-              core.notice(message);
-              await core.summary.addHeading('Tests not approved').addRaw(message).write();
+              const message = 'Do not merge before tests: a repository write/maintain/admin collaborator must post a standalone /test comment.';
+              core.setFailed(message);
               return;
             }
             core.setOutput('should-run', 'true');

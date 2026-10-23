@@ -39,6 +39,7 @@ Install multiple PHP versions side by side, each with its own isolated runtime, 
   - [Upgrade](#up-to-date)
 - [Usage](#usage)
   - [PHP](#php)
+  - [PHP variants](#php-variants)
   - [Source build dependencies](#source-build-dependencies)
   - [Prebuilt static PHP](#prebuilt-static-php)
   - [Composer](#composer-for-php)
@@ -129,15 +130,16 @@ Once the plugin is installed, you can [start managing PHP versions](#usage).
 > You can persist any combination of plugin options in `mise.toml` instead of passing them on every install.<br>
 > See [Custom configure options](#custom-configure-options-macos-and-linux) for details.
 >
-> ```sh
-> [env]
-> _.php = { extra_configure_options = "--with-pdo-sqlite" }
+> ```toml
+> [tools.php]
+> version = "8.4"
+> extra_configure_options = "--with-pdo-sqlite"
 > ```
 >
 > Or set individual options via CLI:
 >
 > ```sh
-> mise config set env._.php.extra_configure_options "--with-pdo-sqlite"
+> mise config set tools.php.extra_configure_options "--with-pdo-sqlite"
 > ```
 
 > [!TIP]
@@ -145,7 +147,7 @@ Once the plugin is installed, you can [start managing PHP versions](#usage).
 > See [Prebuilt static PHP](#prebuilt-static-php) for details.
 >
 > ```sh
-> mise config set env._.php.prebuilt_static true
+> mise config set tools.php.prebuilt_static true
 > mise use php@latest
 > ```
 
@@ -218,6 +220,49 @@ The list of version numbers is not gathered directly from [`php/php-src`](https:
 
 When prebuilt static PHP is enabled, version listing switches to the available static-php-cli binaries for the current operating system, CPU architecture, and selected flavor.
 
+### PHP variants
+
+Use the same PHP version with different extensions or build flags in separate projects.
+
+> [!IMPORTANT]
+> Enable identity layout in **each** project and put install-affecting options under `[tools.php]`. `[env] _.php` cannot select variants.
+
+> [!WARNING]
+> Identity layout is experimental ([mise v2026.10.6](https://github.com/jdx/mise/releases/tag/v2026.10.6), [mise#13951](https://github.com/jdx/mise/pull/13951)). It is still receiving fixes and may be unstable.
+
+Project A (`mise.toml`):
+
+```toml
+[settings]
+experimental = true
+install_layout = "identity"
+
+[tools.php]
+version = "8.5"
+extra_configure_options = "--enable-debug"
+pie_extensions = "xdebug/xdebug"
+```
+
+Project B uses the same settings and PHP version, but selects a plain build:
+
+```toml
+[settings]
+experimental = true
+install_layout = "identity"
+
+[tools.php]
+version = "8.5"
+extra_configure_options = ""
+pie_extensions = ""
+```
+
+In each project, run `mise install` and `mise where php`, then check `mise exec -- php -v` and `mise exec -- php -m`. The paths should differ. Empty tool options override inherited `PHP_*` settings; omitted options still use them. Without identity layout, both projects share one install.
+
+> [!WARNING]
+> mise may reuse an existing legacy PHP install even after you enable identity layout. `mise install --force` can overwrite that shared install. Back it up first, including manually installed extensions. Check `mise where php` in both projects; if they still share a path, preview `mise uninstall -n php@8.5.5` (use your installed version). Only after reviewing the removal, uninstall it and run `mise install` in **each** project. This interrupts all projects sharing the old PHP. Alternatively, use a separate `MISE_DATA_DIR`, which also isolates plugins and other tools.
+
+Tool options distinguish install requests, not locked artifacts or PIE package versions. PIE requires a supported source build (PHP 8.1+); static PHP ignores extension requests. Source configure flags do not apply to Windows binaries.
+
 ### Source build dependencies
 
 Source builds need native system packages for the selected PHP version, configure options, and requested PECL/PIE extensions. By default, `mise-php` detects the current platform and installs the matching dependency set automatically.
@@ -242,22 +287,24 @@ By default, Linux and macOS installs build PHP from source, while Windows uses t
 
 ```sh
 # Enable globally
-mise config set env._.php.prebuilt_static true
+mise config set tools.php.prebuilt_static true
 
 # Optional: choose a different static-php-cli binary flavor
 # Default: bulk on Linux/macOS, spc-max on Windows
 # Cross-platform supported: bulk, minimal
 # Linux/macOS only: common, gnu-bulk
 # Windows aliases: spc-max, spc-min
-mise config set env._.php.prebuilt_static_flavor minimal
+mise config set tools.php.prebuilt_static_flavor minimal
 
 # Install from the prebuilt static PHP list
 mise install php@latest
 ```
 
 ```toml
-[env]
-_.php = { prebuilt_static = true, prebuilt_static_flavor = "bulk" }
+[tools.php]
+version = "8.5"
+prebuilt_static = true
+prebuilt_static_flavor = "bulk"
 ```
 
 Available versions merge matching artifacts from current v3 and legacy listings, filtered to your platform and selected flavor. Downloads use current v3 artifacts when listed, with legacy URLs only for versions absent from that listing.
@@ -282,7 +329,7 @@ Available flavors:
 To switch back to source builds:
 
 ```sh
-mise config set env._.php.prebuilt_static false
+mise config set tools.php.prebuilt_static false
 mise install php@latest
 ```
 
@@ -399,12 +446,13 @@ You can also persist commonly used extensions so they are automatically installe
 
 ```sh
 # Persist PIE extensions globally (set this before installing a PHP version)
-mise config set env._.php.pie_extensions "xdebug/xdebug"
+mise config set tools.php.pie_extensions "xdebug/xdebug"
 ```
 
 ```toml
-[env]
-_.php = { pie_extensions = "xdebug/xdebug" }
+[tools.php]
+version = "8.4"
+pie_extensions = "xdebug/xdebug"
 ```
 
 Within a given PHP version, you can install a specific PIE version or update it to the latest version, similar to Composer.
@@ -501,12 +549,13 @@ $env:PHP_PECL_EXTENSIONS="redis xdebug"; mise install php@8.4.3
 You can also persist commonly used extensions so they are automatically installed whenever a new PHP version is installed:
 
 ```sh
-mise config set env._.php.pecl_extensions "redis xdebug"
+mise config set tools.php.pecl_extensions "redis xdebug"
 ```
 
 ```toml
-[env]
-_.php = { pecl_extensions = "redis xdebug" }
+[tools.php]
+version = "8.4"
+pecl_extensions = "redis xdebug"
 ```
 
 > [!TIP]
@@ -522,7 +571,10 @@ This plugin sets the following environment variables:
 | `PATH` | macOS, Linux | `<install_dir>/bin`, `<install_dir>/sbin` |
 | `LD_LIBRARY_PATH` | Linux only | `<install_dir>/lib` |
 
-The following installation options can be set through `mise config set env._.php.<option> ...` or the `[env] _.php = { ... }` table in `mise.toml`:
+Set options that change PHP under `[tools.php]` or with `mise config set tools.php.<option> ...`. In identity mode, they select separate installations; see [PHP variants](#php-variants).
+
+> [!NOTE]
+> Through v0.10.4, the docs used `[env] _.php` for build, static, PECL, and PIE settings. Starting with v0.11.0, that form is **deprecated for those settings but still supported**. It cannot select variants. Keep `skip_deps` and `verbose` under `[env] _.php`: they do not change PHP and are **not deprecated** there. Quiet output is controlled by `verbose` (or mise's `MISE_QUIET`); the plugin has no `quiet` option.
 
 | Option | Environment variable | Default | Description |
 |---|---|---|---|
@@ -564,12 +616,12 @@ PHP_EXTRA_CONFIGURE_OPTIONS="--with-pdo-sqlite" mise install php@8.4.3
 $env:PHP_EXTRA_CONFIGURE_OPTIONS="--with-pdo-sqlite"; mise install php@8.4.3
 
 # Save permanently
-mise config set env._.php.extra_configure_options "--with-pdo-sqlite"
+mise config set tools.php.extra_configure_options "--with-pdo-sqlite"
 # Subsequent installs will apply the extra configure options automatically
 mise install php@8.4.3
 
 # Remove saved value
-mise config set env._.php.extra_configure_options false
+mise config set tools.php.extra_configure_options false
 # Default options will be used again
 mise install php@8.4.3
 ```
@@ -584,12 +636,12 @@ PHP_CONFIGURE_OPTIONS="--with-openssl --enable-mbstring" mise install php@8.4.3
 $env:PHP_CONFIGURE_OPTIONS="--with-openssl --enable-mbstring"; mise install php@8.4.3
 
 # Save permanently
-mise config set env._.php.configure_options "--with-openssl --enable-mbstring"
+mise config set tools.php.configure_options "--with-openssl --enable-mbstring"
 # Subsequent installs will use the custom configure options automatically
 mise install php@8.4.3
 
 # Remove saved value
-mise config set env._.php.configure_options false
+mise config set tools.php.configure_options false
 # Default options will be used again
 mise install php@8.4.3
 ```

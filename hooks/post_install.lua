@@ -5,8 +5,6 @@ local php_packages = require("lib/php_packages")
 local php_versions = require("lib/php_versions")
 local windows_php = require("lib/windows_php")
 
-local PREBUILT_STATIC = env.PREBUILT_STATIC
-
 local function resolve_install_version(plugin, requested, ctx)
     requested = tostring(requested or "")
 
@@ -38,26 +36,27 @@ local function resolve_install_version(plugin, requested, ctx)
     return requested
 end
 
-local function install_php_runtime(sdkPath, version)
-    if PREBUILT_STATIC then
+local function install_php_runtime(sdkPath, version, config)
+    if config.PREBUILT_STATIC then
         if not static_php.is_supported_platform() then
             error("PHP_PREBUILT_STATIC is enabled, but static PHP is not supported on this platform.")
         end
 
-        return static_php.install(sdkPath, version)
+        return static_php.install(sdkPath, version, config)
     end
 
     if RUNTIME.osType == "windows" then
         return windows_php.install(sdkPath, version)
     end
 
-    return source_php.install(sdkPath, version)
+    return source_php.install(sdkPath, version, config)
 end
 
 --- Performs additional setup after installation
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#postinstall-hook
 --- @param ctx {rootPath: string, runtimeVersion: string, sdkInfo: table} Context
 function PLUGIN:PostInstall(ctx)
+    local config = env.resolve(ctx)
     local sdkInfo = ctx.sdkInfo["php"]
     local requested_version = sdkInfo.version
     local version = resolve_install_version(self, requested_version, ctx)
@@ -67,9 +66,9 @@ function PLUGIN:PostInstall(ctx)
         print("Resolved PHP " .. requested_version .. " -> " .. version)
     end
 
-    local installInfo = install_php_runtime(sdkPath, version)
+    local installInfo = install_php_runtime(sdkPath, version, config)
 
-    php_packages.install_after_php(sdkPath, version, installInfo)
+    php_packages.install_after_php(sdkPath, version, installInfo, config)
 
     if installInfo and installInfo.kind == "source" then
         source_php.cleanup(sdkPath)

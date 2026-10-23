@@ -8,8 +8,6 @@ local packages = {}
 
 local VERBOSE         = env.VERBOSE
 local QUIET           = env.QUIET
-local PECL_EXTENSIONS = env.PECL_EXTENSIONS
-local PIE_EXTENSIONS  = env.PIE_EXTENSIONS
 
 local join_path = tools.join_path
 local file_exists = tools.file_exists
@@ -160,8 +158,8 @@ local function require_ok(ok, label, version, anchor)
     )
 end
 
-function packages.has_extension_requests()
-    return #PECL_EXTENSIONS > 0 or #PIE_EXTENSIONS > 0
+function packages.has_extension_requests(config)
+    return #config.PECL_EXTENSIONS > 0 or #config.PIE_EXTENSIONS > 0
 end
 
 function packages.warn_prebuilt_static_extensions_skipped()
@@ -171,9 +169,9 @@ function packages.warn_prebuilt_static_extensions_skipped()
     )
 end
 
-function packages.install_pecl_extensions(sdkPath, envPrefix, version)
+function packages.install_pecl_extensions(sdkPath, envPrefix, version, config)
     -- Nothing to do when no PECL extensions were requested
-    if #PECL_EXTENSIONS == 0 then
+    if #config.PECL_EXTENSIONS == 0 then
         return true
     end
 
@@ -190,7 +188,7 @@ function packages.install_pecl_extensions(sdkPath, envPrefix, version)
     end
 
     local extensions = {}
-    for _, name in ipairs(PECL_EXTENSIONS) do
+    for _, name in ipairs(config.PECL_EXTENSIONS) do
         table.insert(extensions, { name = name, url = "https://pecl.php.net/get/" .. name })
     end
 
@@ -434,17 +432,17 @@ function packages.install_pie_for_windows(sdkPath, version)
     return true
 end
 
-function packages.install_pie_extensions(sdkPath, version)
+function packages.install_pie_extensions(sdkPath, version, config)
     -- Nothing to do when no PIE extensions were requested
-    if #PIE_EXTENSIONS == 0 then
+    if #config.PIE_EXTENSIONS == 0 then
         return true
     end
 
     local ok, failed_packages
     if RUNTIME.osType == "windows" then
-        ok, failed_packages = packages.install_pie_extensions_for_windows(sdkPath, version)
+        ok, failed_packages = packages.install_pie_extensions_for_windows(sdkPath, version, config)
     else
-        ok, failed_packages = packages.install_pie_extensions_for_linux(sdkPath, version)
+        ok, failed_packages = packages.install_pie_extensions_for_linux(sdkPath, version, config)
     end
 
     if ok then
@@ -468,7 +466,7 @@ function packages.install_pie_extensions(sdkPath, version)
     return ok
 end
 
-function packages.install_pie_extensions_for_linux(sdkPath, version)
+function packages.install_pie_extensions_for_linux(sdkPath, version, config)
     local pie_bin = sdkPath .. "/bin/pie"
     local phpize = sdkPath .. "/bin/phpize"
     local phpconfig = sdkPath .. "/bin/php-config"
@@ -490,7 +488,7 @@ function packages.install_pie_extensions_for_linux(sdkPath, version)
     local all_ok = true
     local failed_packages = {}
 
-    for _, pkg in ipairs(PIE_EXTENSIONS) do
+    for _, pkg in ipairs(config.PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
         local log_file = extension_log_path(log_id, pkg)
@@ -512,7 +510,7 @@ function packages.install_pie_extensions_for_linux(sdkPath, version)
     return all_ok, failed_packages
 end
 
-function packages.install_pie_extensions_for_windows(sdkPath, version)
+function packages.install_pie_extensions_for_windows(sdkPath, version, config)
     local php_bin  = join_path(sdkPath, "php.exe")
     local pie_phar = join_path(sdkPath, "pie.phar")
     local pie_bat  = join_path(sdkPath, "pie.bat")
@@ -530,7 +528,7 @@ function packages.install_pie_extensions_for_windows(sdkPath, version)
     local all_ok = true
     local failed_packages = {}
 
-    for _, pkg in ipairs(PIE_EXTENSIONS) do
+    for _, pkg in ipairs(config.PIE_EXTENSIONS) do
         print("Installing PIE extension: " .. pkg .. "...")
 
         local command = string.format(
@@ -699,11 +697,11 @@ end
 
 
 
-function packages.install_after_php(sdkPath, version, installInfo)
+function packages.install_after_php(sdkPath, version, installInfo, config)
     installInfo = installInfo or {}
 
     if installInfo.kind == "static" then
-        if packages.has_extension_requests() then
+        if packages.has_extension_requests(config) then
             packages.warn_prebuilt_static_extensions_skipped()
         end
 
@@ -728,12 +726,12 @@ function packages.install_after_php(sdkPath, version, installInfo)
 
     if installInfo.kind == "source" and not php_versions.at_least(version, 8, 5) then
         require_ok(
-            packages.install_pecl_extensions(sdkPath, installInfo.env_prefix or "", version),
+            packages.install_pecl_extensions(sdkPath, installInfo.env_prefix or "", version, config),
             "PECL extension installation",
             version,
             "extension-builds-require-phpize-and-build-tooling"
         )
-    elseif installInfo.kind == "source" and #PECL_EXTENSIONS > 0 then
+    elseif installInfo.kind == "source" and #config.PECL_EXTENSIONS > 0 then
         error(
             "\n\nPECL extension installation failed.\n\n" ..
             "PECL is not available for PHP " .. version .. " in this plugin. " ..
@@ -750,7 +748,7 @@ function packages.install_after_php(sdkPath, version, installInfo)
             "pie-verification-may-fail-or-time-out"
         )
 
-        packages.install_pie_extensions(sdkPath, version)
+        packages.install_pie_extensions(sdkPath, version, config)
     end
 
     require_ok(

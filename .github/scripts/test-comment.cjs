@@ -1,6 +1,6 @@
 'use strict';
 
-const { isCommand, canApprove, hasApproval } = require('./test-approval.cjs');
+const { isCommand, canApprove } = require('./test-approval.cjs');
 
 const sameHead = (pr, run, repo) => pr.head.repo?.id === run.head_repository?.id &&
   pr.head.ref === run.head_branch && pr.head.sha === run.head_sha &&
@@ -15,13 +15,6 @@ async function matchingPulls(github, repo, run) {
   return pulls.filter(pr => sameHead(pr, run, repo) &&
     (!run.pull_requests?.length || run.pull_requests.some(link => link.number === pr.number &&
       link.head?.repo?.id === pr.head.repo.id && link.base?.repo?.id === pr.base.repo.id)));
-}
-
-async function approvedJob(github, repo, run) {
-  const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-    ...repo, run_id: run.id, filter: 'latest', per_page: 100,
-  });
-  return jobs.some(job => job.name === 'check-approval' && job.conclusion === 'success');
 }
 
 async function rerun(github, repo, run, original) {
@@ -39,31 +32,19 @@ async function rerun(github, repo, run, original) {
 
 module.exports = async ({ github, context, core, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) => {
   const { payload, repo } = context;
-  if (context.eventName === 'workflow_run') {
-    const run = payload.workflow_run;
-    // A failed approval rerun cannot trigger another reconciliation rerun.
-    if (run.status !== 'completed' || run.path !== '.github/workflows/test.yml' || run.event !== 'pull_request') return;
-    const pulls = await matchingPulls(github, repo, run);
-    if (pulls.length !== 1 || pulls[0].state !== 'open') throw new Error('Cannot identify an unambiguous current-head PR for completed tests.');
-    const pr = pulls[0];
-    if (await hasApproval(github, repo, pr.number) || !await approvedJob(github, repo, run)) return;
-    // Discard delayed completion events once a newer attempt is queued or running.
-    const { data: latest } = await github.rest.actions.getWorkflowRun({ ...repo, run_id: run.id });
-    if (latest.status !== 'completed' || latest.run_attempt !== run.run_attempt) return;
-    await rerun(github, repo, run, pr);
-    core.info('Rechecking revoked approval after tests completed.');
-    return;
-  }
+  // Completion reconciliation publishes the separate check; it never reruns tests.
+  if (context.eventName !== 'issue_comment') return;
 
   if (!payload.issue?.pull_request ||
       !(isCommand(payload.comment?.body) || isCommand(payload.changes?.body?.from))) return;
   const removal = payload.action === 'deleted' ||
     (isCommand(payload.changes?.body?.from) && !isCommand(payload.comment?.body));
+  // The publisher handles revocation immediately, even while tests are active.
+  if (removal) return;
   const actor = payload.sender?.login;
   const authorized = await canApprove(github, repo, actor);
-  if (!authorized && !(removal && actor && actor === payload.comment?.user?.login)) return;
+  if (!authorized) return;
   const pull_number = payload.issue.number;
-  if (removal && await hasApproval(github, repo, pull_number)) return;
   const { data: original } = await github.rest.pulls.get({ ...repo, pull_number });
   if (original.state !== 'open') return;
 
@@ -79,16 +60,24 @@ module.exports = async ({ github, context, core, sleep = ms => new Promise(resol
     }
     if (!selected) throw new Error('A new commit is required: no unambiguous matching original pull_request test.yml run exists.');
     if (selected.status === 'completed') {
-      if (removal && !await approvedJob(github, repo, selected)) return;
       await rerun(github, repo, selected, original);
       core.info(`Requested native rerun ${selected.id}; approval reads current comments and author permissions.`);
       return;
     }
     if (attempt < 18) await sleep(10000);
   }
-  if (removal) {
-    core.info('Revocation will be reconciled by the trusted workflow_run completion handler.');
-    return;
-  }
   throw new Error('The current-head test run is still active after 3 minutes. Retry by editing the /test comment after it completes.');
+};
+
+module.exports.resolvePullNumber = async ({ github, context }) => {
+  const { payload, repo } = context;
+  if (context.eventName === 'pull_request_target') return payload.pull_request.number;
+  // Every PR comment evaluates current approval, even if its body is unrelated.
+  // Thus a newer pending publisher can safely replace an older one for this PR.
+  if (context.eventName === 'issue_comment') return payload.issue?.pull_request ? payload.issue.number : undefined;
+  if (context.eventName !== 'workflow_run') return;
+  const run = payload.workflow_run;
+  if (run.status !== 'completed' || run.path !== '.github/workflows/test.yml' || run.event !== 'pull_request') return;
+  const pulls = await matchingPulls(github, repo, run);
+  if (pulls.length === 1 && pulls[0].state === 'open') return pulls[0].number;
 };

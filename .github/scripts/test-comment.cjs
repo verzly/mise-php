@@ -66,7 +66,7 @@ module.exports = async ({ github, context, core, sleep = ms => new Promise(resol
     }
     if (attempt < 18) await sleep(10000);
   }
-  throw new Error('The current-head test run is still active after 3 minutes. Retry by editing the /test comment after it completes.');
+  throw new Error('The current-head test run is still active after 3 minutes. Retry by editing the /approve comment after it completes.');
 };
 
 module.exports.resolvePullNumber = async ({ github, context }) => {

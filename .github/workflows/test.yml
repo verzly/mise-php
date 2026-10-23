@@ -44,6 +44,7 @@ env:
 
 jobs:
   check-approval:
+    name: Approval gate
     runs-on: ubuntu-latest
     outputs:
       should-run: ${{ steps.check.outputs.should-run }}
@@ -72,7 +73,7 @@ jobs:
               return;
             }
             if (!await hasApproval(github, context.repo, context.payload.pull_request.number)) {
-              const message = 'Do not merge before tests: a repository write/maintain/admin collaborator must post a standalone /test comment.';
+              const message = 'Do not merge before tests: a repository write/maintain/admin collaborator must post a standalone /approve comment.';
               core.setFailed(message);
               return;
             }

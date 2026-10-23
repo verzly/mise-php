@@ -1,4 +1,4 @@
-name: Update PHP test approval
+name: Update approval
 
 on:
   pull_request_target:
@@ -45,7 +45,7 @@ jobs:
     concurrency:
       # Events for one PR are serialized; each run re-evaluates current state.
       # workflow_run identifiers are unique, so their publishes converge via update.
-      group: test-approval-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.id }}
+      group: approval-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.id }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4

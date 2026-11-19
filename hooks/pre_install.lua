@@ -85,20 +85,20 @@ function openssl_check_for_linux(release)
 
     local openssl_too_new = openssl_version ~= nil and php_versions.at_least(openssl_version, 1, 2)
     -- macOS builds link Homebrew openssl@3, so a newer system/Homebrew CLI is unused.
-    local openssl_4_1 = RUNTIME.osType ~= "darwin" and openssl_version ~= nil and
-        php_versions.at_least(openssl_version, 4, 1)
+    local openssl_4_x = RUNTIME.osType ~= "darwin" and openssl_version ~= nil and
+        php_versions.at_least(openssl_version, 4, 0)
 
     local php_too_old = not php_versions.at_least(release.version, 8, 1)
     local php_supports_openssl_4_1 = php_versions.at_least(release.version, 8, 6)
         or php_versions.in_line_at_least(release.version, "8.5.13")
         or php_versions.in_line_at_least(release.version, "8.4.28")
 
-    if openssl_4_1 and not php_supports_openssl_4_1 then
+    if openssl_4_x and not php_supports_openssl_4_1 then
         error(
             "\n\nFailed to prepare PHP installation.\n\n" ..
             "Requested PHP version: \27[93m" .. release.version .. "\27[0m\n\n" ..
-            "💡 Tip: \27[93mPHP versions before 8.5.13 (and 8.4.x before 8.4.28) are not compatible with OpenSSL 4.1 or newer on this system.\27[0m\n\n" ..
-            "OpenSSL 4.1 made ASN1_STRING opaque; this PHP version reads its fields directly in ext/openssl and fails to compile.\n\n" ..
+            "💡 Tip: \27[93mPHP versions before 8.5.13 (and 8.4.x before 8.4.28) are not compatible with OpenSSL 4.0 or newer on this system.\27[0m\n\n" ..
+            "OpenSSL 4.0 made ASN1_STRING opaque; this PHP version reads its fields directly in ext/openssl and fails to compile.\n\n" ..
             "Recommended: use PHP 8.5.13 or newer, PHP 8.4.28 or newer in the 8.4 line, or build this PHP version against OpenSSL 3.x instead.\n"
         )
     end

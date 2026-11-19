@@ -9,8 +9,8 @@ set -eo pipefail
   exit 1
   fi
 
-  if ! grep -Fx "${PHP_TEST_VERSION}" static-versions.txt; then
-  echo "Expected PHP ${PHP_TEST_VERSION} in static version list"
+  if ! grep -Fx "${PHP_STATIC_TEST_VERSION}" static-versions.txt; then
+  echo "Expected PHP ${PHP_STATIC_TEST_VERSION} in static version list"
   exit 1
   fi
 

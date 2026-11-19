@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       php_version:
-        description: PHP version used by install smoke tests
+        description: PHP version used by source install smoke tests
         required: true
-        default: 8.5.5
+        default: 8.5.13
       run_source_installs:
         description: Run default/source install smoke tests
         required: true
@@ -37,7 +37,8 @@ permissions:
   contents: read
 
 env:
-  PHP_TEST_VERSION: ${{ inputs.php_version || '8.5.5' }}
+  PHP_TEST_VERSION: ${{ inputs.php_version || '8.5.13' }}
+  PHP_STATIC_TEST_VERSION: '8.5.9'
   PHP_PECL_TEST_VERSION: ${{ inputs.pecl_php_version || '8.4' }}
 
 jobs:
@@ -225,8 +226,6 @@ jobs:
     if: needs.check-label.outputs.should-run == 'true' && (github.event_name != 'workflow_dispatch' || inputs.run_static_installs)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      PHP_STATIC_TEST_VERSION: '8.5.9'
     strategy:
       fail-fast: false
       matrix:
@@ -523,8 +522,6 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.run_static_installs
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
-    env:
-      PHP_STATIC_TEST_VERSION: '8.5.9'
     strategy:
       fail-fast: false
       matrix:

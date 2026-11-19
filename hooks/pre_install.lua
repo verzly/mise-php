@@ -88,19 +88,10 @@ function openssl_check_for_linux(release)
     local openssl_4_1 = RUNTIME.osType ~= "darwin" and openssl_version ~= nil and
         php_versions.at_least(openssl_version, 4, 1)
 
-    local php_major, php_minor = string.match(release.version, "^(%d+)%.(%d+)")
-    php_major = tonumber(php_major) or 0
-    php_minor = tonumber(php_minor) or 0
-
-    local php_too_old = (php_major < 8) or (php_major == 8 and php_minor < 1)
-    local php_supports_openssl_4_1 = false
-    if php_major > 8 or (php_major == 8 and php_minor > 5) then
-        php_supports_openssl_4_1 = true
-    elseif php_major == 8 and php_minor == 5 then
-        php_supports_openssl_4_1 = not php_versions.greater_than("8.5.13", release.version)
-    elseif php_major == 8 and php_minor == 4 then
-        php_supports_openssl_4_1 = not php_versions.greater_than("8.4.28", release.version)
-    end
+    local php_too_old = not php_versions.at_least(release.version, 8, 1)
+    local php_supports_openssl_4_1 = php_versions.at_least(release.version, 8, 6)
+        or php_versions.in_line_at_least(release.version, "8.5.13")
+        or php_versions.in_line_at_least(release.version, "8.4.28")
 
     if openssl_4_1 and not php_supports_openssl_4_1 then
         error(
@@ -129,12 +120,7 @@ function openssl_check_for_linux(release)
 end
 
 function mcrypt_check_for_linux(release)
-    local php_major, php_minor = string.match(release.version, "^(%d+)%.(%d+)")
-    php_major = tonumber(php_major) or 0
-    php_minor = tonumber(php_minor) or 0
-
-    local needs_mcrypt = (php_major < 7) or (php_major == 7 and php_minor < 2)
-    if not needs_mcrypt then
+    if php_versions.at_least(release.version, 7, 2) then
         return
     end
 

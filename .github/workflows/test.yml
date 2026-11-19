@@ -89,9 +89,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mise
+      - name: Install minimum supported mise
         uses: jdx/mise-action@v4
         with:
+          # Identity layout is documented as available from this release.
+          version: 2026.10.6
           install: false
           cache: false
 

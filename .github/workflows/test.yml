@@ -432,9 +432,9 @@ jobs:
           - label: macOS latest
             kind: hosted
             runner: macos-latest
-          - label: macOS 14
+          - label: macOS 15
             kind: hosted
-            runner: macos-14
+            runner: macos-15
           - label: Linux / Ubuntu 22.04
             kind: container
             runner: ubuntu-latest

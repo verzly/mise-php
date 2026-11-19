@@ -1,13 +1,11 @@
 local env = require("lib/env")
 local messages = require("lib/messages")
-local options = require("lib/options")
 local php_versions = require("lib/php_versions")
 local tools = require("lib/tools")
 
 local M = {}
 
 local QUIET = env.QUIET
-local PREBUILT_STATIC_FLAVOR = env.PREBUILT_STATIC_FLAVOR
 
 M.DEFAULT_FLAVOR = "bulk"
 M.DEFAULT_SAPI = "cli"
@@ -55,11 +53,11 @@ function M.is_supported_platform()
 end
 
 function M.is_requested(ctx)
-    return env.PREBUILT_STATIC or options.enabled(options.get(ctx or {}, "prebuilt_static"))
+    return env.resolve(ctx).PREBUILT_STATIC
 end
 
 function M.requested_flavor(ctx)
-    return options.get(ctx or {}, "prebuilt_static_flavor") or PREBUILT_STATIC_FLAVOR
+    return env.resolve(ctx).PREBUILT_STATIC_FLAVOR
 end
 
 function M.normalize_flavor(value)
@@ -298,7 +296,7 @@ local function find_prebuilt_php_binary(sdkPath)
     return candidate
 end
 
-function M.install(sdkPath, version)
+function M.install(sdkPath, version, config)
     print("Preparing prebuilt static PHP...")
 
     if is_windows() then
@@ -316,7 +314,7 @@ function M.install(sdkPath, version)
             error(
                 "\n\nFailed to prepare prebuilt static PHP.\n\n" ..
                 "The downloaded static-php-cli archive did not contain a PHP CLI binary.\n" ..
-                "Flavor: \27[93m" .. M.resolve_flavor(PREBUILT_STATIC_FLAVOR) .. "\27[0m\n" ..
+                "Flavor: \27[93m" .. M.resolve_flavor(config.PREBUILT_STATIC_FLAVOR) .. "\27[0m\n" ..
                 "Version: \27[93m" .. version .. "\27[0m\n"
             )
         end

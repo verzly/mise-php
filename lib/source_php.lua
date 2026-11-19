@@ -458,7 +458,7 @@ local function apply_platform_build_flags(envPrefix, version)
     return envPrefix
 end
 
-function source_php.install(sdkPath, version)
+function source_php.install(sdkPath, version, config)
     fail_if_windows_php_is_visible_or_hangs()
 
     local major, minor = version:match("^(%d+)%.(%d+)")
@@ -574,13 +574,13 @@ function source_php.install(sdkPath, version)
     envPrefix = apply_platform_build_flags(envPrefix, version)
 
     -- Allow user to append configure options
-    local extraOptions = os.getenv("PHP_EXTRA_CONFIGURE_OPTIONS")
+    local extraOptions = config.EXTRA_CONFIGURE_OPTIONS
     if extraOptions ~= nil and extraOptions ~= "" then
         configureOptions = configureOptions .. " " .. extraOptions
     end
 
     -- Allow user to replace configure options entirely while preserving prefix
-    local userOptions = os.getenv("PHP_CONFIGURE_OPTIONS")
+    local userOptions = config.CONFIGURE_OPTIONS
     if userOptions ~= nil and userOptions ~= "" then
         configureOptions = "--prefix=" .. shell_quote(sdkPath) .. " " .. userOptions
         expectedExtensions = {}

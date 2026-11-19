@@ -20,6 +20,7 @@ if flag("TOOL_EXPECTED") and not source_expected:
 
 required = {
     "ubuntu-env-options": "success",
+    "ubuntu-install-variants": "success",
     "ubuntu-list-source-versions": "success",
     "ubuntu-list-static-versions": "success",
     "ubuntu-install-source": "success" if source_expected else "skipped",

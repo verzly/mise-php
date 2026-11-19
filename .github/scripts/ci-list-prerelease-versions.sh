@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -eo pipefail
 
   mise cache clean || true

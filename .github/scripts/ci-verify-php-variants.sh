@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
   source_projects="${RUNNER_TEMP}/php-variants-source"

@@ -2,6 +2,7 @@ local env = require("lib/env")
 local logs = require("lib/logs")
 local static_php = require("lib/static_php")
 local php_versions = require("lib/php_versions")
+local openssl = require("lib/openssl")
 local process = require("lib/process")
 local tools = require("lib/tools")
 
@@ -75,57 +76,8 @@ function version_check_after_dependencies(release)
     mcrypt_check_for_linux(release)   --- PHP < 7.2 requires libmcrypt
 end
 
-local function openssl_version_at_least(min_major, min_minor)
-    local result = os.execute(
-        "sh -c '\n" ..
-        '    v="$(openssl version 2>/dev/null | awk "{print \\$2}")"\n' ..
-        '    major="${v%%.*}"\n' ..
-        '    rest="${v#*.}"\n' ..
-        '    minor="${rest%%.*}"\n' ..
-        '\n' ..
-        '    if [ -n "$major" ] && [ -n "$minor" ]; then\n' ..
-        '        if [ "$major" -gt ' .. min_major .. ' ] || { [ "$major" -eq ' .. min_major ..
-        ' ] && [ "$minor" -ge ' .. min_minor .. ' ]; }; then\n' ..
-        '            exit 0\n' ..
-        '        fi\n' ..
-        '    fi\n' ..
-        '\n' ..
-        '    exit 1\n' ..
-        "'"
-    )
-    return result == true or result == 0
-end
-
-local function php_version_at_least(version, want_major, want_minor, want_patch)
-    local major, minor, patch = string.match(tostring(version), "^(%d+)%.(%d+)%.?(%d*)")
-    major = tonumber(major) or 0
-    minor = tonumber(minor) or 0
-    patch = tonumber(patch) or 0
-
-    if major ~= want_major then
-        return major > want_major
-    end
-    if minor ~= want_minor then
-        return minor > want_minor
-    end
-    return patch >= want_patch
-end
-
-local function php_supports_openssl_41(version)
-    local major, minor = string.match(tostring(version), "^(%d+)%.(%d+)")
-    major = tonumber(major) or 0
-    minor = tonumber(minor) or 0
-
-    if major > 8 then return true end
-    if major < 8 then return false end
-    if minor >= 6 then return true end
-    if minor == 5 then return php_version_at_least(version, 8, 5, 13) end
-    if minor == 4 then return php_version_at_least(version, 8, 4, 28) end
-    return false
-end
-
 function openssl_check_for_linux(release)
-    local openssl_too_new = openssl_version_at_least(1, 2)
+    local openssl_too_new = openssl.at_least(1, 2)
 
     local php_major, php_minor = string.match(release.version, "^(%d+)%.(%d+)")
     php_major = tonumber(php_major) or 0
@@ -133,7 +85,7 @@ function openssl_check_for_linux(release)
 
     local php_too_old = (php_major < 8) or (php_major == 8 and php_minor < 1)
 
-    if openssl_version_at_least(4, 1) and not php_supports_openssl_41(release.version) then
+    if openssl.at_least(4, 1) and not openssl.php_supports_4_1(release.version) then
         error(
             "\n\nFailed to prepare PHP installation.\n\n" ..
             "Requested PHP version: \27[93m" .. release.version .. "\27[0m\n\n" ..
@@ -143,7 +95,7 @@ function openssl_check_for_linux(release)
         )
     end
 
-    if (openssl_too_new == true or openssl_too_new == 0) and php_too_old then
+    if openssl_too_new and php_too_old then
        error(
           "\n\nFailed to prepare PHP installation.\n\n" ..
           "Requested PHP version: \27[93m" .. release.version .. "\27[0m\n\n" ..

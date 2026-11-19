@@ -75,29 +75,73 @@ function version_check_after_dependencies(release)
     mcrypt_check_for_linux(release)   --- PHP < 7.2 requires libmcrypt
 end
 
+local function openssl_version_at_least(min_major, min_minor)
+    local result = os.execute(
+        "sh -c '\n" ..
+        '    v="$(openssl version 2>/dev/null | awk "{print \\$2}")"\n' ..
+        '    major="${v%%.*}"\n' ..
+        '    rest="${v#*.}"\n' ..
+        '    minor="${rest%%.*}"\n' ..
+        '\n' ..
+        '    if [ -n "$major" ] && [ -n "$minor" ]; then\n' ..
+        '        if [ "$major" -gt ' .. min_major .. ' ] || { [ "$major" -eq ' .. min_major ..
+        ' ] && [ "$minor" -ge ' .. min_minor .. ' ]; }; then\n' ..
+        '            exit 0\n' ..
+        '        fi\n' ..
+        '    fi\n' ..
+        '\n' ..
+        '    exit 1\n' ..
+        "'"
+    )
+    return result == true or result == 0
+end
+
+local function php_version_at_least(version, want_major, want_minor, want_patch)
+    local major, minor, patch = string.match(tostring(version), "^(%d+)%.(%d+)%.?(%d*)")
+    major = tonumber(major) or 0
+    minor = tonumber(minor) or 0
+    patch = tonumber(patch) or 0
+
+    if major ~= want_major then
+        return major > want_major
+    end
+    if minor ~= want_minor then
+        return minor > want_minor
+    end
+    return patch >= want_patch
+end
+
+local function php_supports_openssl_41(version)
+    local major, minor = string.match(tostring(version), "^(%d+)%.(%d+)")
+    major = tonumber(major) or 0
+    minor = tonumber(minor) or 0
+
+    if major > 8 then return true end
+    if major < 8 then return false end
+    if minor >= 6 then return true end
+    if minor == 5 then return php_version_at_least(version, 8, 5, 13) end
+    if minor == 4 then return php_version_at_least(version, 8, 4, 28) end
+    return false
+end
+
 function openssl_check_for_linux(release)
-    local openssl_too_new = os.execute([[
-        sh -c '
-            v="$(openssl version 2>/dev/null | awk "{print \$2}")"
-            major="${v%%.*}"
-            rest="${v#*.}"
-            minor="${rest%%.*}"
-
-            if [ -n "$major" ] && [ -n "$minor" ]; then
-                if [ "$major" -gt 1 ] || { [ "$major" -eq 1 ] && [ "$minor" -gt 1 ]; }; then
-                    exit 0
-                fi
-            fi
-
-            exit 1
-        '
-    ]])
+    local openssl_too_new = openssl_version_at_least(1, 2)
 
     local php_major, php_minor = string.match(release.version, "^(%d+)%.(%d+)")
     php_major = tonumber(php_major) or 0
     php_minor = tonumber(php_minor) or 0
 
     local php_too_old = (php_major < 8) or (php_major == 8 and php_minor < 1)
+
+    if openssl_version_at_least(4, 1) and not php_supports_openssl_41(release.version) then
+        error(
+            "\n\nFailed to prepare PHP installation.\n\n" ..
+            "Requested PHP version: \27[93m" .. release.version .. "\27[0m\n\n" ..
+            "💡 Tip: \27[93mPHP versions before 8.5.13 (and 8.4.x before 8.4.28) are not compatible with OpenSSL 4.1 or newer on this system.\27[0m\n\n" ..
+            "OpenSSL 4.1 made ASN1_STRING opaque; this PHP version reads its fields directly in ext/openssl and fails to compile.\n\n" ..
+            "Recommended: use PHP 8.5.13 or newer, PHP 8.4.28 or newer in the 8.4 line, or build this PHP version against OpenSSL 3.x instead.\n"
+        )
+    end
 
     if (openssl_too_new == true or openssl_too_new == 0) and php_too_old then
        error(

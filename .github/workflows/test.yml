@@ -218,6 +218,9 @@ jobs:
         env:
           DISTRO_IMAGE: ${{ matrix.target.image }}
           PHP_VERBOSE: '1'
+          # Rolling distros ship OpenSSL 4.1, which needs PHP 8.5.13+; older PHP
+          # versions stay on pre-4.1 distros to keep both lines covered.
+          PHP_TEST_VERSION: ${{ matrix.target.php_version || inputs.php_version || '8.5.5' }}
         run: bash .github/scripts/ci-install-source-container.sh
   ubuntu-install-static:
     name: Install static prebuilt - Ubuntu
@@ -460,6 +463,7 @@ jobs:
             kind: container
             runner: ubuntu-latest
             image: fedora:latest
+            php_version: '8.5.13'
           - label: Linux / CentOS Stream 9
             kind: container
             runner: ubuntu-latest
@@ -512,6 +516,7 @@ jobs:
             kind: container
             runner: ubuntu-latest
             image: archlinux:base-devel
+            php_version: '8.5.13'
           - label: Linux / Alpine latest
             kind: container
             runner: ubuntu-latest

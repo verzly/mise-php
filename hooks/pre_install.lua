@@ -47,8 +47,6 @@ function PLUGIN:PreInstall(ctx)
         return get_release_for_windows(release)
     end
 
-    version_check_before_dependencies(release)
-
     print(
         "\27[96mNote:\27[0m " ..
         "PHP will be compiled from source for your system. " ..
@@ -67,19 +65,28 @@ function PLUGIN:PreInstall(ctx)
     return get_release_for_linux(release)
 end
 
-function version_check_before_dependencies(release)
-    openssl_check_for_linux(release)  --- PHP < 8.1 with OpenSSL 3 (BAD)
-end
-
 function version_check_after_dependencies(release)
+    openssl_check_for_linux(release)  --- OpenSSL version actually used by the build
     mcrypt_check_for_linux(release)   --- PHP < 7.2 requires libmcrypt
 end
 
 function openssl_check_for_linux(release)
-    local openssl_ok, _, _, openssl_output = tools.execute_cmd("openssl version", " 2>/dev/null")
-    local openssl_version = openssl_ok and openssl_output and openssl_output:match("(%d+%.%d+%.?%d*)") or nil
+    -- The build links the OpenSSL reported by pkg-config. The CLI can differ or
+    -- be missing before dependencies are installed, so prefer pkg-config output.
+    local openssl_version
+    local pkg_ok, _, _, pkg_output = tools.execute_cmd("pkg-config --modversion openssl", " 2>/dev/null")
+    if pkg_ok and pkg_output then
+        openssl_version = pkg_output:match("(%d+%.%d+%.?%d*)")
+    end
+    if openssl_version == nil then
+        local cli_ok, _, _, cli_output = tools.execute_cmd("openssl version", " 2>/dev/null")
+        openssl_version = cli_ok and cli_output and cli_output:match("(%d+%.%d+%.?%d*)") or nil
+    end
+
     local openssl_too_new = openssl_version ~= nil and php_versions.at_least(openssl_version, 1, 2)
-    local openssl_4_1 = openssl_version ~= nil and php_versions.at_least(openssl_version, 4, 1)
+    -- macOS builds link Homebrew openssl@3, so a newer system/Homebrew CLI is unused.
+    local openssl_4_1 = RUNTIME.osType ~= "darwin" and openssl_version ~= nil and
+        php_versions.at_least(openssl_version, 4, 1)
 
     local php_major, php_minor = string.match(release.version, "^(%d+)%.(%d+)")
     php_major = tonumber(php_major) or 0

@@ -847,9 +847,9 @@ Workaround for PHP 7.4.x / 8.0.x:
 > [!WARNING]
 > Full compatibility is not guaranteed. This is a best-effort workaround only.
 
-### PHP < 8.5.13 with OpenSSL 4.1 (Linux and macOS only)
+### PHP < 8.5.13 with OpenSSL 4.1 (Linux only)
 
-OpenSSL 4.1 makes `ASN1_STRING` an opaque type. PHP versions before 8.5.13 (and 8.4.x before 8.4.28) read its fields directly in `ext/openssl` and fail to compile. The plugin stops before the build and reports the incompatible combination instead of a `make` failure.
+OpenSSL 4.1 makes `ASN1_STRING` an opaque type. PHP versions before 8.5.13 (and 8.4.x before 8.4.28) read its fields directly in `ext/openssl` and fail to compile. The plugin checks the OpenSSL version reported by `pkg-config` after installing dependencies, then stops before the build and reports the incompatible combination instead of a `make` failure. macOS builds link Homebrew `openssl@3`, so a newer OpenSSL CLI on `PATH` does not block them.
 
 Upstream fix: [php/php-src#25139](https://github.com/php/php-src/pull/25139) for PHP 8.5 and [php/php-src#25140](https://github.com/php/php-src/pull/25140) for PHP 8.4.
 

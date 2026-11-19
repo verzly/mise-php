@@ -851,6 +851,8 @@ Workaround for PHP 7.4.x / 8.0.x:
 
 OpenSSL 4.1 makes `ASN1_STRING` an opaque type. PHP versions before 8.5.13 (and 8.4.x before 8.4.28) read its fields directly in `ext/openssl` and fail to compile. The plugin stops before the build and reports the incompatible combination instead of a `make` failure.
 
+Upstream fix: [php/php-src#25139](https://github.com/php/php-src/pull/25139) for PHP 8.5 and [php/php-src#25140](https://github.com/php/php-src/pull/25140) for PHP 8.4.
+
 > [!TIP]
 > Use PHP 8.5.13 or newer, or PHP 8.4.28 or newer in the 8.4 line, or build the PHP version against OpenSSL 3.x instead. Prebuilt static PHP is unaffected.
 

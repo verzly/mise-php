@@ -2,7 +2,6 @@ local env = require("lib/env")
 local logs = require("lib/logs")
 local static_php = require("lib/static_php")
 local php_versions = require("lib/php_versions")
-local openssl = require("lib/openssl")
 local process = require("lib/process")
 local tools = require("lib/tools")
 
@@ -77,15 +76,26 @@ function version_check_after_dependencies(release)
 end
 
 function openssl_check_for_linux(release)
-    local openssl_too_new = openssl.at_least(1, 2)
+    local openssl_ok, _, _, openssl_output = tools.execute_cmd("openssl version", " 2>/dev/null")
+    local openssl_version = openssl_ok and openssl_output and openssl_output:match("(%d+%.%d+%.?%d*)") or nil
+    local openssl_too_new = openssl_version ~= nil and php_versions.at_least(openssl_version, 1, 2)
+    local openssl_4_1 = openssl_version ~= nil and php_versions.at_least(openssl_version, 4, 1)
 
     local php_major, php_minor = string.match(release.version, "^(%d+)%.(%d+)")
     php_major = tonumber(php_major) or 0
     php_minor = tonumber(php_minor) or 0
 
     local php_too_old = (php_major < 8) or (php_major == 8 and php_minor < 1)
+    local php_supports_openssl_4_1 = false
+    if php_major > 8 or (php_major == 8 and php_minor > 5) then
+        php_supports_openssl_4_1 = true
+    elseif php_major == 8 and php_minor == 5 then
+        php_supports_openssl_4_1 = not php_versions.greater_than("8.5.13", release.version)
+    elseif php_major == 8 and php_minor == 4 then
+        php_supports_openssl_4_1 = not php_versions.greater_than("8.4.28", release.version)
+    end
 
-    if openssl.at_least(4, 1) and not openssl.php_supports_4_1(release.version) then
+    if openssl_4_1 and not php_supports_openssl_4_1 then
         error(
             "\n\nFailed to prepare PHP installation.\n\n" ..
             "Requested PHP version: \27[93m" .. release.version .. "\27[0m\n\n" ..

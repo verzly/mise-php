@@ -47,8 +47,6 @@ function PLUGIN:PreInstall(ctx)
         return get_release_for_windows(release)
     end
 
-    version_check_before_dependencies(release)
-
     print(
         "\27[96mNote:\27[0m " ..
         "PHP will be compiled from source for your system. " ..
@@ -67,39 +65,45 @@ function PLUGIN:PreInstall(ctx)
     return get_release_for_linux(release)
 end
 
-function version_check_before_dependencies(release)
-    openssl_check_for_linux(release)  --- PHP < 8.1 with OpenSSL 3 (BAD)
-end
-
 function version_check_after_dependencies(release)
+    openssl_check_for_linux(release)  --- OpenSSL version actually used by the build
     mcrypt_check_for_linux(release)   --- PHP < 7.2 requires libmcrypt
 end
 
 function openssl_check_for_linux(release)
-    local openssl_too_new = os.execute([[
-        sh -c '
-            v="$(openssl version 2>/dev/null | awk "{print \$2}")"
-            major="${v%%.*}"
-            rest="${v#*.}"
-            minor="${rest%%.*}"
+    -- The build links the OpenSSL reported by pkg-config. The CLI can differ or
+    -- be missing before dependencies are installed, so prefer pkg-config output.
+    local openssl_version
+    local pkg_ok, _, _, pkg_output = tools.execute_cmd("pkg-config --modversion openssl", " 2>/dev/null")
+    if pkg_ok and pkg_output then
+        openssl_version = pkg_output:match("(%d+%.%d+%.?%d*)")
+    end
+    if openssl_version == nil then
+        local cli_ok, _, _, cli_output = tools.execute_cmd("openssl version", " 2>/dev/null")
+        openssl_version = cli_ok and cli_output and cli_output:match("(%d+%.%d+%.?%d*)") or nil
+    end
 
-            if [ -n "$major" ] && [ -n "$minor" ]; then
-                if [ "$major" -gt 1 ] || { [ "$major" -eq 1 ] && [ "$minor" -gt 1 ]; }; then
-                    exit 0
-                fi
-            fi
+    local openssl_too_new = openssl_version ~= nil and php_versions.at_least(openssl_version, 1, 2)
+    -- macOS builds link Homebrew openssl@3, so a newer system/Homebrew CLI is unused.
+    local openssl_4_x = RUNTIME.osType ~= "darwin" and openssl_version ~= nil and
+        php_versions.at_least(openssl_version, 4, 0)
 
-            exit 1
-        '
-    ]])
+    local php_too_old = not php_versions.at_least(release.version, 8, 1)
+    local php_supports_openssl_4_1 = php_versions.at_least(release.version, 8, 6)
+        or php_versions.in_line_at_least(release.version, "8.5.13")
+        or php_versions.in_line_at_least(release.version, "8.4.28")
 
-    local php_major, php_minor = string.match(release.version, "^(%d+)%.(%d+)")
-    php_major = tonumber(php_major) or 0
-    php_minor = tonumber(php_minor) or 0
+    if openssl_4_x and not php_supports_openssl_4_1 then
+        error(
+            "\n\nFailed to prepare PHP installation.\n\n" ..
+            "Requested PHP version: \27[93m" .. release.version .. "\27[0m\n\n" ..
+            "💡 Tip: \27[93mPHP versions before 8.5.13 (and 8.4.x before 8.4.28) are not compatible with OpenSSL 4.0 or newer on this system.\27[0m\n\n" ..
+            "OpenSSL 4.0 made ASN1_STRING opaque; this PHP version reads its fields directly in ext/openssl and fails to compile.\n\n" ..
+            "Recommended: use PHP 8.5.13 or newer, PHP 8.4.28 or newer in the 8.4 line, or build this PHP version against OpenSSL 3.x instead.\n"
+        )
+    end
 
-    local php_too_old = (php_major < 8) or (php_major == 8 and php_minor < 1)
-
-    if (openssl_too_new == true or openssl_too_new == 0) and php_too_old then
+    if openssl_too_new and php_too_old then
        error(
           "\n\nFailed to prepare PHP installation.\n\n" ..
           "Requested PHP version: \27[93m" .. release.version .. "\27[0m\n\n" ..
@@ -116,12 +120,7 @@ function openssl_check_for_linux(release)
 end
 
 function mcrypt_check_for_linux(release)
-    local php_major, php_minor = string.match(release.version, "^(%d+)%.(%d+)")
-    php_major = tonumber(php_major) or 0
-    php_minor = tonumber(php_minor) or 0
-
-    local needs_mcrypt = (php_major < 7) or (php_major == 7 and php_minor < 2)
-    if not needs_mcrypt then
+    if php_versions.at_least(release.version, 7, 2) then
         return
     end
 

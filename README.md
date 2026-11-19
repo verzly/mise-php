@@ -847,6 +847,15 @@ Workaround for PHP 7.4.x / 8.0.x:
 > [!WARNING]
 > Full compatibility is not guaranteed. This is a best-effort workaround only.
 
+### PHP < 8.5.13 with OpenSSL 4.x (Linux only)
+
+OpenSSL 4.0 made `ASN1_STRING` an opaque type, and 4.1 removed further APIs that PHP used. PHP versions before 8.5.13 (and 8.4.x before 8.4.28) read those fields directly in `ext/openssl` and fail to compile. The plugin checks the OpenSSL version reported by `pkg-config` after installing dependencies, then stops before the build and reports the incompatible combination instead of a `make` failure. macOS builds link Homebrew `openssl@3`, so a newer OpenSSL CLI on `PATH` does not block them.
+
+Upstream fix: php-src commits [4f2f489](https://github.com/php/php-src/commit/4f2f4892061ec9d475cba3bfb31ce21c4b337ec5) for PHP 8.5.13 and [fd99679](https://github.com/php/php-src/commit/fd996798308e5bfb8ed0b7a115924038f76b7687) for PHP 8.4.28.
+
+> [!TIP]
+> Use PHP 8.5.13 or newer, or PHP 8.4.28 or newer in the 8.4 line, or build the PHP version against OpenSSL 3.x instead. Prebuilt static PHP is unaffected.
+
 ### PHP < 7.2 requires libmcrypt (Linux and macOS only)
 
 PHP versions below 7.2 depend on `libmcrypt`, which is not installed automatically. Install it manually before running `mise install`:

@@ -128,6 +128,19 @@ function versions.at_least(version, major, minor)
     return current_major == major and current_minor >= minor
 end
 
+-- True when version is at least minimum and still on the same major.minor line.
+function versions.in_line_at_least(version, minimum)
+    local major, minor = tostring(minimum):match("^(%d+)%.(%d+)")
+    if major == nil then
+        return false
+    end
+
+    local current_major, current_minor = tostring(version):match("^(%d+)%.(%d+)")
+
+    return current_major == major and current_minor == minor and
+        not versions.greater_than(minimum, version)
+end
+
 function versions.is_alias(version)
     return ALIASES[lower(version)] == true
 end
